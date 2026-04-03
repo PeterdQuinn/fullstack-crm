@@ -173,21 +173,21 @@ export default function CRMDashboard() {
         .select("*")
         .eq("lead_id", selectedId)
         .order("called_at", { ascending: false })
-        .then(({ data }) => setCallLogs(data || []));
+        .then(({ data }: any) => setCallLogs(data || []));
 
       supabase
         .from("lead_notes")
         .select("*")
         .eq("lead_id", selectedId)
         .order("created_at", { ascending: false })
-        .then(({ data }) => setNotes(data || []));
+        .then(({ data }: any) => setNotes(data || []));
 
       supabase
         .from("appointments")
         .select("*")
         .eq("lead_id", selectedId)
         .order("created_at", { ascending: false })
-        .then(({ data }) => setAppointments(data || []));
+        .then(({ data }: any) => setAppointments(data || []));
     } else {
       setCallLogs((prev) => prev.filter((c) => c.lead_id === selectedId));
       setNotes((prev) => prev.filter((n) => n.lead_id === selectedId));
