@@ -53,6 +53,7 @@ export default function CRMDashboard() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [nicheFilter, setNicheFilter] = useState<string>("all");
   const [showImport, setShowImport] = useState(false);
+  const [showAddLead, setShowAddLead] = useState(false);
   const [showScript, setShowScript] = useState(true);
   const [showPositioning, setShowPositioning] = useState(true);
   const [showTieDowns, setShowTieDowns] = useState(true);
@@ -164,12 +165,19 @@ export default function CRMDashboard() {
   }
 
   async function importLeads(imported: Partial<Lead>[]) {
-    const newLeads = imported.map((l) => ({ id: uid(), business_name: l.business_name || "Unknown", owner_name: l.owner_name || "", phone: l.phone || "", email: l.email || "", website: l.website || "", address: l.address || "", city: l.city || "", niche: l.niche || "Landscaping", current_software: l.current_software || "", status: "New" as LeadStatus, meeting_booked: false, created_at: now(), updated_at: now() })) as Lead[];
+    const newLeads = imported.map((l) => ({ id: uid(), business_name: l.business_name || "Unknown", owner_name: l.owner_name || "", phone: l.phone || "", email: l.email || "", website: l.website || "", address: l.address || "", city: l.city || "", state: l.state || "", postal_code: l.postal_code || "", niche: l.niche || l.industry || "General", industry: l.industry || "", employees: l.employees || "", annual_revenue: l.annual_revenue || "", founded_year: l.founded_year || "", short_description: l.short_description || "", technologies: l.technologies || "", keywords: l.keywords || "", linkedin_url: l.linkedin_url || "", facebook_url: l.facebook_url || "", twitter_url: l.twitter_url || "", apollo_account_id: l.apollo_account_id || "", current_software: l.current_software || "", status: "New" as LeadStatus, meeting_booked: false, created_at: now(), updated_at: now() })) as Lead[];
     const existing = new Set(leads.map(dedupKey));
     const unique = newLeads.filter((l) => !existing.has(dedupKey(l)));
     setLeads((prev) => [...unique, ...prev]);
     if (dbMode === "supabase" && unique.length > 0) { await supabase.from("leads").insert(unique); }
     return unique.length;
+  }
+
+  async function addSingleLead(data: Partial<Lead>) {
+    const lead: Lead = { id: uid(), business_name: data.business_name || "Unknown", owner_name: data.owner_name || "", phone: data.phone || "", email: data.email || "", website: data.website || "", address: data.address || "", city: data.city || "", state: data.state || "", postal_code: data.postal_code || "", niche: data.niche || "General", industry: data.industry || "", employees: data.employees || "", annual_revenue: data.annual_revenue || "", founded_year: data.founded_year || "", short_description: data.short_description || "", technologies: data.technologies || "", keywords: data.keywords || "", linkedin_url: data.linkedin_url || "", facebook_url: data.facebook_url || "", twitter_url: data.twitter_url || "", apollo_account_id: "", current_software: data.current_software || "", monthly_spend_estimate: data.monthly_spend_estimate || "", status: "New", meeting_booked: false, created_at: now(), updated_at: now() };
+    setLeads((prev) => [lead, ...prev]);
+    if (dbMode === "supabase") { await supabase.from("leads").insert(lead); }
+    setSelectedId(lead.id);
   }
 
   const filtered = useMemo(() => leads.filter((l) => { const s = search === "" || l.business_name.toLowerCase().includes(search.toLowerCase()) || l.owner_name?.toLowerCase().includes(search.toLowerCase()) || l.phone?.includes(search) || l.city?.toLowerCase().includes(search.toLowerCase()); return s && (statusFilter === "all" || l.status === statusFilter) && (nicheFilter === "all" || l.niche === nicheFilter); }), [leads, search, statusFilter, nicheFilter]);
@@ -187,7 +195,8 @@ export default function CRMDashboard() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={deduplicateLeads} className="px-3 py-1.5 bg-yellow-500 text-white text-sm font-medium rounded-lg hover:bg-yellow-600 transition-colors">Remove Duplicates</button>
-          <button onClick={() => setShowImport(true)} className="px-3 py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import Leads</button>
+          <button onClick={() => setShowAddLead(true)} className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">+ Add Lead</button>
+          <button onClick={() => setShowImport(true)} className="px-3 py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import CSV</button>
         </div>
       </header>
 
@@ -206,6 +215,7 @@ export default function CRMDashboard() {
         </div>
       </div>
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImport={importLeads} />}
+      {showAddLead && <AddLeadModal onClose={() => setShowAddLead(false)} onAdd={addSingleLead} />}
     </div>
   );
 }
@@ -262,10 +272,11 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
             <button onClick={() => deleteLead(lead.id)} className="text-xs px-2 py-1 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors font-medium">Delete</button>
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
           {lead.phone && lead.phone !== "N/A" && <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">📞 Call</a>}
           {lead.phone && lead.phone !== "N/A" && <a href={`https://voice.google.com/u/0/messages?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">💬 Text</a>}
           {lead.website && lead.website !== "N/A" && <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors">🌐 Website</a>}
+          {lead.linkedin_url && <a href={lead.linkedin_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">in LinkedIn</a>}
         </div>
       </div>
       <div className="border-b px-4 overflow-x-auto flex-shrink-0"><div className="flex min-w-max">{(["details","calls","notes","meeting"] as const).map((t) => (<button key={t} onClick={() => setTab(t)} className={`px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-700"}`}>{t === "details" ? "Details" : t === "calls" ? "Call Log" : t === "notes" ? "Notes" : "Meeting"}</button>))}</div></div>
@@ -283,10 +294,23 @@ function DetailsTab({ lead, updateLead, showScript, setShowScript, showPositioni
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {[{ label: "Phone", value: lead.phone },{ label: "Email", value: lead.email },{ label: "Address", value: lead.address },{ label: "City", value: lead.city },{ label: "Niche", value: lead.niche },{ label: "Current Software", value: lead.current_software, editable: true, field: "current_software" },{ label: "Monthly Spend", value: lead.monthly_spend_estimate, editable: true, field: "monthly_spend_estimate" },{ label: "Last Called", value: fmt(lead.last_called_at) }].map((item: any) => (
+        {[{ label: "Phone", value: lead.phone },{ label: "Email", value: lead.email },{ label: "Address", value: lead.address },{ label: "City", value: lead.city },{ label: "State", value: lead.state },{ label: "Zip", value: lead.postal_code },{ label: "Niche / Industry", value: lead.industry || lead.niche },{ label: "Current Software", value: lead.current_software, editable: true, field: "current_software" },{ label: "Monthly Spend", value: lead.monthly_spend_estimate, editable: true, field: "monthly_spend_estimate" },{ label: "Last Called", value: fmt(lead.last_called_at) }].map((item: any) => (
           <div key={item.label} className="min-w-0"><label className="text-xs text-gray-400 uppercase tracking-wide">{item.label}</label>{item.editable ? <input type="text" defaultValue={item.value || ""} onBlur={(e: any) => updateLead(lead.id, { [item.field]: e.target.value })} className="block w-full text-sm text-gray-900 border-b border-gray-200 py-1 focus:outline-none focus:border-brand bg-transparent" placeholder="Enter..." /> : <div className="text-sm text-gray-900 py-1 break-words">{item.value || "—"}</div>}</div>
         ))}
       </div>
+      {(lead.short_description || lead.employees || lead.annual_revenue || lead.founded_year || lead.technologies) && (
+        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
+          <div className="font-semibold text-sm text-slate-800">Company Profile</div>
+          {lead.short_description && <p className="text-sm text-slate-700 leading-relaxed">{lead.short_description}</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {lead.employees && <div><div className="text-xs text-gray-400 uppercase tracking-wide">Employees</div><div className="text-sm text-gray-900">{lead.employees}</div></div>}
+            {lead.annual_revenue && <div><div className="text-xs text-gray-400 uppercase tracking-wide">Annual Revenue</div><div className="text-sm text-gray-900">{lead.annual_revenue}</div></div>}
+            {lead.founded_year && <div><div className="text-xs text-gray-400 uppercase tracking-wide">Founded</div><div className="text-sm text-gray-900">{lead.founded_year}</div></div>}
+          </div>
+          {lead.technologies && <div><div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Technologies</div><div className="flex flex-wrap gap-1">{lead.technologies.split(",").slice(0,12).map((t: string) => <span key={t} className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">{t.trim()}</span>)}</div></div>}
+          {(lead.facebook_url || lead.twitter_url) && <div className="flex gap-3">{lead.facebook_url && <a href={lead.facebook_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">Facebook</a>}{lead.twitter_url && <a href={lead.twitter_url} target="_blank" rel="noreferrer" className="text-xs text-sky-600 hover:underline">Twitter / X</a>}</div>}
+        </div>
+      )}
       <div><label className="text-xs text-gray-400 uppercase tracking-wide">Next Follow-Up</label><input type="date" value={lead.next_follow_up_at ? lead.next_follow_up_at.split("T")[0] : ""} onChange={(e: any) => updateLead(lead.id, { next_follow_up_at: e.target.value ? `${e.target.value}T09:00:00` : undefined })} className="block w-full text-sm border rounded-lg px-3 py-2 mt-1 focus:outline-none focus:ring-2 focus:ring-brand/30" /></div>
 
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4"><button onClick={() => setShowScript(!showScript)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-amber-900 text-sm">📋 Call Script</span><span className="text-amber-600 text-xs flex-shrink-0">{showScript ? "Hide" : "Show"}</span></button>{showScript && <div className="mt-3 space-y-2">{GUIDED_QUESTIONS.map((q: string, i: number) => <div key={i} className="flex gap-2 text-sm"><span className="text-amber-600 font-bold flex-shrink-0">{i+1}.</span><span className="text-amber-900">{q}</span></div>)}</div>}</div>
@@ -357,6 +381,67 @@ function MeetingTab({ lead, appointments, bookMeeting }: any) {
   );
 }
 
+function AddLeadModal({ onClose, onAdd }: { onClose: () => void; onAdd: (data: Partial<Lead>) => Promise<void>; }) {
+  const [form, setForm] = useState<Partial<Lead>>({ niche: "General" });
+  const set = (k: keyof Lead, v: string) => setForm((prev) => ({ ...prev, [k]: v }));
+  async function handleSave() {
+    if (!form.business_name?.trim()) return;
+    await onAdd(form);
+    onClose();
+  }
+  const field = (label: string, key: keyof Lead, placeholder?: string, type = "text") => (
+    <div key={key}>
+      <label className="text-xs text-gray-500 uppercase tracking-wide">{label}</label>
+      <input type={type} value={(form[key] as string) || ""} onChange={(e) => set(key, e.target.value)} placeholder={placeholder} className="block w-full border rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-brand/30" />
+    </div>
+  );
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-2 p-4 sm:p-6 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold">Add Lead</h3><button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
+        <div className="space-y-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 border-b pb-1">Basic Info</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {field("Business Name *", "business_name", "Acme Landscaping")}
+            {field("Owner Name", "owner_name", "John Smith")}
+            {field("Phone", "phone", "+1 480-555-0100")}
+            {field("Email", "email", "owner@example.com")}
+            {field("Website", "website", "https://example.com")}
+            {field("Industry / Niche", "niche", "Landscaping")}
+          </div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 border-b pb-1">Location</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {field("Address", "address", "123 Main St")}
+            {field("City", "city", "Mesa")}
+            {field("State", "state", "AZ")}
+          </div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 border-b pb-1">Company Details</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {field("Employees", "employees", "10")}
+            {field("Annual Revenue", "annual_revenue", "$500k")}
+            {field("Founded Year", "founded_year", "2015")}
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wide">Short Description</label>
+            <textarea value={form.short_description || ""} onChange={(e) => set("short_description", e.target.value)} rows={2} placeholder="Brief company description..." className="block w-full border rounded-lg px-3 py-2 text-sm mt-1 resize-none focus:outline-none focus:ring-2 focus:ring-brand/30" />
+          </div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 border-b pb-1">Social / Sales Intel</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {field("LinkedIn URL", "linkedin_url", "https://linkedin.com/company/...")}
+            {field("Current Software", "current_software", "Jobber, HCP...")}
+            {field("Monthly Spend Estimate", "monthly_spend_estimate", "$200/mo")}
+            {field("Technologies", "technologies", "WordPress, Slack...")}
+          </div>
+        </div>
+        <div className="mt-6 flex gap-3">
+          <button onClick={onClose} className="flex-1 py-2.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSave} disabled={!form.business_name?.trim()} className="flex-1 py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Add Lead</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (leads: Partial<Lead>[]) => Promise<number>; }) {
   const [csvText, setCsvText] = useState("");
   const [result, setResult] = useState<string | null>(null);
@@ -367,7 +452,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (le
     try {
       const Papa = (await import("papaparse")).default;
       const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-      const leads = parsed.data.map((row: any) => ({ business_name: row.business_name || row["Business Name"] || row.Company || "", owner_name: row.owner_name || row["Owner Name"] || row.Owner || "", phone: row.phone || row.Phone || "", email: row.email || row.Email || "", website: row.website || row.Website || "", address: row.address || row.Address || "", city: row.city || row.City || "", niche: row.niche || row.Niche || "Landscaping", current_software: row.current_software || row["Current Software"] || "", notes: row.notes || row.Notes || "" })).filter((l: any) => l.business_name);
+      const leads = parsed.data.map((row: any) => ({ business_name: row["Company Name"] || row.business_name || row["Business Name"] || row.Company || "", owner_name: row.owner_name || row["Owner Name"] || row.Owner || "", phone: (row["Company Phone"] || row.phone || row.Phone || "").replace(/^'+/, ""), email: row.email || row.Email || "", website: row.Website || row.website || "", address: row["Company Address"] || row.address || row.Address || "", city: row["Company City"] || row.city || row.City || "", state: row["Company State"] || row.state || "", postal_code: row["Company Postal Code"] || row.postal_code || "", niche: row.Industry || row.industry || row.niche || row.Niche || "General", industry: row.Industry || row.industry || "", employees: row["# Employees"] || row.employees || "", annual_revenue: row["Annual Revenue"] || row.annual_revenue || "", founded_year: row["Founded Year"] || row.founded_year || "", short_description: row["Short Description"] || row.short_description || "", technologies: row.Technologies || row.technologies || "", keywords: row.Keywords || row.keywords || "", linkedin_url: row["Company Linkedin Url"] || row.linkedin_url || "", facebook_url: row["Facebook Url"] || row.facebook_url || "", twitter_url: row["Twitter Url"] || row.twitter_url || "", apollo_account_id: row["Apollo Account Id"] || row.apollo_account_id || "", current_software: row.current_software || row["Current Software"] || "" })).filter((l: any) => l.business_name);
       const count = await onImport(leads);
       setResult(`Imported ${count} new leads (${leads.length - count} duplicates skipped)`);
     } catch { setResult("Error parsing file."); }
@@ -376,7 +461,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (le
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-2 p-4 sm:p-6 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold">Import Leads</h3><button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
-        <p className="text-sm text-gray-500 mb-4">Upload CSV with: business_name, owner_name, phone, website, address, city, niche</p>
+        <p className="text-sm text-gray-500 mb-4">Upload Apollo CSV export or any CSV with columns: Company Name, Company Phone, Website, Industry, Company City, etc. All Apollo fields are supported.</p>
         <div className="space-y-3">
           <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFile} title="Upload CSV file" placeholder="Choose a file" className="block w-full text-sm border rounded-lg px-3 py-2" />
           <textarea value={csvText} onChange={(e) => setCsvText(e.target.value)} rows={6} placeholder="business_name,owner_name,phone..." className="block w-full border rounded-lg px-3 py-2 text-sm font-mono resize-none" />
