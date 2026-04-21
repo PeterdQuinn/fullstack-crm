@@ -251,14 +251,14 @@ function LeadListPanel({ leads, selectedId, setSelectedId, setTab, search, setSe
   );
 }
 
-function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, showScript, setShowScript, showPositioning, setShowPositioning, showTieDowns, setShowTieDowns, showObjections, setShowObjections, updateLead, addCallLog, addNote, bookMeeting, deleteLead, onBack, mobile = false }: any) {
+function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, showScript, setShowScript, showPositioning, setShowPositioning, showTieDowns, setShowTieDowns, showObjections, setShowObjections, updateLead, addCallLog, addNote, bookMeeting, deleteLead, onBack, mobile = false }: { lead: Lead; [key: string]: any }) {
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="p-4 border-b flex-shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">{mobile && onBack && <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-brand font-medium">← Back</button>}<h2 className="text-lg font-bold text-gray-900 break-words">{lead.business_name}</h2><p className="text-sm text-gray-500">{lead.owner_name || "No owner"}</p></div>
           <div className="flex items-center gap-2">
-            <select value={lead.status} onChange={(e: any) => updateLead(lead.id, { status: e.target.value })} className={`text-xs px-2 py-1 rounded-full font-medium border-0 max-w-[140px] ${STATUS_COLORS[lead.status]}`}>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+            <select value={lead.status} onChange={(e) => updateLead(lead.id, { status: e.target.value as LeadStatus })} className={`text-xs px-2 py-1 rounded-full font-medium border-0 max-w-[140px] ${STATUS_COLORS[lead.status]}`}>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
             <button onClick={() => deleteLead(lead.id)} className="text-xs px-2 py-1 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors font-medium">Delete</button>
           </div>
         </div>
