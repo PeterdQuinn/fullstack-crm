@@ -33,16 +33,19 @@ function findPhone(html: string): string | null {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
 }
 
+const NAME_RE = /^[A-Z][a-zA-Z'-]{1,20}(?: [A-Z][a-zA-Z'-]{1,20}){1,2}$/;
+const OWNER_TITLES = /\b(owner|co-owner|founder|co-founder|president|ceo|chief executive|principal|proprietor)\b/i;
+const SKIP_WORDS = /^(About|Meet|Our|The|Contact|Home|Team|Staff|Leadership|Services|Company|Welcome|Mission|Vision|Values|History)$/i;
+
 function findOwner(html: string): string | null {
-  // 1. JSON-LD schema — most reliable when present
+  // 1. JSON-LD schema — most reliable
   const jsonLdBlocks = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
   for (const block of jsonLdBlocks) {
     try {
       const json = JSON.parse(block.replace(/<script[^>]*>|<\/script>/gi, ""));
       const entries = Array.isArray(json) ? json : [json];
       for (const entry of entries) {
-        // founder / employee with ownership role
-        for (const field of ["founder", "employee", "member", "personnel"]) {
+        for (const field of ["founder", "employee", "member"]) {
           const val = entry[field];
           if (val) {
             const people = Array.isArray(val) ? val : [val];
@@ -51,15 +54,36 @@ function findOwner(html: string): string | null {
             }
           }
         }
-        // direct name on Person schema
         if (entry["@type"] === "Person" && entry.name) return entry.name;
       }
     } catch {}
   }
 
-  // 2. Meta tags (some sites put owner/author there)
+  // 2. Meta author tag
   const metaAuthor = html.match(/<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["']/i);
   if (metaAuthor?.[1]) return metaAuthor[1];
+
+  // 3. Scan h1/h2/h3 headings in sequence — "Name" heading followed by title heading
+  const headings: string[] = [];
+  const hRe = /<h[123][^>]*>([\s\S]*?)<\/h[123]>/gi;
+  let m;
+  while ((m = hRe.exec(html)) !== null) {
+    const text = m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    if (text) headings.push(text);
+  }
+
+  for (let i = 0; i < headings.length; i++) {
+    const h = headings[i];
+    const next = headings[i + 1] || "";
+    // Name heading before a title heading
+    if (NAME_RE.test(h) && !SKIP_WORDS.test(h.split(" ")[0]) && OWNER_TITLES.test(next)) {
+      return h;
+    }
+    // Title heading before a name heading
+    if (OWNER_TITLES.test(h) && NAME_RE.test(next) && !SKIP_WORDS.test(next.split(" ")[0])) {
+      return next;
+    }
+  }
 
   return null;
 }
