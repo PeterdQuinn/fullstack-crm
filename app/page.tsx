@@ -262,6 +262,28 @@ function LeadListPanel({ leads, selectedId, setSelectedId, setTab, search, setSe
 }
 
 function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, showScript, setShowScript, showPositioning, setShowPositioning, showTieDowns, setShowTieDowns, showObjections, setShowObjections, updateLead, addCallLog, addNote, bookMeeting, deleteLead, onBack, mobile = false }: { lead: Lead; [key: string]: any }) {
+  const [scraping, setScraping] = useState(false);
+  const [scrapeMsg, setScrapeMsg] = useState<string | null>(null);
+
+  async function findPhone() {
+    if (!lead.website) { setScrapeMsg("No website on this lead"); setTimeout(() => setScrapeMsg(null), 3000); return; }
+    setScraping(true); setScrapeMsg(null);
+    try {
+      const res = await fetch("/api/scrape-phone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ website: lead.website }) });
+      const data = await res.json();
+      if (data.phone || data.owner) {
+        const updates: any = {};
+        if (data.phone) updates.phone = data.phone;
+        if (data.owner && !lead.owner_name) updates.owner_name = data.owner;
+        updateLead(lead.id, updates);
+        const parts = [data.phone && `Phone: ${data.phone}`, data.owner && `Owner: ${data.owner}`].filter(Boolean);
+        setScrapeMsg(`Found — ${parts.join(" · ")}`);
+      } else { setScrapeMsg("Nothing found on site"); }
+    } catch { setScrapeMsg("Scrape failed"); }
+    setScraping(false);
+    setTimeout(() => setScrapeMsg(null), 4000);
+  }
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="p-4 border-b flex-shrink-0">
@@ -277,6 +299,10 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
           {lead.phone && lead.phone !== "N/A" && <a href={`https://voice.google.com/u/0/messages?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">💬 Text</a>}
           {lead.website && lead.website !== "N/A" && <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors">🌐 Website</a>}
           {lead.linkedin_url && <a href={lead.linkedin_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">in LinkedIn</a>}
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <button onClick={findPhone} disabled={scraping} className="px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors">{scraping ? "Scanning..." : "🔍 Find Phone"}</button>
+          {scrapeMsg && <span className={`text-xs font-medium ${scrapeMsg.startsWith("Found") ? "text-green-600" : "text-red-500"}`}>{scrapeMsg}</span>}
         </div>
       </div>
       <div className="border-b px-4 overflow-x-auto flex-shrink-0"><div className="flex min-w-max">{(["details","calls","notes","meeting"] as const).map((t) => (<button key={t} onClick={() => setTab(t)} className={`px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-700"}`}>{t === "details" ? "Details" : t === "calls" ? "Call Log" : t === "notes" ? "Notes" : "Meeting"}</button>))}</div></div>
