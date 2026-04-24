@@ -407,7 +407,11 @@ async function searchDirectories(name: string, city: string): Promise<PageData> 
 // ── handler ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const { website, business_name, city } = await req.json();
+  const raw = await req.json();
+  const business_name: string = raw.business_name || "";
+  const city: string = raw.city || "";
+  // Treat "N/A", empty, or missing as no website
+  const website: string = (raw.website && raw.website !== "N/A" && raw.website.trim() !== "") ? raw.website.trim() : "";
 
   // No website — search directories by name
   if (!website) {
@@ -460,7 +464,30 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.error("[scrape] Phase2 failed:", e); }
   }
 
-  // Phase 3 — Google cache (handles Cloudflare-blocked sites)
+  // Phase 3 — Playwright (local only — Vercel has no Chromium)
+  const isVercel = !!process.env.VERCEL;
+  if (!isComplete(data) && !isVercel) {
+    try {
+      const { chromium } = await import("playwright");
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const ctx = await browser.newContext({ locale: "en-US" });
+        const targets = [url, `${base.origin}/contact`, `${base.origin}/about`];
+        for (const target of targets) {
+          if (isComplete(data)) break;
+          try {
+            const page = await ctx.newPage();
+            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 12000 });
+            await page.waitForTimeout(1500);
+            data = mergeData(data, parsePage(await page.content()));
+            await page.close();
+          } catch {}
+        }
+      } finally { await browser.close(); }
+    } catch (e) { console.error("[scrape] Playwright failed:", e); }
+  }
+
+  // Phase 4 — Google cache (handles Cloudflare-blocked sites)
   if (!data.phone) {
     try {
       const cacheHtml = await fetchStatic(`https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}&hl=en`);
@@ -468,7 +495,7 @@ export async function POST(req: NextRequest) {
     } catch {}
   }
 
-  // Phase 4 — Google search by business name (works even when site is blocked)
+  // Phase 5 — Google search by business name
   if (!data.phone && business_name) {
     try {
       const q = encodeURIComponent(`"${business_name}" ${city || ""} phone`);
@@ -480,7 +507,7 @@ export async function POST(req: NextRequest) {
     } catch {}
   }
 
-  // Phase 5 — directory sites by business name
+  // Phase 6 — Yellow Pages + Yelp by business name
   if (!data.phone && business_name) {
     try {
       const dirData = await searchDirectories(business_name, city || "");
@@ -488,7 +515,7 @@ export async function POST(req: NextRequest) {
     } catch {}
   }
 
-  // Phase 6 — linkedom fallback on homepage html
+  // Phase 7 — linkedom fallback on homepage html
   if ((!data.phone || !data.owner) && homeHtml) {
     const fallback = await linkedomFallback(homeHtml);
     if (!data.phone && fallback.phone) data.phone = fallback.phone;
