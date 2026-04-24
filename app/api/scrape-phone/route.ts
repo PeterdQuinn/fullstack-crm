@@ -396,28 +396,39 @@ async function linkedomFallback(html: string): Promise<Partial<PageData>> {
   } catch { return {}; }
 }
 
-// ── directory search (no website) ─────────────────────────────────────────────
+// ── directory / Google search ─────────────────────────────────────────────────
 
-async function searchDirectories(name: string, city: string): Promise<PageData> {
-  const q = encodeURIComponent(`${name} ${city}`);
-  const loc = encodeURIComponent(city);
-
-  const sources = [
-    `https://www.yellowpages.com/search?search_terms=${q}&geo_location_terms=${loc}`,
-    `https://www.yelp.com/search?find_desc=${q}&find_loc=${loc}`,
-  ];
-
-  const results = await Promise.allSettled(
-    sources.map(async (u) => {
-      const html = await fetchStatic(u);
-      return parsePage(html);
-    })
-  );
-
+async function searchByName(name: string, city: string): Promise<PageData> {
+  const isVercel = !!process.env.VERCEL;
   let merged = blankData();
-  for (const r of results) {
-    if (r.status === "fulfilled") merged = mergeData(merged, r.value);
+
+  // Local: use Playwright to hit Google — knowledge panel has tel: link
+  if (!isVercel) {
+    try {
+      const { chromium } = await import("playwright");
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const ctx = await browser.newContext({ locale: "en-US" });
+        const page = await ctx.newPage();
+        const q = encodeURIComponent(`${name} ${city}`);
+        await page.goto(`https://www.google.com/search?q=${q}&hl=en`, { waitUntil: "domcontentloaded", timeout: 12000 });
+        await page.waitForTimeout(1500);
+        merged = mergeData(merged, parsePage(await page.content()));
+        await browser.close();
+      } catch { await browser.close(); }
+    } catch {}
   }
+
+  if (merged.phone) return merged;
+
+  // Fallback: static Yellow Pages
+  try {
+    const q = encodeURIComponent(`${name} ${city}`);
+    const loc = encodeURIComponent(city);
+    const html = await fetchStatic(`https://www.yellowpages.com/search?search_terms=${q}&geo_location_terms=${loc}`);
+    merged = mergeData(merged, parsePage(html));
+  } catch {}
+
   return merged;
 }
 
@@ -433,7 +444,7 @@ export async function POST(req: NextRequest) {
   // No website — search directories by name
   if (!website) {
     if (!business_name) return NextResponse.json({ error: "No website or business name provided", confidence: 0 });
-    const data = await searchDirectories(business_name, city || "");
+    const data = await searchByName(business_name, city || "");
     return NextResponse.json({
       phone:            data.phone,
       owner:            data.owner,
@@ -529,7 +540,7 @@ export async function POST(req: NextRequest) {
   // Phase 6 — Yellow Pages + Yelp by business name
   if (!data.phone && business_name) {
     try {
-      const dirData = await searchDirectories(business_name, city || "");
+      const dirData = await searchByName(business_name, city || "");
       data = mergeData(data, dirData);
     } catch {}
   }
