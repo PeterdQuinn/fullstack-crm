@@ -21,6 +21,8 @@ export interface Lead {
   linkedin_url?: string;
   facebook_url?: string;
   twitter_url?: string;
+  instagram_url?: string;
+  yelp_url?: string;
   apollo_account_id?: string;
   current_software?: string;
   monthly_spend_estimate?: string;

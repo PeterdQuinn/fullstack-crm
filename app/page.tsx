@@ -266,22 +266,38 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
   const [scrapeMsg, setScrapeMsg] = useState<string | null>(null);
 
   async function findPhone() {
-    if (!lead.website) { setScrapeMsg("No website on this lead"); setTimeout(() => setScrapeMsg(null), 3000); return; }
     setScraping(true); setScrapeMsg(null);
     try {
-      const res = await fetch("/api/scrape-phone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ website: lead.website }) });
+      const body = lead.website
+        ? { website: lead.website }
+        : { business_name: lead.business_name, city: lead.city || "" };
+      const res = await fetch("/api/scrape-phone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (data.phone || data.owner) {
-        const updates: any = {};
-        if (data.phone) updates.phone = data.phone;
-        if (data.owner && !lead.owner_name) updates.owner_name = data.owner;
+      const updates: any = {};
+      if (data.phone)                               updates.phone = data.phone;
+      if (data.owner && !lead.owner_name)           updates.owner_name = data.owner;
+      if (data.email && !lead.email)                updates.email = data.email;
+      if (data.current_software && !lead.current_software) updates.current_software = data.current_software;
+      if (data.facebook_url && !lead.facebook_url)    updates.facebook_url = data.facebook_url;
+      if (data.instagram_url && !(lead as any).instagram_url) updates.instagram_url = data.instagram_url;
+      if (data.linkedin_url && !lead.linkedin_url)   updates.linkedin_url = data.linkedin_url;
+      if (data.technologies && !lead.technologies)  updates.technologies = data.technologies;
+      if (data.description && !lead.short_description) updates.short_description = data.description;
+      if (data.address && !lead.address)            updates.address = data.address;
+      if (Object.keys(updates).length > 0) {
         updateLead(lead.id, updates);
-        const parts = [data.phone && `Phone: ${data.phone}`, data.owner && `Owner: ${data.owner}`].filter(Boolean);
+        const parts = [
+          data.phone   && `Phone: ${data.phone}`,
+          data.owner   && `Owner: ${data.owner}`,
+          data.email   && `Email: ${data.email}`,
+          data.current_software && `Software: ${data.current_software}`,
+          data.confidence != null && `Score: ${data.confidence}`,
+        ].filter(Boolean);
         setScrapeMsg(`Found — ${parts.join(" · ")}`);
       } else { setScrapeMsg("Nothing found on site"); }
     } catch { setScrapeMsg("Scrape failed"); }
     setScraping(false);
-    setTimeout(() => setScrapeMsg(null), 4000);
+    setTimeout(() => setScrapeMsg(null), 6000);
   }
 
   return (
@@ -299,6 +315,7 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
           {lead.phone && lead.phone !== "N/A" && <a href={`https://voice.google.com/u/0/messages?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">💬 Text</a>}
           {lead.website && lead.website !== "N/A" && <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors">🌐 Website</a>}
           {lead.linkedin_url && <a href={lead.linkedin_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">in LinkedIn</a>}
+          {(lead as any).instagram_url && <a href={(lead as any).instagram_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-pink-500 text-white text-sm rounded-lg hover:bg-pink-600 transition-colors">IG</a>}
         </div>
         <div className="mt-2 flex items-center gap-2">
           <button onClick={findPhone} disabled={scraping} className="px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors">{scraping ? "Scanning..." : "🔍 Find Phone"}</button>

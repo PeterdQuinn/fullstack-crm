@@ -1,126 +1,557 @@
 import { NextRequest, NextResponse } from "next/server";
+import * as cheerio from "cheerio";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
+import nlp from "compromise";
+import type { WithContext, Organization, Person } from "schema-dts";
+
+// ── constants ─────────────────────────────────────────────────────────────────
 
 const PHONE_RE = /(\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g;
+const EMAIL_RE = /\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b/g;
+const OWNER_TITLES_RE = /\b(owner|co-owner|founder|co-founder|president|ceo|chief executive|principal|proprietor|managing partner|managing director|managing member|general manager|operator)\b/i;
+const NAME_RE = /^[A-Z][a-z'-]{1,20}(?: [A-Z][a-z'-]{1,20}){1,2}$/;
+const SKIP_RE = /^(About|Meet|Our|The|Contact|Home|Team|Staff|Leadership|Services|Company|Welcome|Mission|Vision|Values|History|Every|Your|Their|Many|Most|Some|All|New|Old|General|Special|Full|Main|Head|Lead|Senior|Junior|Get|Find|Call|Visit|Schedule|More|Less|View)$/i;
+const LINK_PATH_RE = /\/(about|contact|team|staff|our-team|about-us|contact-us|who-we-are|meet-the-team|leadership|our-story|company|people|bios?)\b/i;
 
-const TITLE_KEYWORDS = [
-  "owner", "co-owner", "founder", "co-founder", "president", "ceo",
-  "principal", "proprietor", "managing director", "general manager",
+const STATIC_PATHS = [
+  "/contact", "/contact-us", "/about", "/about-us",
+  "/team", "/our-team", "/staff", "/leadership",
+  "/who-we-are", "/meet-the-team", "/our-story", "/company",
+  "/people", "/bio", "/bios",
 ];
 
-// Words that look like names but aren't — block them
-const FALSE_POSITIVE_NAMES = /^(Every|Our|Your|The|This|That|Their|Many|Most|Some|All|Meet|About|Contact|With|From|Since|Over|Under|New|Old|General|Special|Total|Full|Main|Head|Lead|Senior|Junior)$/i;
+// FSM / booking software signatures
+const FSM_SIGNATURES: Array<{ name: string; pattern: RegExp }> = [
+  { name: "Jobber",            pattern: /jobber|jobbersites\.com/i },
+  { name: "Housecall Pro",     pattern: /housecallpro|housecall pro/i },
+  { name: "Service Autopilot", pattern: /serviceautopilot|service autopilot/i },
+  { name: "ServiceTitan",      pattern: /servicetitan/i },
+  { name: "Aspire",            pattern: /aspirehq|aspireiq|aspire software/i },
+  { name: "GorillaDesk",       pattern: /gorilladesk/i },
+  { name: "Yardbook",          pattern: /yardbook/i },
+  { name: "LMN",               pattern: /lmn-software|lmnsoftware|lmnapp/i },
+  { name: "SingleOps",         pattern: /singleops/i },
+  { name: "SynkedUP",          pattern: /synkedup/i },
+  { name: "MaintainX",         pattern: /maintainx/i },
+  { name: "FieldEdge",         pattern: /fieldedge/i },
+  { name: "Kickserv",          pattern: /kickserv/i },
+  { name: "WorkWave",          pattern: /workwave/i },
+  { name: "Commusoft",         pattern: /commusoft/i },
+  { name: "Calendly",          pattern: /calendly\.com/i },
+  { name: "Square Booking",    pattern: /book\.squareup|squareup\.com\/appointments/i },
+  { name: "Acuity",            pattern: /acuityscheduling/i },
+  { name: "QuickBooks",        pattern: /quickbooks/i },
+];
 
-function findPhone(html: string): string | null {
-  // tel: href links first — most reliable
-  const telMatches = html.match(/href=["']tel:([0-9+\-\s().]{7,20})["']/gi) || [];
-  const telNumbers = telMatches.map((m) =>
-    m.replace(/href=["']tel:/i, "").replace(/["']/, "").trim()
-  );
+// CMS / site technology signatures
+const TECH_SIGNATURES: Array<{ name: string; pattern: RegExp }> = [
+  { name: "WordPress",    pattern: /wp-content|wp-includes|wordpress/i },
+  { name: "Squarespace",  pattern: /squarespace\.com|static\.squarespace/i },
+  { name: "Wix",          pattern: /wix\.com|wixstatic/i },
+  { name: "Shopify",      pattern: /shopify/i },
+  { name: "Webflow",      pattern: /webflow\.io|webflow\.com/i },
+  { name: "GoDaddy",      pattern: /godaddy/i },
+  { name: "Google Sites", pattern: /sites\.google\.com/i },
+];
 
-  const stripped = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ");
+// ── types ─────────────────────────────────────────────────────────────────────
 
-  const matches = [...telNumbers, ...(stripped.match(PHONE_RE) || [])];
-  if (matches.length === 0) return null;
+type SocialLinks = {
+  facebook?: string;
+  instagram?: string;
+  linkedin?: string;
+  twitter?: string;
+};
 
-  const counts: Record<string, number> = {};
-  for (const m of matches) {
-    const clean = m.trim();
-    counts[clean] = (counts[clean] || 0) + 1;
-  }
-  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+type PageData = {
+  phone: string | null;
+  owner: string | null;
+  email: string | null;
+  current_software: string | null;
+  booking_detected: boolean;
+  social: SocialLinks;
+  technologies: string[];
+  description: string | null;
+  address: string | null;
+};
+
+// ── phone ─────────────────────────────────────────────────────────────────────
+
+function normalizePhone(raw: string): string | null {
+  const p = parsePhoneNumberFromString(raw.trim(), "US");
+  return p?.isValid() ? p.formatNational() : null;
 }
 
-const NAME_RE = /^[A-Z][a-zA-Z'-]{1,20}(?: [A-Z][a-zA-Z'-]{1,20}){1,2}$/;
-const OWNER_TITLES = /\b(owner|co-owner|founder|co-founder|president|ceo|chief executive|principal|proprietor)\b/i;
-const SKIP_WORDS = /^(About|Meet|Our|The|Contact|Home|Team|Staff|Leadership|Services|Company|Welcome|Mission|Vision|Values|History)$/i;
+function extractPhone($: cheerio.CheerioAPI): string | null {
+  let phone: string | null = null;
+  $("a[href^='tel:']").each((_, el) => {
+    if (phone) return;
+    phone = normalizePhone($(el).attr("href")!.replace(/^tel:/i, ""));
+  });
+  if (phone) return phone;
+  for (const m of ($("body").text().match(PHONE_RE) || [])) {
+    const n = normalizePhone(m);
+    if (n) return n;
+  }
+  return null;
+}
 
-function findOwner(html: string): string | null {
-  // 1. JSON-LD schema — most reliable
-  const jsonLdBlocks = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
-  for (const block of jsonLdBlocks) {
+// ── email ─────────────────────────────────────────────────────────────────────
+
+function extractEmail($: cheerio.CheerioAPI): string | null {
+  let email: string | null = null;
+  $("a[href^='mailto:']").each((_, el) => {
+    if (email) return;
+    const raw = $(el).attr("href")!.replace(/^mailto:/i, "").split("?")[0].trim();
+    if (raw.includes("@")) email = raw;
+  });
+  if (email) return email;
+  return ($("body").text().match(EMAIL_RE) || []).find(
+    (m) => !m.includes("example.") && !m.includes("yourname")
+  ) || null;
+}
+
+// ── owner ─────────────────────────────────────────────────────────────────────
+
+function ownerFromJsonLd($: cheerio.CheerioAPI): string | null {
+  let owner: string | null = null;
+  $('script[type="application/ld+json"]').each((_, el) => {
+    if (owner) return;
     try {
-      const json = JSON.parse(block.replace(/<script[^>]*>|<\/script>/gi, ""));
-      const entries = Array.isArray(json) ? json : [json];
-      for (const entry of entries) {
+      const raw = JSON.parse($(el).text()) as WithContext<Organization | Person> | any[];
+      for (const entry of (Array.isArray(raw) ? raw : [raw]) as any[]) {
+        if (entry["@type"] === "Person" && typeof entry.name === "string") { owner = entry.name; return; }
         for (const field of ["founder", "employee", "member"]) {
-          const val = entry[field];
-          if (val) {
-            const people = Array.isArray(val) ? val : [val];
-            for (const p of people) {
-              if (p?.name && typeof p.name === "string") return p.name;
-            }
+          for (const p of [entry[field]].flat().filter(Boolean)) {
+            if (p?.name) { owner = p.name; return; }
           }
         }
-        if (entry["@type"] === "Person" && entry.name) return entry.name;
       }
     } catch {}
+  });
+  return owner;
+}
+
+function ownerFromText($: cheerio.CheerioAPI): string | null {
+  const metaAuthor = $('meta[name="author"]').attr("content")?.trim();
+  if (metaAuthor && NAME_RE.test(metaAuthor)) return metaAuthor;
+
+  const text = $("body").text().replace(/\s+/g, " ");
+
+  const inlineRe = /([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s*[,|–\-]\s*(owner|founder|co-founder|president|ceo|chief executive|principal|proprietor|managing partner|managing director|general manager)/gi;
+  const inlineMatch = inlineRe.exec(text);
+  if (inlineMatch?.[1] && NAME_RE.test(inlineMatch[1]) && !SKIP_RE.test(inlineMatch[1].split(" ")[0])) {
+    return inlineMatch[1];
   }
 
-  // 2. Meta author tag
-  const metaAuthor = html.match(/<meta[^>]+name=["']author["'][^>]+content=["']([^"']+)["']/i);
-  if (metaAuthor?.[1]) return metaAuthor[1];
+  const sample = text.slice(0, 8000);
+  const people = (nlp(sample).people().out("array") as string[]);
+  for (const person of people) {
+    if (!NAME_RE.test(person) || SKIP_RE.test(person.split(" ")[0])) continue;
+    const idx = sample.indexOf(person);
+    if (idx !== -1 && OWNER_TITLES_RE.test(sample.slice(Math.max(0, idx - 150), idx + person.length + 150))) {
+      return person;
+    }
+  }
 
-  // 3. Scan h1/h2/h3 headings in sequence — "Name" heading followed by title heading
   const headings: string[] = [];
-  const hRe = /<h[123][^>]*>([\s\S]*?)<\/h[123]>/gi;
-  let m;
-  while ((m = hRe.exec(html)) !== null) {
-    const text = m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    if (text) headings.push(text);
-  }
-
+  $("h1, h2, h3").each((_, el) => { headings.push($(el).text().replace(/\s+/g, " ").trim()); });
   for (let i = 0; i < headings.length; i++) {
-    const h = headings[i];
-    const next = headings[i + 1] || "";
-    // Name heading before a title heading
-    if (NAME_RE.test(h) && !SKIP_WORDS.test(h.split(" ")[0]) && OWNER_TITLES.test(next)) {
-      return h;
-    }
-    // Title heading before a name heading
-    if (OWNER_TITLES.test(h) && NAME_RE.test(next) && !SKIP_WORDS.test(next.split(" ")[0])) {
-      return next;
-    }
+    const h = headings[i], next = headings[i + 1] || "";
+    if (NAME_RE.test(h) && !SKIP_RE.test(h.split(" ")[0]) && OWNER_TITLES_RE.test(next)) return h;
+    if (OWNER_TITLES_RE.test(h) && NAME_RE.test(next) && !SKIP_RE.test(next.split(" ")[0])) return next;
   }
 
   return null;
 }
 
-const HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-};
+// ── software detection ────────────────────────────────────────────────────────
 
-async function fetchHtml(url: string): Promise<string> {
-  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(8000) });
-  return res.text();
+function detectSoftware(html: string): { current_software: string | null; booking_detected: boolean } {
+  let current_software: string | null = null;
+  let booking_detected = false;
+
+  for (const sig of FSM_SIGNATURES) {
+    if (sig.pattern.test(html)) {
+      current_software = sig.name;
+      booking_detected = true;
+      break;
+    }
+  }
+
+  // Generic booking signals if no named software found
+  if (!booking_detected) {
+    booking_detected = /book\s*now|schedule\s*online|request\s*a\s*quote\s*online|book\s*an\s*appointment|online\s*scheduling/i.test(html);
+  }
+
+  return { current_software, booking_detected };
 }
 
+// ── technologies ──────────────────────────────────────────────────────────────
+
+function detectTechnologies(html: string): string[] {
+  return TECH_SIGNATURES.filter((t) => t.pattern.test(html)).map((t) => t.name);
+}
+
+// ── social links ──────────────────────────────────────────────────────────────
+
+function extractSocial($: cheerio.CheerioAPI): SocialLinks {
+  const social: SocialLinks = {};
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href") || "";
+    if (!social.facebook && /facebook\.com\//i.test(href)) social.facebook = href;
+    if (!social.instagram && /instagram\.com\//i.test(href)) social.instagram = href;
+    if (!social.linkedin && /linkedin\.com\//i.test(href)) social.linkedin = href;
+    if (!social.twitter && /twitter\.com\/|x\.com\//i.test(href)) social.twitter = href;
+  });
+  return social;
+}
+
+// ── description ───────────────────────────────────────────────────────────────
+
+function extractDescription($: cheerio.CheerioAPI): string | null {
+  return $('meta[name="description"]').attr("content")?.trim()
+    || $('meta[property="og:description"]').attr("content")?.trim()
+    || null;
+}
+
+// ── address ───────────────────────────────────────────────────────────────────
+
+function extractAddress($: cheerio.CheerioAPI): string | null {
+  // Schema.org PostalAddress
+  let addr: string | null = null;
+  $('script[type="application/ld+json"]').each((_, el) => {
+    if (addr) return;
+    try {
+      const raw = JSON.parse($(el).text()) as any;
+      const entries = Array.isArray(raw) ? raw : [raw];
+      for (const e of entries) {
+        const a = e.address;
+        if (!a) continue;
+        const parts = [a.streetAddress, a.addressLocality, a.addressRegion, a.postalCode].filter(Boolean);
+        if (parts.length >= 2) { addr = parts.join(", "); return; }
+      }
+    } catch {}
+  });
+  if (addr) return addr;
+
+  // itemprop address
+  const street = $('[itemprop="streetAddress"]').first().text().trim();
+  const city = $('[itemprop="addressLocality"]').first().text().trim();
+  const state = $('[itemprop="addressRegion"]').first().text().trim();
+  if (street || city) return [street, city, state].filter(Boolean).join(", ");
+
+  return null;
+}
+
+// ── full page parse ───────────────────────────────────────────────────────────
+
+function parsePage(html: string): PageData {
+  const $ = cheerio.load(html);
+  const sw = detectSoftware(html);
+  return {
+    phone:            extractPhone($),
+    email:            extractEmail($),
+    owner:            ownerFromJsonLd($) || ownerFromText($),
+    current_software: sw.current_software,
+    booking_detected: sw.booking_detected,
+    social:           extractSocial($),
+    technologies:     detectTechnologies(html),
+    description:      extractDescription($),
+    address:          extractAddress($),
+  };
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function mergeData(base: PageData, next: PageData): PageData {
+  return {
+    phone:            base.phone || next.phone,
+    email:            base.email || next.email,
+    owner:            base.owner || next.owner,
+    current_software: base.current_software || next.current_software,
+    booking_detected: base.booking_detected || next.booking_detected,
+    social: {
+      facebook:  base.social.facebook  || next.social.facebook,
+      instagram: base.social.instagram || next.social.instagram,
+      linkedin:  base.social.linkedin  || next.social.linkedin,
+      twitter:   base.social.twitter   || next.social.twitter,
+    },
+    technologies:     [...new Set([...base.technologies, ...next.technologies])],
+    description:      base.description || next.description,
+    address:          base.address     || next.address,
+  };
+}
+
+function isComplete(d: PageData): boolean {
+  return !!(d.phone && d.owner && d.email);
+}
+
+async function isEnglish(html: string): Promise<boolean> {
+  try {
+    const $ = cheerio.load(html);
+    const text = $("body").text().replace(/\s+/g, " ").slice(0, 1000);
+    if (text.length < 80) return true;
+    const { franc } = await import("franc");
+    const lang = franc(text, { minLength: 50 });
+    return lang === "eng" || lang === "und";
+  } catch { return true; }
+}
+
+function discoverLinks(html: string, base: URL): string[] {
+  const $ = cheerio.load(html);
+  const seen = new Set<string>();
+  const links: string[] = [];
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href") || "";
+    try {
+      const abs = new URL(href, base.origin).href;
+      if (!abs.startsWith(base.origin)) return;
+      const path = new URL(abs).pathname;
+      if (LINK_PATH_RE.test(path) && !seen.has(abs)) { seen.add(abs); links.push(abs); }
+    } catch {}
+  });
+  return links;
+}
+
+function computeScore(d: PageData): number {
+  let s = 2; // +2 for having a website (always true here)
+  if (d.phone) s += 3;
+  if (d.owner) s += 4;
+  if (d.email) s += 2;
+  if (Object.keys(d.social).length > 0) s += 2;
+  if (d.current_software) s += 1;
+  return s;
+}
+
+function blankData(): PageData {
+  return { phone: null, owner: null, email: null, current_software: null, booking_detected: false, social: {}, technologies: [], description: null, address: null };
+}
+
+// ── fetchers ──────────────────────────────────────────────────────────────────
+
+async function fetchStatic(url: string): Promise<string> {
+  const { gotScraping } = await import("got-scraping");
+  const res = await (gotScraping as any)({
+    url,
+    timeout: { request: 8000 },
+    retry: { limit: 2 },
+    headers: { "Accept-Language": "en-US,en;q=0.9" },
+  });
+  return res.body;
+}
+
+async function fetchRendered(url: string): Promise<string> {
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const ctx = await browser.newContext({ locale: "en-US" });
+    const page = await ctx.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.waitForTimeout(1500);
+    return await page.content();
+  } finally {
+    await browser.close();
+  }
+}
+
+// ── multi-page crawl (p-limit + fetchStatic, crawlee-style concurrency) ──────
+
+async function crawlPages(urls: string[]): Promise<PageData[]> {
+  const { default: pLimit } = await import("p-limit");
+  const limit = pLimit(4);
+
+  const settled = await Promise.allSettled(
+    urls.slice(0, 20).map((u) =>
+      limit(async () => {
+        const html = await fetchStatic(u);
+        if (!(await isEnglish(html))) return null;
+        return parsePage(html);
+      })
+    )
+  );
+
+  return settled
+    .filter((r): r is PromiseFulfilledResult<PageData | null> => r.status === "fulfilled" && r.value != null)
+    .map((r) => r.value as PageData);
+}
+
+// ── linkedom fallback ─────────────────────────────────────────────────────────
+
+async function linkedomFallback(html: string): Promise<Partial<PageData>> {
+  try {
+    const { parseHTML } = await import("linkedom");
+    const { document } = parseHTML(html);
+    let phone: string | null = null;
+    for (const el of document.querySelectorAll("a[href^='tel:']")) {
+      phone = normalizePhone(el.getAttribute("href")?.replace(/^tel:/i, "").trim() || "");
+      if (phone) break;
+    }
+    let owner: string | null = null;
+    const bodyText = document.body?.textContent?.replace(/\s+/g, " ") || "";
+    const m = /([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s*[,|–\-]\s*(owner|founder|ceo|president|principal)/gi.exec(bodyText);
+    if (m?.[1] && NAME_RE.test(m[1])) owner = m[1];
+    return { phone, owner };
+  } catch { return {}; }
+}
+
+// ── directory search (no website) ─────────────────────────────────────────────
+
+async function searchDirectories(name: string, city: string): Promise<PageData> {
+  const q = encodeURIComponent(`${name} ${city}`);
+  const loc = encodeURIComponent(city);
+
+  // Static sources — parse what we can without JS
+  const staticSources = [
+    `https://www.yellowpages.com/search?search_terms=${q}&geo_location_terms=${loc}`,
+    `https://www.bbb.org/search?find_country=USA&find_text=${q}`,
+  ];
+
+  // JS-rendered sources — need Playwright
+  const renderedSources = [
+    `https://www.yelp.com/search?find_desc=${q}&find_loc=${loc}`,
+    `https://www.facebook.com/search/pages/?q=${q}`,
+  ];
+
+  const results: PageData[] = [];
+
+  // Static fetch first
+  const { default: pLimit } = await import("p-limit");
+  const limit = pLimit(3);
+  const staticResults = await Promise.allSettled(
+    staticSources.map((u) => limit(async () => {
+      const html = await fetchStatic(u);
+      return parsePage(html);
+    }))
+  );
+  for (const r of staticResults) {
+    if (r.status === "fulfilled") results.push(r.value);
+  }
+
+  // Playwright for JS-heavy directories
+  let merged = blankData();
+  for (const r of results) merged = mergeData(merged, r);
+
+  if (!merged.phone && !merged.owner) {
+    try {
+      const { chromium } = await import("playwright");
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const ctx = await browser.newContext({ locale: "en-US" });
+        for (const url of renderedSources) {
+          if (merged.phone && merged.owner) break;
+          try {
+            const page = await ctx.newPage();
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 12000 });
+            await page.waitForTimeout(2000);
+            const html = await page.content();
+            await page.close();
+            merged = mergeData(merged, parsePage(html));
+          } catch {}
+        }
+      } finally {
+        await browser.close();
+      }
+    } catch {}
+  }
+
+  return merged;
+}
+
+// ── handler ───────────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
-  const { website } = await req.json();
-  if (!website) return NextResponse.json({ phone: null, owner: null, error: "No website provided" });
+  const { website, business_name, city } = await req.json();
+
+  // No website — search directories by name
+  if (!website) {
+    if (!business_name) return NextResponse.json({ error: "No website or business name provided", confidence: 0 });
+    const data = await searchDirectories(business_name, city || "");
+    return NextResponse.json({
+      phone:            data.phone,
+      owner:            data.owner,
+      email:            data.email,
+      current_software: data.current_software,
+      booking_detected: data.booking_detected,
+      facebook_url:     data.social.facebook || null,
+      instagram_url:    data.social.instagram || null,
+      linkedin_url:     data.social.linkedin || null,
+      technologies:     data.technologies.join(", ") || null,
+      description:      data.description,
+      address:          data.address,
+      confidence:       computeScore(data),
+    });
+  }
 
   const url = website.startsWith("http") ? website : `https://${website}`;
-
-  try {
-    const html = await fetchHtml(url);
-
-    const phone = findPhone(html);
-    let owner = findOwner(html);
-
-    // If no owner found on homepage, try /about page
-    if (!owner) {
-      try {
-        const base = new URL(url);
-        const aboutHtml = await fetchHtml(`${base.origin}/about`);
-        owner = findOwner(aboutHtml);
-      } catch {}
-    }
-
-    return NextResponse.json({ phone, owner });
-  } catch (e: any) {
-    return NextResponse.json({ phone: null, owner: null, error: e.message || "Fetch failed" });
+  let base: URL;
+  try { base = new URL(url); } catch {
+    return NextResponse.json({ error: "Invalid URL", confidence: 0 });
   }
+
+  let data = blankData();
+  let homeHtml = "";
+  let usedPlaywright = false;
+
+  // Phase 1 — got-scraping + cheerio on homepage
+  try {
+    homeHtml = await fetchStatic(url);
+    data = parsePage(homeHtml);
+  } catch {}
+
+  // Phase 2 — crawlee: crawl contact/about/team subpages
+  if (!isComplete(data)) {
+    const discovered = homeHtml ? discoverLinks(homeHtml, base) : [];
+    const staticUrls = STATIC_PATHS.map((p) => `${base.origin}${p}`);
+    const candidates = [...new Set([...discovered, ...staticUrls])].filter(
+      (u) => u !== url && u !== `${url}/`
+    );
+    try {
+      const subResults = await crawlPages(candidates);
+      for (const r of subResults) {
+        data = mergeData(data, r);
+        if (isComplete(data)) break;
+      }
+    } catch {}
+  }
+
+  // Phase 3 — playwright fallback for JS-rendered sites
+  if (!isComplete(data)) {
+    usedPlaywright = true;
+    try {
+      const { default: pLimit } = await import("p-limit");
+      const limit = pLimit(2);
+      const targets = [url, `${base.origin}/contact`, `${base.origin}/about`];
+      const htmls = await Promise.allSettled(targets.map((u) => limit(() => fetchRendered(u))));
+      for (const r of htmls) {
+        if (r.status !== "fulfilled") continue;
+        data = mergeData(data, parsePage(r.value));
+        if (isComplete(data)) break;
+      }
+    } catch {}
+  }
+
+  // Phase 4 — linkedom DOM fallback
+  if ((!data.phone || !data.owner) && homeHtml) {
+    const fallback = await linkedomFallback(homeHtml);
+    if (!data.phone && fallback.phone) data.phone = fallback.phone;
+    if (!data.owner && fallback.owner) data.owner = fallback.owner;
+  }
+
+  const confidence = computeScore(data) + (usedPlaywright ? 1 : 0);
+
+  return NextResponse.json({
+    phone:            data.phone,
+    owner:            data.owner,
+    email:            data.email,
+    current_software: data.current_software,
+    booking_detected: data.booking_detected,
+    facebook_url:     data.social.facebook || null,
+    instagram_url:    data.social.instagram || null,
+    linkedin_url:     data.social.linkedin || null,
+    technologies:     data.technologies.join(", ") || null,
+    description:      data.description,
+    address:          data.address,
+    confidence,
+  });
 }
