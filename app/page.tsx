@@ -41,6 +41,7 @@ function dedupKey(l: { business_name: string; phone?: string }) {
 function fmt(d?: string) { if (!d) return "—"; return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
 function fmtTime(d?: string) { if (!d) return ""; return new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); }
 function isToday(d?: string) { if (!d) return false; return new Date(d).toDateString() === new Date().toDateString(); }
+function isThisWeek(d?: string) { if (!d) return false; const t = new Date(d), now = new Date(); const start = new Date(now); start.setDate(now.getDate() - now.getDay()); start.setHours(0,0,0,0); const end = new Date(start); end.setDate(start.getDate() + 7); return t >= start && t < end; }
 function isPast(d?: string) { if (!d) return false; return new Date(d) < new Date(); }
 
 export default function CRMDashboard() {
@@ -77,7 +78,15 @@ export default function CRMDashboard() {
           await supabase.from("leads").insert(missing);
         }
 
-        setLeads([...missing, ...existing]);
+        // Auto-dedup on load
+        const allLeads = [...missing, ...existing];
+        const seenKeys = new Set<string>();
+        const dupeIds: string[] = [];
+        for (const l of [...allLeads].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())) {
+          const k = dedupKey(l); if (seenKeys.has(k)) dupeIds.push(l.id); else seenKeys.add(k);
+        }
+        if (dupeIds.length > 0) await Promise.all(dupeIds.map((id) => supabase.from("leads").delete().eq("id", id)));
+        setLeads(allLeads.filter((l) => !dupeIds.includes(l.id)));
       } else {
         setLeads(PRELOADED_LEADS.map((l) => ({ ...l, id: uid(), created_at: now(), updated_at: now() } as Lead)));
       }
@@ -108,7 +117,16 @@ export default function CRMDashboard() {
   async function addCallLog(log: Omit<CallLog, "id" | "created_at">) {
     const entry = { ...log, id: uid(), created_at: now() };
     setCallLogs((prev) => [entry, ...prev]);
-    updateLead(log.lead_id, { last_called_at: now(), status: log.outcome === "Booked meeting" ? "Booked" : log.outcome === "Interested" ? "Interested" : log.outcome === "No answer" ? "No Answer" : log.outcome === "Not interested" ? "Dead" : "Called", ...(log.next_follow_up_at ? { next_follow_up_at: log.next_follow_up_at } : {}), ...(log.current_software ? { current_software: log.current_software } : {}) });
+    // Auto-set follow-up date based on outcome if one wasn't manually set
+    const autoFollowUp = (() => {
+      if (log.next_follow_up_at) return log.next_follow_up_at;
+      const d = new Date();
+      if (log.outcome === "No answer" || log.outcome === "Left voicemail") { d.setDate(d.getDate() + 1); return d.toISOString(); }
+      if (log.outcome === "Interested" || log.outcome === "Callback requested") { d.setDate(d.getDate() + 2); return d.toISOString(); }
+      if (log.outcome === "Spoke with gatekeeper") { d.setDate(d.getDate() + 1); return d.toISOString(); }
+      return null;
+    })();
+    updateLead(log.lead_id, { last_called_at: now(), status: log.outcome === "Booked meeting" ? "Booked" : log.outcome === "Interested" ? "Interested" : log.outcome === "No answer" ? "No Answer" : log.outcome === "Not interested" ? "Dead" : "Called", ...(autoFollowUp ? { next_follow_up_at: autoFollowUp } : {}), ...(log.current_software ? { current_software: log.current_software } : {}) });
     if (dbMode === "supabase") { await supabase.from("call_logs").insert(entry); }
   }
 
@@ -182,7 +200,7 @@ export default function CRMDashboard() {
 
   const filtered = useMemo(() => leads.filter((l) => { const s = search === "" || l.business_name.toLowerCase().includes(search.toLowerCase()) || l.owner_name?.toLowerCase().includes(search.toLowerCase()) || l.phone?.includes(search) || l.city?.toLowerCase().includes(search.toLowerCase()); return s && (statusFilter === "all" || l.status === statusFilter) && (nicheFilter === "all" || l.niche === nicheFilter); }), [leads, search, statusFilter, nicheFilter]);
 
-  const kpis = useMemo(() => ({ total: leads.length, new: leads.filter((l) => l.status === "New").length, calledToday: leads.filter((l) => isToday(l.last_called_at)).length, followUps: leads.filter((l) => l.next_follow_up_at && isPast(l.next_follow_up_at) && l.status !== "Booked" && l.status !== "Dead").length, booked: leads.filter((l) => l.status === "Booked").length, interested: leads.filter((l) => l.status === "Interested").length, dead: leads.filter((l) => l.status === "Dead").length }), [leads]);
+  const kpis = useMemo(() => ({ total: leads.length, new: leads.filter((l) => l.status === "New").length, calledToday: leads.filter((l) => isToday(l.last_called_at)).length, calledThisWeek: leads.filter((l) => isThisWeek(l.last_called_at)).length, followUps: leads.filter((l) => l.next_follow_up_at && isPast(l.next_follow_up_at) && l.status !== "Booked" && l.status !== "Dead").length, booked: leads.filter((l) => l.status === "Booked").length, interested: leads.filter((l) => l.status === "Interested").length, dead: leads.filter((l) => l.status === "Dead").length }), [leads]);
 
   const niches = useMemo(() => [...new Set(leads.map((l) => l.niche).filter(Boolean))], [leads]);
 
@@ -200,15 +218,15 @@ export default function CRMDashboard() {
         </div>
       </header>
 
-      <div className="bg-white border-b px-4 sm:px-6 py-3 flex-shrink-0"><div className="flex gap-3 overflow-x-auto pb-1">{[{ label: "Total Leads", value: kpis.total, color: "text-gray-900" },{ label: "New", value: kpis.new, color: "text-blue-600" },{ label: "Called Today", value: kpis.calledToday, color: "text-yellow-600" },{ label: "Follow-Ups Due", value: kpis.followUps, color: "text-purple-600" },{ label: "Booked", value: kpis.booked, color: "text-green-600" },{ label: "Interested", value: kpis.interested, color: "text-emerald-600" },{ label: "Dead", value: kpis.dead, color: "text-red-500" }].map((k) => (<div key={k.label} className="flex-shrink-0 bg-gray-50 rounded-lg px-4 py-2 min-w-[120px]"><div className={`text-xl sm:text-2xl font-bold ${k.color}`}>{k.value}</div><div className="text-xs text-gray-500">{k.label}</div></div>))}</div></div>
+      <div className="bg-white border-b px-4 sm:px-6 py-3 flex-shrink-0"><div className="flex gap-3 overflow-x-auto pb-1">{[{ label: "Total Leads", value: kpis.total, color: "text-gray-900" },{ label: "New", value: kpis.new, color: "text-blue-600" },{ label: "Called Today", value: kpis.calledToday, color: "text-yellow-600" },{ label: "Called This Week", value: kpis.calledThisWeek, color: "text-orange-500" },{ label: "Follow-Ups Due", value: kpis.followUps, color: "text-purple-600" },{ label: "Booked", value: kpis.booked, color: "text-green-600" },{ label: "Interested", value: kpis.interested, color: "text-emerald-600" },{ label: "Dead", value: kpis.dead, color: "text-red-500" }].map((k) => (<div key={k.label} className="flex-shrink-0 bg-gray-50 rounded-lg px-4 py-2 min-w-[120px]"><div className={`text-xl sm:text-2xl font-bold ${k.color}`}>{k.value}</div><div className="text-xs text-gray-500">{k.label}</div></div>))}</div></div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="lg:hidden h-full min-h-0">
-          <LeadListPanel leads={filtered} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} />
+          <LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} />
           {selected && (<div className="fixed inset-0 z-40 bg-black/40"><div className="absolute inset-x-0 bottom-0 top-0 bg-white flex flex-col animate-slide-in"><div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"><div className="min-w-0"><div className="text-xs uppercase tracking-wide text-gray-400">Lead Details</div><div className="font-semibold text-gray-900 truncate">{selected.business_name}</div></div><button onClick={() => setSelectedId(null)} className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 text-gray-700">Close</button></div><div className="flex-1 min-h-0 overflow-hidden"><LeadDetailPanel lead={selected} callLogs={callLogs} notes={notes} appointments={appointments} tab={tab} setTab={setTab} showScript={showScript} setShowScript={setShowScript} showPositioning={showPositioning} setShowPositioning={setShowPositioning} showTieDowns={showTieDowns} setShowTieDowns={setShowTieDowns} showObjections={showObjections} setShowObjections={setShowObjections} updateLead={updateLead} addCallLog={addCallLog} addNote={addNote} bookMeeting={bookMeeting} deleteLead={deleteLead} onBack={() => setSelectedId(null)} mobile /></div></div></div>)}
         </div>
         <div className="hidden lg:flex h-full min-h-0">
-          <div className="w-1/2 xl:w-3/5 border-r bg-white min-h-0"><LeadListPanel leads={filtered} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} /></div>
+          <div className="w-1/2 xl:w-3/5 border-r bg-white min-h-0"><LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} /></div>
           <div className="w-1/2 xl:w-2/5 bg-white min-h-0 flex flex-col">
             {selected ? (<LeadDetailPanel lead={selected} callLogs={callLogs} notes={notes} appointments={appointments} tab={tab} setTab={setTab} showScript={showScript} setShowScript={setShowScript} showPositioning={showPositioning} setShowPositioning={setShowPositioning} showTieDowns={showTieDowns} setShowTieDowns={setShowTieDowns} showObjections={showObjections} setShowObjections={setShowObjections} updateLead={updateLead} addCallLog={addCallLog} addNote={addNote} bookMeeting={bookMeeting} deleteLead={deleteLead} />) : (<div className="flex-1 flex items-center justify-center text-gray-400 p-6"><div className="text-center"><div className="text-5xl mb-4">📞</div><div className="text-lg font-medium">Select a lead to start</div><div className="text-sm mt-1">Click any row on the left</div></div></div>)}
           </div>
@@ -220,43 +238,88 @@ export default function CRMDashboard() {
   );
 }
 
-function LeadListPanel({ leads, selectedId, setSelectedId, setTab, search, setSearch, statusFilter, setStatusFilter, nicheFilter, setNicheFilter, niches }: any) {
+function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, search, setSearch, statusFilter, setStatusFilter, nicheFilter, setNicheFilter, niches }: any) {
+  const [view, setView] = useState<"leads" | "followups">("leads");
+  const followUps = useMemo(() =>
+    (allLeads as Lead[]).filter((l) => l.next_follow_up_at && isPast(l.next_follow_up_at) && l.status !== "Booked" && l.status !== "Dead")
+      .sort((a, b) => new Date(a.next_follow_up_at!).getTime() - new Date(b.next_follow_up_at!).getTime()),
+    [allLeads]
+  );
+
   return (
     <div className="h-full min-h-0 flex flex-col bg-white">
-      <div className="p-4 border-b bg-white flex flex-col md:flex-row gap-2 flex-shrink-0">
-        <input type="text" placeholder="Search leads..." value={search} onChange={(e: any) => setSearch(e.target.value)} className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand/30" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:flex md:gap-2">
-          <select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Statuses</option>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
-          <select value={nicheFilter} onChange={(e: any) => setNicheFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Niches</option>{niches.map((n: string) => <option key={n} value={n}>{n}</option>)}</select>
+      <div className="px-4 pt-3 pb-0 border-b bg-white flex-shrink-0">
+        <div className="flex gap-1 mb-3">
+          <button onClick={() => setView("leads")} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === "leads" ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>All Leads</button>
+          <button onClick={() => setView("followups")} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${view === "followups" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            Follow-Ups {followUps.length > 0 && <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${view === "followups" ? "bg-white text-purple-600" : "bg-purple-600 text-white"}`}>{followUps.length}</span>}
+          </button>
         </div>
+        {view === "leads" && <div className="flex flex-col md:flex-row gap-2 pb-3">
+          <input type="text" placeholder="Search leads..." value={search} onChange={(e: any) => setSearch(e.target.value)} className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand/30" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:flex md:gap-2">
+            <select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Statuses</option>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+            <select value={nicheFilter} onChange={(e: any) => setNicheFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Niches</option>{niches.map((n: string) => <option key={n} value={n}>{n}</option>)}</select>
+          </div>
+        </div>}
+        {view === "followups" && <div className="pb-3 text-xs text-gray-400">{followUps.length} overdue follow-up{followUps.length !== 1 ? "s" : ""} — click a row to open the lead</div>}
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto lg:hidden">
-        <div className="p-3 space-y-3">
-          {leads.length === 0 ? <div className="text-center py-12 text-gray-400">No leads found</div> : leads.map((lead: Lead) => (
-            <button key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("details"); }} className={`w-full text-left rounded-xl border p-4 bg-white shadow-sm transition ${selectedId === lead.id ? "border-brand ring-2 ring-brand/20" : "border-gray-200"}`}>
-              <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-gray-900 break-words">{lead.business_name}</div><div className="text-sm text-gray-500 mt-0.5">{lead.owner_name || "—"}</div></div><span className={`text-[11px] px-2 py-1 rounded-full font-medium whitespace-nowrap ${STATUS_COLORS[lead.status]}`}>{lead.status}</span></div>
-              <div className="mt-3 grid grid-cols-1 gap-1 text-sm"><div className="text-gray-600">{lead.phone || "No phone"}</div><div className="text-gray-500">{lead.city || "—"}</div>{lead.current_software && <div className="text-xs text-gray-400">Uses {lead.current_software}</div>}</div>
-            </button>
-          ))}
+      {view === "followups" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {followUps.length === 0 ? (
+            <div className="text-center py-16 text-gray-400"><div className="text-4xl mb-3">✅</div><div className="font-medium">No follow-ups due</div><div className="text-sm mt-1">They'll appear here automatically after you log a call</div></div>
+          ) : (
+            <div className="divide-y">
+              {followUps.map((lead: Lead) => (
+                <div key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("calls"); }} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-purple-50 transition-colors ${selectedId === lead.id ? "bg-purple-50 border-l-4 border-l-purple-600" : ""}`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-gray-900 truncate">{lead.business_name}</div>
+                    <div className="text-xs text-gray-500 truncate">{lead.owner_name || "—"} · {lead.city || "—"}</div>
+                    <div className="text-xs text-red-600 font-medium mt-0.5">Due {fmt(lead.next_follow_up_at)}</div>
+                    {lead.current_software && <div className="text-xs text-blue-500">Uses {lead.current_software}</div>}
+                  </div>
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[lead.status]}`}>{lead.status}</span>
+                    {lead.phone && lead.phone !== "N/A" && (
+                      <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="px-3 py-1 bg-brand text-white text-xs font-medium rounded-lg hover:bg-brand-dark transition-colors">📞 Call</a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </div>
-      <div className="hidden lg:block flex-1 min-h-0 overflow-auto">
-        <table className="w-full min-w-[720px] text-sm">
-          <thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="text-left px-4 py-3 font-medium text-gray-600">Business</th><th className="text-left px-4 py-3 font-medium text-gray-600">Owner</th><th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th><th className="text-left px-4 py-3 font-medium text-gray-600">Status</th><th className="text-left px-4 py-3 font-medium text-gray-600">Follow-Up</th></tr></thead>
-          <tbody>
-            {leads.map((lead: Lead) => (
-              <tr key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("details"); }} className={`border-b cursor-pointer transition-colors hover:bg-brand/5 ${selectedId === lead.id ? "bg-brand/10 border-l-4 border-l-brand" : ""}`}>
-                <td className="px-4 py-2.5"><div className="font-medium text-gray-900 truncate max-w-[220px]">{lead.business_name}</div>{lead.current_software && <div className="text-xs text-gray-400">Uses {lead.current_software}</div>}</td>
-                <td className="px-4 py-2.5 text-gray-700 truncate max-w-[160px]">{lead.owner_name || "—"}</td>
-                <td className="px-4 py-2.5">{lead.phone && lead.phone !== "N/A" ? <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="text-brand font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{lead.phone}</a> : <span className="text-gray-400">—</span>}</td>
-                <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[lead.status]}`}>{lead.status}</span></td>
-                <td className="px-4 py-2.5 text-xs text-gray-500">{lead.next_follow_up_at ? <span className={isPast(lead.next_follow_up_at) ? "text-red-600 font-medium" : ""}>{fmt(lead.next_follow_up_at)}</span> : "—"}</td>
-              </tr>
-            ))}
-            {leads.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-gray-400">No leads found</td></tr>}
-          </tbody>
-        </table>
-      </div>
+      ) : (
+        <>
+          <div className="flex-1 min-h-0 overflow-y-auto lg:hidden">
+            <div className="p-3 space-y-3">
+              {leads.length === 0 ? <div className="text-center py-12 text-gray-400">No leads found</div> : leads.map((lead: Lead) => (
+                <button key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("details"); }} className={`w-full text-left rounded-xl border p-4 bg-white shadow-sm transition ${selectedId === lead.id ? "border-brand ring-2 ring-brand/20" : "border-gray-200"}`}>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-gray-900 break-words">{lead.business_name}</div><div className="text-sm text-gray-500 mt-0.5">{lead.owner_name || "—"}</div></div><span className={`text-[11px] px-2 py-1 rounded-full font-medium whitespace-nowrap ${STATUS_COLORS[lead.status]}`}>{lead.status}</span></div>
+                  <div className="mt-3 grid grid-cols-1 gap-1 text-sm"><div className="text-gray-600">{lead.phone || "No phone"}</div><div className="text-gray-500">{lead.city || "—"}</div>{lead.current_software && <div className="text-xs text-gray-400">Uses {lead.current_software}</div>}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="hidden lg:block flex-1 min-h-0 overflow-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="text-left px-4 py-3 font-medium text-gray-600">Business</th><th className="text-left px-4 py-3 font-medium text-gray-600">Owner</th><th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th><th className="text-left px-4 py-3 font-medium text-gray-600">Status</th><th className="text-left px-4 py-3 font-medium text-gray-600">Follow-Up</th></tr></thead>
+              <tbody>
+                {leads.map((lead: Lead) => (
+                  <tr key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("details"); }} className={`border-b cursor-pointer transition-colors hover:bg-brand/5 ${selectedId === lead.id ? "bg-brand/10 border-l-4 border-l-brand" : ""}`}>
+                    <td className="px-4 py-2.5"><div className="font-medium text-gray-900 truncate max-w-[220px]">{lead.business_name}</div>{lead.current_software && <div className="text-xs text-gray-400">Uses {lead.current_software}</div>}</td>
+                    <td className="px-4 py-2.5 text-gray-700 truncate max-w-[160px]">{lead.owner_name || "—"}</td>
+                    <td className="px-4 py-2.5">{lead.phone && lead.phone !== "N/A" ? <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="text-brand font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{lead.phone}</a> : <span className="text-gray-400">—</span>}</td>
+                    <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[lead.status]}`}>{lead.status}</span></td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{lead.next_follow_up_at ? <span className={isPast(lead.next_follow_up_at) ? "text-red-600 font-medium" : ""}>{fmt(lead.next_follow_up_at)}</span> : "—"}</td>
+                  </tr>
+                ))}
+                {leads.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-gray-400">No leads found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -268,9 +331,7 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
   async function findPhone() {
     setScraping(true); setScrapeMsg(null);
     try {
-      const body = lead.website
-        ? { website: lead.website }
-        : { business_name: lead.business_name, city: lead.city || "" };
+      const body = { website: lead.website || undefined, business_name: lead.business_name, city: lead.city || "" };
       const res = await fetch("/api/scrape-phone", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       const updates: any = {};
@@ -278,23 +339,29 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
       if (data.owner && !lead.owner_name)           updates.owner_name = data.owner;
       if (data.email && !lead.email)                updates.email = data.email;
       if (data.current_software && !lead.current_software) updates.current_software = data.current_software;
-      if (data.facebook_url && !lead.facebook_url)    updates.facebook_url = data.facebook_url;
+      if (data.facebook_url && !lead.facebook_url)  updates.facebook_url = data.facebook_url;
       if (data.instagram_url && !(lead as any).instagram_url) updates.instagram_url = data.instagram_url;
-      if (data.linkedin_url && !lead.linkedin_url)   updates.linkedin_url = data.linkedin_url;
+      if (data.linkedin_url && !lead.linkedin_url)  updates.linkedin_url = data.linkedin_url;
       if (data.technologies && !lead.technologies)  updates.technologies = data.technologies;
       if (data.description && !lead.short_description) updates.short_description = data.description;
       if (data.address && !lead.address)            updates.address = data.address;
+      // Always save whatever was found, even partial
       if (Object.keys(updates).length > 0) {
         updateLead(lead.id, updates);
-        const parts = [
-          data.phone   && `Phone: ${data.phone}`,
-          data.owner   && `Owner: ${data.owner}`,
-          data.email   && `Email: ${data.email}`,
-          data.current_software && `Software: ${data.current_software}`,
-          data.confidence != null && `Score: ${data.confidence}`,
-        ].filter(Boolean);
-        setScrapeMsg(`Found — ${parts.join(" · ")}`);
-      } else { setScrapeMsg("Nothing found on site"); }
+      }
+      const found = [
+        data.phone   && `Phone: ${data.phone}`,
+        data.owner   && `Owner: ${data.owner}`,
+        data.email   && `Email: ${data.email}`,
+        data.current_software && `Software: ${data.current_software}`,
+      ].filter(Boolean);
+      if (found.length > 0) {
+        setScrapeMsg(`Found — ${found.join(" · ")}`);
+      } else if (data.address || data.description || data.facebook_url) {
+        setScrapeMsg("Saved partial info — no phone found");
+      } else {
+        setScrapeMsg("Site blocked or no data found — check website manually");
+      }
     } catch { setScrapeMsg("Scrape failed"); }
     setScraping(false);
     setTimeout(() => setScrapeMsg(null), 6000);

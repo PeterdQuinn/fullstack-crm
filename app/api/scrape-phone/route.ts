@@ -385,60 +385,22 @@ async function searchDirectories(name: string, city: string): Promise<PageData> 
   const q = encodeURIComponent(`${name} ${city}`);
   const loc = encodeURIComponent(city);
 
-  // Static sources — parse what we can without JS
-  const staticSources = [
+  const sources = [
     `https://www.yellowpages.com/search?search_terms=${q}&geo_location_terms=${loc}`,
-    `https://www.bbb.org/search?find_country=USA&find_text=${q}`,
-  ];
-
-  // JS-rendered sources — need Playwright
-  const renderedSources = [
     `https://www.yelp.com/search?find_desc=${q}&find_loc=${loc}`,
-    `https://www.facebook.com/search/pages/?q=${q}`,
   ];
 
-  const results: PageData[] = [];
-
-  // Static fetch first
-  const { default: pLimit } = await import("p-limit");
-  const limit = pLimit(3);
-  const staticResults = await Promise.allSettled(
-    staticSources.map((u) => limit(async () => {
+  const results = await Promise.allSettled(
+    sources.map(async (u) => {
       const html = await fetchStatic(u);
       return parsePage(html);
-    }))
+    })
   );
-  for (const r of staticResults) {
-    if (r.status === "fulfilled") results.push(r.value);
-  }
 
-  // Playwright for JS-heavy directories
   let merged = blankData();
-  for (const r of results) merged = mergeData(merged, r);
-
-  if (!merged.phone && !merged.owner) {
-    try {
-      const { chromium } = await import("playwright");
-      const browser = await chromium.launch({ headless: true });
-      try {
-        const ctx = await browser.newContext({ locale: "en-US" });
-        for (const url of renderedSources) {
-          if (merged.phone && merged.owner) break;
-          try {
-            const page = await ctx.newPage();
-            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 12000 });
-            await page.waitForTimeout(2000);
-            const html = await page.content();
-            await page.close();
-            merged = mergeData(merged, parsePage(html));
-          } catch {}
-        }
-      } finally {
-        await browser.close();
-      }
-    } catch {}
+  for (const r of results) {
+    if (r.status === "fulfilled") merged = mergeData(merged, r.value);
   }
-
   return merged;
 }
 
@@ -498,7 +460,35 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.error("[scrape] Phase2 failed:", e); }
   }
 
-  // Phase 3 — linkedom fallback on homepage html
+  // Phase 3 — Google cache (handles Cloudflare-blocked sites)
+  if (!data.phone) {
+    try {
+      const cacheHtml = await fetchStatic(`https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}&hl=en`);
+      data = mergeData(data, parsePage(cacheHtml));
+    } catch {}
+  }
+
+  // Phase 4 — Google search by business name (works even when site is blocked)
+  if (!data.phone && business_name) {
+    try {
+      const q = encodeURIComponent(`"${business_name}" ${city || ""} phone`);
+      const gHtml = await fetchStatic(`https://www.google.com/search?q=${q}&num=5`);
+      const $ = cheerio.load(gHtml);
+      const phone = extractPhone($);
+      if (phone) data.phone = phone;
+      if (!data.owner) { const owner = ownerFromJsonLd($) || ownerFromText($); if (owner) data.owner = owner; }
+    } catch {}
+  }
+
+  // Phase 5 — directory sites by business name
+  if (!data.phone && business_name) {
+    try {
+      const dirData = await searchDirectories(business_name, city || "");
+      data = mergeData(data, dirData);
+    } catch {}
+  }
+
+  // Phase 6 — linkedom fallback on homepage html
   if ((!data.phone || !data.owner) && homeHtml) {
     const fallback = await linkedomFallback(homeHtml);
     if (!data.phone && fallback.phone) data.phone = fallback.phone;
