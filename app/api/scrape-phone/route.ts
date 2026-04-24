@@ -1,3 +1,5 @@
+export const maxDuration = 60;
+
 import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
@@ -337,45 +339,25 @@ async function fetchStatic(url: string): Promise<string> {
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.9",
     },
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(5000),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
 }
 
-async function fetchRendered(url: string): Promise<string> {
-  const { chromium } = await import("playwright");
-  const browser = await chromium.launch({ headless: true });
-  try {
-    const ctx = await browser.newContext({ locale: "en-US" });
-    const page = await ctx.newPage();
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
-    await page.waitForTimeout(1500);
-    return await page.content();
-  } finally {
-    await browser.close();
-  }
-}
-
-// ── multi-page crawl (p-limit + fetchStatic, crawlee-style concurrency) ──────
+// ── multi-page crawl ──────────────────────────────────────────────────────────
 
 async function crawlPages(urls: string[]): Promise<PageData[]> {
-  const { default: pLimit } = await import("p-limit");
-  const limit = pLimit(4);
-
   const settled = await Promise.allSettled(
-    urls.slice(0, 20).map((u) =>
-      limit(async () => {
-        const html = await fetchStatic(u);
-        if (!(await isEnglish(html))) return null;
-        return parsePage(html);
-      })
-    )
+    urls.slice(0, 6).map(async (u) => {
+      const html = await fetchStatic(u);
+      return parsePage(html);
+    })
   );
 
   return settled
-    .filter((r): r is PromiseFulfilledResult<PageData | null> => r.status === "fulfilled" && r.value != null)
-    .map((r) => r.value as PageData);
+    .filter((r): r is PromiseFulfilledResult<PageData> => r.status === "fulfilled")
+    .map((r) => r.value);
 }
 
 // ── linkedom fallback ─────────────────────────────────────────────────────────
@@ -493,15 +475,14 @@ export async function POST(req: NextRequest) {
 
   let data = blankData();
   let homeHtml = "";
-  let usedPlaywright = false;
 
-  // Phase 1 — fetch + cheerio on homepage
+  // Phase 1 — homepage
   try {
     homeHtml = await fetchStatic(url);
     data = parsePage(homeHtml);
-  } catch (e) { console.error("[scrape] Phase1 fetch failed:", e); }
+  } catch (e) { console.error("[scrape] Phase1 failed:", url, e); }
 
-  // Phase 2 — crawl contact/about/team subpages
+  // Phase 2 — contact/about/team subpages
   if (!isComplete(data)) {
     const discovered = homeHtml ? discoverLinks(homeHtml, base) : [];
     const staticUrls = STATIC_PATHS.map((p) => `${base.origin}${p}`);
@@ -514,33 +495,17 @@ export async function POST(req: NextRequest) {
         data = mergeData(data, r);
         if (isComplete(data)) break;
       }
-    } catch (e) { console.error("[scrape] Phase2 crawl failed:", e); }
+    } catch (e) { console.error("[scrape] Phase2 failed:", e); }
   }
 
-  // Phase 3 — playwright fallback for JS-rendered sites
-  if (!isComplete(data)) {
-    usedPlaywright = true;
-    try {
-      const { default: pLimit } = await import("p-limit");
-      const limit = pLimit(2);
-      const targets = [url, `${base.origin}/contact`, `${base.origin}/about`];
-      const htmls = await Promise.allSettled(targets.map((u) => limit(() => fetchRendered(u))));
-      for (const r of htmls) {
-        if (r.status !== "fulfilled") continue;
-        data = mergeData(data, parsePage(r.value));
-        if (isComplete(data)) break;
-      }
-    } catch (e) { console.error("[scrape] Phase3 playwright failed:", e); }
-  }
-
-  // Phase 4 — linkedom DOM fallback
+  // Phase 3 — linkedom fallback on homepage html
   if ((!data.phone || !data.owner) && homeHtml) {
     const fallback = await linkedomFallback(homeHtml);
     if (!data.phone && fallback.phone) data.phone = fallback.phone;
     if (!data.owner && fallback.owner) data.owner = fallback.owner;
   }
 
-  const confidence = computeScore(data) + (usedPlaywright ? 1 : 0);
+  const confidence = computeScore(data);
 
   return NextResponse.json({
     phone:            data.phone,
