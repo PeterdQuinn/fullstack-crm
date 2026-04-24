@@ -399,35 +399,44 @@ async function linkedomFallback(html: string): Promise<Partial<PageData>> {
 // ── directory / Google search ─────────────────────────────────────────────────
 
 async function searchByName(name: string, city: string): Promise<PageData> {
-  const isVercel = !!process.env.VERCEL;
   let merged = blankData();
+  const q = encodeURIComponent(`${name} ${city} phone number`);
 
-  // Local: use Playwright to hit Google — knowledge panel has tel: link
-  if (!isVercel) {
+  // DuckDuckGo HTML — no JS needed, bot-friendly, returns local business snippets
+  try {
+    const html = await fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`);
+    merged = mergeData(merged, parsePage(html));
+  } catch {}
+
+  if (merged.phone) return merged;
+
+  // Yellow Pages
+  try {
+    const yq = encodeURIComponent(`${name} ${city}`);
+    const loc = encodeURIComponent(city);
+    const html = await fetchStatic(`https://www.yellowpages.com/search?search_terms=${yq}&geo_location_terms=${loc}`);
+    merged = mergeData(merged, parsePage(html));
+  } catch {}
+
+  if (merged.phone) return merged;
+
+  // Local only: Playwright on Bing (less bot detection than Google)
+  if (!process.env.VERCEL) {
     try {
       const { chromium } = await import("playwright");
       const browser = await chromium.launch({ headless: true });
       try {
-        const ctx = await browser.newContext({ locale: "en-US" });
+        const ctx = await browser.newContext({
+          locale: "en-US",
+          userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        });
         const page = await ctx.newPage();
-        const q = encodeURIComponent(`${name} ${city}`);
-        await page.goto(`https://www.google.com/search?q=${q}&hl=en`, { waitUntil: "domcontentloaded", timeout: 12000 });
-        await page.waitForTimeout(1500);
+        await page.goto(`https://www.bing.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 12000 });
+        await page.waitForTimeout(1000);
         merged = mergeData(merged, parsePage(await page.content()));
-        await browser.close();
-      } catch { await browser.close(); }
+      } finally { await browser.close(); }
     } catch {}
   }
-
-  if (merged.phone) return merged;
-
-  // Fallback: static Yellow Pages
-  try {
-    const q = encodeURIComponent(`${name} ${city}`);
-    const loc = encodeURIComponent(city);
-    const html = await fetchStatic(`https://www.yellowpages.com/search?search_terms=${q}&geo_location_terms=${loc}`);
-    merged = mergeData(merged, parsePage(html));
-  } catch {}
 
   return merged;
 }
