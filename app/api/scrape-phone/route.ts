@@ -86,11 +86,28 @@ function normalizePhone(raw: string): string | null {
 
 function extractPhone($: cheerio.CheerioAPI): string | null {
   let phone: string | null = null;
+  // tel: links — most reliable
   $("a[href^='tel:']").each((_, el) => {
     if (phone) return;
     phone = normalizePhone($(el).attr("href")!.replace(/^tel:/i, ""));
   });
   if (phone) return phone;
+  // Google knowledge panel: data-attrid containing phone
+  $("[data-attrid*='phone'], [data-dtype='d3ifr'], [data-local-attribute='d3ifr']").each((_, el) => {
+    if (phone) return;
+    const n = normalizePhone($(el).text());
+    if (n) phone = n;
+  });
+  if (phone) return phone;
+  // Google spans with aria-label containing phone pattern
+  $("span[aria-label]").each((_, el) => {
+    if (phone) return;
+    const label = $(el).attr("aria-label") || "";
+    const n = normalizePhone(label);
+    if (n) phone = n;
+  });
+  if (phone) return phone;
+  // Plain text scan
   for (const m of ($("body").text().match(PHONE_RE) || [])) {
     const n = normalizePhone(m);
     if (n) return n;
@@ -495,16 +512,18 @@ export async function POST(req: NextRequest) {
     } catch {}
   }
 
-  // Phase 5 — Google search by business name
+  // Phase 5 — Google search by business name (knowledge panel has tel: links)
   if (!data.phone && business_name) {
     try {
-      const q = encodeURIComponent(`"${business_name}" ${city || ""} phone`);
-      const gHtml = await fetchStatic(`https://www.google.com/search?q=${q}&num=5`);
+      const q = encodeURIComponent(`${business_name} ${city || ""}`);
+      const gHtml = await fetchStatic(`https://www.google.com/search?q=${q}&num=5&hl=en`);
       const $ = cheerio.load(gHtml);
       const phone = extractPhone($);
       if (phone) data.phone = phone;
+      if (!data.email) { const email = extractEmail($); if (email) data.email = email; }
       if (!data.owner) { const owner = ownerFromJsonLd($) || ownerFromText($); if (owner) data.owner = owner; }
-    } catch {}
+      if (!data.address) { const addr = extractAddress($); if (addr) data.address = addr; }
+    } catch (e) { console.error("[scrape] Google search failed:", e); }
   }
 
   // Phase 6 — Yellow Pages + Yelp by business name
