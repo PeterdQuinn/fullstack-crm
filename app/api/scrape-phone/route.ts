@@ -331,14 +331,16 @@ function blankData(): PageData {
 // ── fetchers ──────────────────────────────────────────────────────────────────
 
 async function fetchStatic(url: string): Promise<string> {
-  const { gotScraping } = await import("got-scraping");
-  const res = await (gotScraping as any)({
-    url,
-    timeout: { request: 8000 },
-    retry: { limit: 2 },
-    headers: { "Accept-Language": "en-US,en;q=0.9" },
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+    signal: AbortSignal.timeout(8000),
   });
-  return res.body;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
 }
 
 async function fetchRendered(url: string): Promise<string> {
@@ -493,13 +495,13 @@ export async function POST(req: NextRequest) {
   let homeHtml = "";
   let usedPlaywright = false;
 
-  // Phase 1 — got-scraping + cheerio on homepage
+  // Phase 1 — fetch + cheerio on homepage
   try {
     homeHtml = await fetchStatic(url);
     data = parsePage(homeHtml);
-  } catch {}
+  } catch (e) { console.error("[scrape] Phase1 fetch failed:", e); }
 
-  // Phase 2 — crawlee: crawl contact/about/team subpages
+  // Phase 2 — crawl contact/about/team subpages
   if (!isComplete(data)) {
     const discovered = homeHtml ? discoverLinks(homeHtml, base) : [];
     const staticUrls = STATIC_PATHS.map((p) => `${base.origin}${p}`);
@@ -512,7 +514,7 @@ export async function POST(req: NextRequest) {
         data = mergeData(data, r);
         if (isComplete(data)) break;
       }
-    } catch {}
+    } catch (e) { console.error("[scrape] Phase2 crawl failed:", e); }
   }
 
   // Phase 3 — playwright fallback for JS-rendered sites
@@ -528,7 +530,7 @@ export async function POST(req: NextRequest) {
         data = mergeData(data, parsePage(r.value));
         if (isComplete(data)) break;
       }
-    } catch {}
+    } catch (e) { console.error("[scrape] Phase3 playwright failed:", e); }
   }
 
   // Phase 4 — linkedom DOM fallback
