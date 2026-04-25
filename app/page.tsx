@@ -13,6 +13,37 @@ const COMPANY_PHONE_RAW = "+16028459242";
 const COMPANY_EMAIL = "sales@fullstackservicesllc.net";
 const CALENDLY_LINK = "https://calendly.com/fullstackservicesllc/30min";
 
+const GATEKEEPER_SCRIPTS = [
+  {
+    situation: "Opening — owner name known",
+    line: "Hey, is [Owner Name] in?",
+  },
+  {
+    situation: "Opening — owner name unknown",
+    line: "Hey, who's the owner over there? Can you connect me with them real quick?",
+  },
+  {
+    situation: '"What\'s it about?"',
+    line: "It's about their current booking system — it'll take 60 seconds.",
+  },
+  {
+    situation: '"Can I take a message?"',
+    line: "I'd rather catch them directly — when's a good window today or tomorrow?",
+  },
+  {
+    situation: '"They\'re not available"',
+    line: "No problem — is there a direct number I can reach them on, or a better time to call back?",
+  },
+  {
+    situation: '"Who are you with?"',
+    line: "Full Stack Services — we work with [niche] businesses in the area on their scheduling software.",
+  },
+  {
+    situation: "They keep blocking — go around",
+    line: "Try calling before 8:30am or after 5pm — owner usually picks up directly.",
+  },
+];
+
 const TIE_DOWN_LINES = [
   "So you're using [X] right now — that's what you rely on daily, correct?",
   "So you're paying that every single month just to keep it running, right?",
@@ -61,6 +92,7 @@ export default function CRMDashboard() {
   const [showObjections, setShowObjections] = useState(true);
   const [tab, setTab] = useState<"details" | "calls" | "notes" | "meeting">("details");
   const [dbMode, setDbMode] = useState<"local" | "supabase">("local");
+  const [showDialer, setShowDialer] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -213,6 +245,7 @@ export default function CRMDashboard() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={deduplicateLeads} className="px-3 py-1.5 bg-yellow-500 text-white text-sm font-medium rounded-lg hover:bg-yellow-600 transition-colors">Remove Duplicates</button>
+          <button onClick={() => setShowDialer(true)} className="px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">⚡ Dial</button>
           <button onClick={() => setShowAddLead(true)} className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">+ Add Lead</button>
           <button onClick={() => setShowImport(true)} className="px-3 py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import CSV</button>
         </div>
@@ -234,6 +267,7 @@ export default function CRMDashboard() {
       </div>
       {showImport && <ImportModal onClose={() => setShowImport(false)} onImport={importLeads} />}
       {showAddLead && <AddLeadModal onClose={() => setShowAddLead(false)} onAdd={addSingleLead} />}
+      {showDialer && <DialerPanel leads={leads} onUpdateLead={updateLead} onAddCallLog={addCallLog} onClose={() => setShowDialer(false)} />}
     </div>
   );
 }
@@ -401,6 +435,7 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
 }
 
 function DetailsTab({ lead, updateLead, showScript, setShowScript, showPositioning, setShowPositioning, showTieDowns, setShowTieDowns, showObjections, setShowObjections }: any) {
+  const [showGatekeeper, setShowGatekeeper] = useState(true);
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -423,6 +458,7 @@ function DetailsTab({ lead, updateLead, showScript, setShowScript, showPositioni
       )}
       <div><label className="text-xs text-gray-400 uppercase tracking-wide">Next Follow-Up</label><input type="date" value={lead.next_follow_up_at ? lead.next_follow_up_at.split("T")[0] : ""} onChange={(e: any) => updateLead(lead.id, { next_follow_up_at: e.target.value ? `${e.target.value}T09:00:00` : undefined })} className="block w-full text-sm border rounded-lg px-3 py-2 mt-1 focus:outline-none focus:ring-2 focus:ring-brand/30" /></div>
 
+      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4"><button onClick={() => setShowGatekeeper(!showGatekeeper)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-orange-900 text-sm">🚪 Gatekeeper Scripts</span><span className="text-orange-600 text-xs flex-shrink-0">{showGatekeeper ? "Hide" : "Show"}</span></button>{showGatekeeper && <div className="mt-3 space-y-2">{GATEKEEPER_SCRIPTS.map((g, i) => <div key={i} className="rounded-lg bg-white/70 border border-orange-100 p-3"><div className="text-xs font-semibold uppercase tracking-wide text-orange-700">{g.situation}</div><div className="text-sm text-orange-900 mt-1 italic">&ldquo;{g.line}&rdquo;</div></div>)}</div>}</div>
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4"><button onClick={() => setShowScript(!showScript)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-amber-900 text-sm">📋 Call Script</span><span className="text-amber-600 text-xs flex-shrink-0">{showScript ? "Hide" : "Show"}</span></button>{showScript && <div className="mt-3 space-y-2">{GUIDED_QUESTIONS.map((q: string, i: number) => <div key={i} className="flex gap-2 text-sm"><span className="text-amber-600 font-bold flex-shrink-0">{i+1}.</span><span className="text-amber-900">{q}</span></div>)}</div>}</div>
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4"><button onClick={() => setShowPositioning(!showPositioning)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-blue-900 text-sm">💬 Positioning Lines</span><span className="text-blue-600 text-xs flex-shrink-0">{showPositioning ? "Hide" : "Show"}</span></button>{showPositioning && <div className="mt-3 space-y-1.5">{POSITIONING_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-blue-800 italic">&ldquo;{line}&rdquo;</div>)}</div>}</div>
       <div className="bg-violet-50 border border-violet-200 rounded-lg p-4"><button onClick={() => setShowTieDowns(!showTieDowns)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-violet-900 text-sm">🎯 Tie-Downs</span><span className="text-violet-600 text-xs flex-shrink-0">{showTieDowns ? "Hide" : "Show"}</span></button>{showTieDowns && <div className="mt-3 space-y-2">{TIE_DOWN_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-violet-800">&ldquo;{line}&rdquo;</div>)}</div>}</div>
@@ -546,6 +582,252 @@ function AddLeadModal({ onClose, onAdd }: { onClose: () => void; onAdd: (data: P
         <div className="mt-6 flex gap-3">
           <button onClick={onClose} className="flex-1 py-2.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
           <button onClick={handleSave} disabled={!form.business_name?.trim()} className="flex-1 py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Add Lead</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function buildQueue(leads: Lead[]): Lead[] {
+  const pri = (l: Lead) => {
+    if (l.next_follow_up_at && isPast(l.next_follow_up_at)) return 0;
+    if (l.status === "Interested") return 1;
+    if (l.status === "New")        return 2;
+    if (l.status === "No Answer")          return 4;
+    if (l.status === "Called")             return 5;
+    return 6;
+  };
+  return [...leads]
+    .filter((l) => l.status !== "Dead" && l.status !== "Booked")
+    .sort((a, b) => pri(a) - pri(b));
+}
+
+type ScrapeStatus = "queued" | "scraping" | "done" | "failed";
+
+function DialerPanel({
+  leads,
+  onUpdateLead,
+  onAddCallLog,
+  onClose,
+}: {
+  leads: Lead[];
+  onUpdateLead: (id: string, updates: Partial<Lead>) => Promise<void>;
+  onAddCallLog: (log: Omit<CallLog, "id" | "created_at">) => Promise<void>;
+  onClose: () => void;
+}) {
+  const queueIds = useRef(buildQueue(leads).map((l) => l.id)).current;
+  const [index, setIndex] = useState(0);
+  const [scrapeStatus, setScrapeStatus] = useState<Record<string, ScrapeStatus>>({});
+  const [outcome, setOutcome] = useState<CallOutcome>("No answer");
+  const [notes, setNotes] = useState("");
+  const [software, setSoftware] = useState("");
+  const [showGK, setShowGK] = useState(false);
+
+  const currentId   = queueIds[index] ?? null;
+  const currentLead = leads.find((l) => l.id === currentId) ?? null;
+
+  // Pre-scrape upcoming leads that are missing phones
+  useEffect(() => {
+    queueIds.slice(index, index + 4).forEach((id) => {
+      if (scrapeStatus[id]) return;
+      const lead = leads.find((l) => l.id === id);
+      if (!lead) return;
+      if (lead.phone && lead.phone !== "N/A") {
+        setScrapeStatus((p) => ({ ...p, [id]: "done" }));
+        return;
+      }
+      setScrapeStatus((p) => ({ ...p, [id]: "scraping" }));
+      fetch("/api/scrape-phone", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ website: lead.website, business_name: lead.business_name, city: lead.city }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          const u: Partial<Lead> = {};
+          if (data.phone)                                       u.phone = data.phone;
+          if (data.owner   && !lead.owner_name)                u.owner_name = data.owner;
+          if (data.email   && !lead.email)                     u.email = data.email;
+          if (data.current_software && !lead.current_software) u.current_software = data.current_software;
+          if (data.address && !lead.address)                   u.address = data.address;
+          if (Object.keys(u).length) onUpdateLead(id, u);
+          setScrapeStatus((p) => ({ ...p, [id]: "done" }));
+        })
+        .catch(() => setScrapeStatus((p) => ({ ...p, [id]: "failed" })));
+    });
+  }, [index]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function advance() {
+    setNotes(""); setSoftware(""); setOutcome("No answer");
+    if (index + 1 >= queueIds.length) { onClose(); return; }
+    setIndex((i) => i + 1);
+  }
+
+  function logAndNext() {
+    if (currentLead) {
+      onAddCallLog({
+        lead_id: currentLead.id,
+        called_at: now(),
+        outcome,
+        notes,
+        current_software: software || currentLead.current_software,
+      });
+    }
+    advance();
+  }
+
+  const isCurrentScraping = !!currentLead && !currentLead.phone && scrapeStatus[currentId!] === "scraping";
+  const upNext = queueIds.slice(index + 1, index + 4)
+    .map((id) => leads.find((l) => l.id === id))
+    .filter((l): l is Lead => !!l);
+
+  if (!currentLead) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <span className="text-white font-bold">⚡ Power Dialer</span>
+          <span className="text-gray-500 text-sm">
+            {index + 1} / {queueIds.length}
+          </span>
+          <div className="w-32 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${((index + 1) / queueIds.length) * 100}%` }} />
+          </div>
+        </div>
+        <button onClick={onClose} className="px-3 py-1.5 bg-gray-800 text-gray-400 text-sm rounded-lg hover:bg-gray-700">Stop</button>
+      </div>
+
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-xl mx-auto px-4 py-5 space-y-4">
+
+          {/* Current lead card */}
+          <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div className="min-w-0">
+                <h2 className="text-xl font-bold text-white leading-tight">{currentLead.business_name}</h2>
+                <p className="text-gray-400 text-sm mt-0.5">
+                  {currentLead.owner_name || "Owner unknown"} · {currentLead.city || "—"}
+                </p>
+                {currentLead.current_software && (
+                  <span className="inline-block mt-1.5 text-xs bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded-full">
+                    Uses {currentLead.current_software}
+                  </span>
+                )}
+              </div>
+              <span className={`text-xs px-2 py-1 rounded-full font-medium flex-shrink-0 ${STATUS_COLORS[currentLead.status]}`}>
+                {currentLead.status}
+              </span>
+            </div>
+
+            {/* Phone + actions */}
+            <div className="mb-3">
+              {isCurrentScraping ? (
+                <div className="flex items-center gap-2 text-yellow-400 text-sm">
+                  <div className="w-3.5 h-3.5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  Finding phone number…
+                </div>
+              ) : currentLead.phone && currentLead.phone !== "N/A" ? (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-2xl font-bold text-white tracking-wide">{currentLead.phone}</span>
+                  <a href={`https://voice.google.com/u/0/calls?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="px-4 py-2 bg-brand text-white font-semibold rounded-xl hover:bg-brand-dark text-sm">📞 Call</a>
+                  <a href={`https://voice.google.com/u/0/messages?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 text-sm">💬 Text</a>
+                </div>
+              ) : (
+                <span className="text-gray-600 text-sm">
+                  {scrapeStatus[currentLead.id] === "failed" ? "No number found" : "No phone number"}
+                </span>
+              )}
+            </div>
+            {currentLead.email && <p className="text-gray-500 text-xs">✉️ {currentLead.email}</p>}
+            {currentLead.address && <p className="text-gray-500 text-xs mt-0.5">📍 {currentLead.address}</p>}
+            {currentLead.website && currentLead.website !== "N/A" && (
+              <a href={currentLead.website.startsWith("http") ? currentLead.website : `https://${currentLead.website}`} target="_blank" rel="noreferrer" className="text-xs text-gray-600 hover:text-gray-400 mt-0.5 block truncate">🌐 {currentLead.website}</a>
+            )}
+          </div>
+
+          {/* Gatekeeper quick ref */}
+          <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
+            <button onClick={() => setShowGK(!showGK)} className="flex items-center justify-between w-full px-4 py-3 text-left">
+              <span className="text-orange-400 text-sm font-semibold">🚪 Gatekeeper Scripts</span>
+              <span className="text-gray-600 text-xs">{showGK ? "Hide" : "Show"}</span>
+            </button>
+            {showGK && (
+              <div className="px-4 pb-4 space-y-2">
+                {GATEKEEPER_SCRIPTS.map((g, i) => (
+                  <div key={i} className="bg-gray-800 rounded-lg p-3">
+                    <div className="text-xs font-semibold text-orange-500 uppercase tracking-wide">{g.situation}</div>
+                    <div className="text-sm text-gray-200 mt-1 italic">&ldquo;{g.line}&rdquo;</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Outcome */}
+          <div>
+            <p className="text-gray-500 text-xs uppercase tracking-wide mb-2">Outcome</p>
+            <div className="flex flex-wrap gap-2">
+              {CALL_OUTCOMES.map((o) => (
+                <button key={o} onClick={() => setOutcome(o)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${outcome === o ? "bg-purple-600 text-white" : "bg-gray-800 text-gray-300 hover:bg-gray-700"}`}>
+                  {o}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Software + notes */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-gray-500 text-xs uppercase tracking-wide">Their Software</label>
+              <input value={software} onChange={(e) => setSoftware(e.target.value)} placeholder="Jobber, HCP…" className="mt-1 w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-600/50" />
+            </div>
+            <div>
+              <label className="text-gray-500 text-xs uppercase tracking-wide">Quick Note</label>
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What happened…" className="mt-1 w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-600/50" />
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button onClick={advance} className="px-5 py-3 bg-gray-800 text-gray-400 font-medium rounded-xl hover:bg-gray-700 text-sm">Skip →</button>
+            <button onClick={logAndNext} className="flex-1 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 text-sm">Log & Next →</button>
+          </div>
+
+          {/* Up next */}
+          {upNext.length > 0 && (
+            <div>
+              <p className="text-gray-600 text-xs uppercase tracking-wide mb-2">Up Next</p>
+              <div className="space-y-1.5">
+                {upNext.map((lead) => (
+                  <div key={lead.id} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-gray-300 text-sm truncate">{lead.business_name}</div>
+                      {lead.current_software && <div className="text-gray-600 text-xs">Uses {lead.current_software}</div>}
+                    </div>
+                    <div className="flex-shrink-0 text-xs">
+                      {scrapeStatus[lead.id] === "scraping" ? (
+                        <span className="text-yellow-500 flex items-center gap-1"><div className="w-2.5 h-2.5 border border-yellow-500 border-t-transparent rounded-full animate-spin" />Scanning</span>
+                      ) : lead.phone && lead.phone !== "N/A" ? (
+                        <span className="text-green-500">✓ {lead.phone}</span>
+                      ) : scrapeStatus[lead.id] === "failed" ? (
+                        <span className="text-gray-700">No number</span>
+                      ) : (
+                        <span className="text-gray-700">—</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Done state */}
+          {index + 1 >= queueIds.length && (
+            <div className="text-center py-4 text-gray-500 text-sm">Last lead in queue</div>
+          )}
         </div>
       </div>
     </div>
