@@ -104,19 +104,20 @@ export const STATUS_COLORS: Record<LeadStatus, string> = {
 };
 
 export const GUIDED_QUESTIONS = [
-  "What are you currently using to handle your bookings right now?",
-  "Is that all done through one system or are you juggling calls, texts, and scheduling manually too?",
-  "How are most of your clients coming in right now — Google, referrals, ads, or something else?",
-  "What are you paying monthly for that setup right now?",
-  "If you stopped paying for it, would you lose access to that whole system?",
-  "What's the most frustrating part about what you're using right now?",
-  "If you could change one thing about your current process, what would it be?",
+  "What software are you currently using to run your jobs and bookings?",
+  "How many different tools are you paying for right now — like scheduling, invoicing, CRM, anything like that?",
+  "What are you paying total across all of those every month?",
+  "If you stopped paying tomorrow, would you lose access to all of that?",
+  "How long have you been on [software]? Has the price gone up since you started?",
+  "What's the most frustrating part about how your operation runs right now?",
+  "If you had a system built exactly for your business that you owned outright — no monthly fees — what would that be worth to you?",
 ];
 
 export const POSITIONING_LINES = [
-  "We're local here in Arizona.",
-  "We've also worked with businesses outside the country, including Britain.",
-  "We work across different sectors and niches, but right now we're focused on businesses like yours.",
-  "Most of the owners we talk to are already paying monthly for tools they don't own.",
-  "That's exactly why we're reaching out.",
+  "We're based right here in Arizona — we're not a national SaaS company, we're local.",
+  "We've built custom systems for landscapers, HVAC, plumbers, roofers, towing companies — businesses exactly like yours.",
+  "Every system we build is owned 100% by the client. No subscriptions, no lock-in, no vendor telling you what you can and can't do.",
+  "Most owners we talk to are spending $300 to $700 a month on software they'll never own. That's $4,000 to $8,000 a year, every year, forever.",
+  "We build it once, you own it forever. Your monthly cost drops to $99 to $199 for hosting. That's it.",
+  "The average client breaks even in under two years — and after that it's pure savings.",
 ];

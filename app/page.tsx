@@ -15,75 +15,100 @@ const CALENDLY_LINK = "https://calendly.com/fullstackservicesllc/30min";
 
 const GATEKEEPER_SCRIPTS = [
   {
-    situation: "🟢 OPENER — Standard",
-    line: "Hi, this is [Your Name] with Full Stack Services — is [Owner Name] available?",
-    note: "Say your name and company with confidence. You're not hiding anything. You're a professional calling to help their business.",
-  },
-  {
-    situation: "🟢 OPENER — If they push back immediately",
-    line: "Hi, this is [Your Name] calling from Full Stack Services for [Owner Name] — we work with [industry] businesses in the area and I've got something specific for them.",
-    note: "Lead with who you are and who you serve. Authority + relevance = transfers.",
+    situation: "🟢 OPENER",
+    line: "Hi, this is [Your Name] with Full Stack Services — I'm calling for [Owner Name].",
+    note: "State your name and company immediately, no hesitation. You're not hiding — you're a professional with something valuable. Confidence is your credibility.",
   },
   {
     situation: "🔴 \"What's this about?\"",
-    line: "We help [industry] businesses stop overpaying for software they don't own. I've got something specific to share with [Owner Name] — it'll take two minutes. Can you put me through?",
-    note: "You're not hiding the reason. You're here to help. Say it like you mean it.",
+    line: "We build custom software for [landscaping / HVAC / plumbing] businesses so they stop paying Jobber or Housecall Pro every month for something they'll never own. I have something specific for [Owner Name] — it takes two minutes.",
+    note: "Hit the exact tool they're using if you know it. Specific = credible. You're not selling — you're stopping them from wasting money.",
   },
   {
-    situation: "🔴 \"What's this about?\" — If they want more detail",
-    line: "Most [industry] businesses we talk to are paying $200–$500 a month for booking tools they'll never own. We built something that fixes that. [Owner Name] would want to hear this directly.",
-    note: "Speak to the money. Gatekeepers don't block calls that sound like they save the boss money.",
+    situation: "🔴 \"What's this about?\" — If they want more",
+    line: "Most [industry] owners we talk to are spending $300 to $600 a month on software subscriptions that disappear the second they stop paying. We eliminate that. [Owner Name] would want to know about this.",
+    note: "Use the real numbers. $300–$600/mo is $3,600–$7,200/year they'll never get back. Make it real.",
   },
   {
-    situation: "🔴 \"They're not available right now\"",
-    line: "No problem — what's the best time to reach [Owner Name] directly? I want to make sure I actually get them on the phone.",
-    note: "Get a specific time. Not 'can I call back' — 'when is the best time.' Assumes the callback is happening.",
+    situation: "🔴 \"They're not available\"",
+    line: "Got it — what time do they come in directly? I want to make sure I reach [Owner Name] personally, not just leave a message.",
+    note: "You're asking WHEN, not IF. The callback is happening — you're just scheduling it.",
   },
   {
     situation: "🔴 \"Can I take a message?\"",
-    line: "Sure — please let [Owner Name] know that [Your Name] from Full Stack Services called. We help [industry] businesses cut their monthly software costs, and I'll try back [tomorrow / specific day]. What time works best for them?",
-    note: "Leave a real message with your value prop. Then ask for a time — shows you're serious.",
+    line: "Yes — please tell [Owner Name] that [Your Name] from Full Stack Services called. We work with [industry] businesses in Arizona to help them own their software instead of renting it. They can reach me at [number]. I'll also follow up [specific day].",
+    note: "Own it. Specific message, specific follow-up day. You sound organized and serious — not like a random sales call.",
   },
   {
     situation: "🔴 \"Who are you with?\"",
-    line: "Full Stack Services — we work specifically with [industry] businesses in the area helping them get off monthly software subscriptions and actually own their systems. Is [Owner Name] in?",
-    note: "Don't shrink. Say it clearly, say what you do, then redirect. Confidence = credibility.",
+    line: "Full Stack Services — we're an Arizona-based software company. We build custom booking and operations systems for [industry] businesses so they stop bleeding money on monthly subscriptions. Is [Owner Name] around?",
+    note: "Local matters. 'Arizona-based' builds instant trust with Arizona business owners. Then redirect to the transfer.",
   },
   {
-    situation: "🔴 \"They're happy with what they have\"",
-    line: "That's great — I'm not here to replace what's working. I just want to make sure [Owner Name] knows what their options are. Two minutes, that's it. Can you let them know I'm on the line?",
-    note: "You're not attacking their current setup. You're expanding their awareness. Low threat.",
+    situation: "🔴 \"They're not interested\"",
+    line: "I hear you — and if after two minutes with [Owner Name] it doesn't make sense, I'll respect that completely. But right now they're paying [Jobber / HCP / their software] every single month for something they'll never own. They deserve to know there's another option. Can you put me through?",
+    note: "Don't fold. You're not pitching a product — you're stopping them from leaving money on the table. That's different.",
   },
   {
-    situation: "⚫ Completely blocked — leave a strong message",
-    line: "Please tell [Owner Name] that [Your Name] from Full Stack Services called. We work with [industry] businesses in [City] and we have something that's saving them real money every month. My number is [number]. I'll follow up [day].",
-    note: "A clear, confident message with a specific follow-up beats a vague one every time. They'll remember it.",
+    situation: "🔴 \"We already have someone handling our tech\"",
+    line: "Perfect — this isn't about replacing your tech person. This is about [Owner Name] owning the software their team runs on instead of renting it forever. Two different things. Is [Owner Name] available?",
+    note: "Reframe fast. You're not competing with their IT guy. You're talking to the owner about an asset they should own.",
   },
   {
-    situation: "⚫ Go around — call at owner hours",
-    line: "Call before 8:30am or after 5pm. Owners answer their own phones. No gatekeeper.",
-    note: "This isn't a script. It's the move. Do it.",
+    situation: "⚫ Hard block — strong voicemail",
+    line: "Please tell [Owner Name] that [Your Name] from Full Stack Services called. We've built custom software for [industry] businesses in Arizona and eliminated $400 to $700 in monthly subscription costs. If that's relevant to them, my number is [number]. I'll follow up [specific day] as well.",
+    note: "Lead with the dollar amount you eliminate. That's the hook. Specific follow-up day shows you mean business.",
+  },
+  {
+    situation: "⚫ Nothing works — go around",
+    line: "Call before 8:30am or after 5:30pm. Owner picks up direct. No gatekeeper. Different energy entirely.",
+    note: "Early morning and after hours are when owners answer for themselves. Same number, different result.",
   },
 ];
 
 const TIE_DOWN_LINES = [
-  "So you're using [X] right now — that's what you rely on daily, correct?",
-  "So you're paying that every single month just to keep it running, right?",
-  "And if you stopped paying, you lose access to everything — that's how it works, correct?",
-  "That's been frustrating for a while now, hasn't it?",
-  "So you're paying monthly, you don't own it, and it's not doing everything you need — fair to say?",
-  "If there was a better way to handle that without being locked into that, you'd at least want to see it, right?",
+  "So you're on [Jobber / Housecall Pro / software] right now — that's the main system you run your jobs through, correct?",
+  "And you're paying that every single month just to keep access to it — that's how it works, right?",
+  "So if you stopped paying tomorrow, you'd lose the whole thing — scheduling, client history, everything?",
+  "And that price has probably gone up since you first signed up, hasn't it?",
+  "So between [software 1] and [software 2], you're looking at what — $400, $500 a month just to keep the lights on?",
+  "So you're paying monthly, you don't own any of it, and if they raise the price you just have to deal with it — fair to say?",
+  "If you could have the exact same functionality — built specifically for your business — and own it outright, you'd at least want to see what that looks like, right?",
 ];
 
 const OBJECTION_REBUTTALS = [
-  { objection: "I'm not interested", rebuttal: "Totally — quick question, are you not interested because everything's perfect, or you just haven't looked at other options yet?" },
-  { objection: "We're good with what we have", rebuttal: "Yeah, most people say that at first — until they look at what they've paid over the last year. You're still paying monthly on that, right?" },
-  { objection: "It's too expensive", rebuttal: "Compared to what you're already paying monthly, or just in general? You're already spending on this — we're just talking about owning it instead of renting it." },
-  { objection: "Send me info", rebuttal: "I can send something over — it just won't make much sense without seeing it. Let's lock in a quick 10 minutes and I'll send it right after." },
-  { objection: "I'm busy", rebuttal: "Yeah I figured — that's why I said quick. This is literally just to see if it even makes sense or not." },
-  { objection: "Call me later", rebuttal: "Yeah no problem — what's better for you, later today or tomorrow morning?" },
-  { objection: "We don't have budget", rebuttal: "Totally — that's actually why most people take the call. They're already spending monthly, they just don't realize how much over time." },
-  { objection: "Gatekeeper blocks you", rebuttal: "Yeah I totally get it — just let them know it's about their current booking system and what they're paying for it. It'll make sense." },
+  {
+    objection: "I'm not interested",
+    rebuttal: "I hear you — real quick, is that because everything's running perfectly, or just because you haven't had time to look at other options? Because most owners say that until they see what they've actually spent in the last 12 months.",
+  },
+  {
+    objection: "We're happy with Jobber / Housecall Pro",
+    rebuttal: "That's fine — Jobber works. But you're renting it. You're paying them every month and the second you stop, it's gone. We're just saying you could own that same functionality. Doesn't hurt to see the numbers.",
+  },
+  {
+    objection: "It's too expensive",
+    rebuttal: "Compared to what you're already paying? You're spending $400 to $600 a month right now on software you'll never own. A custom build pays itself off in under two years — after that you're keeping that money every month.",
+  },
+  {
+    objection: "We don't have the budget right now",
+    rebuttal: "Totally get it — that's actually why most owners take the call. You're already spending the budget. We're just talking about redirecting it into something you own instead of renting forever.",
+  },
+  {
+    objection: "Send me some info",
+    rebuttal: "I can do that — but honestly it won't hit the same without walking through your specific setup. Takes 20 minutes. If it doesn't make sense for your business, I'll tell you that on the call.",
+  },
+  {
+    objection: "I'm busy / bad time",
+    rebuttal: "100% — that's exactly why I'm not asking for much. 20 minutes, I show you what you're currently spending, what a build would cost, and when you'd break even. You decide if it makes sense. When's better — tomorrow morning or later this week?",
+  },
+  {
+    objection: "We already have someone handling our website",
+    rebuttal: "This isn't about your website — it's about the software you're running your business on. Jobber, Housecall Pro, your scheduling, your invoicing — we replace all of that with one system you own outright.",
+  },
+  {
+    objection: "We're locked into a contract",
+    rebuttal: "Perfect — that gives us time to build it before your contract ends. By the time you're out, your system is ready and you never have to renew. When does that contract expire?",
+  },
 ];
 
 function uid() { return crypto.randomUUID(); }
