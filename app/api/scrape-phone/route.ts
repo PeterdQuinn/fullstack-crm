@@ -355,7 +355,6 @@ async function launchBrowser() {
     const { chromium: pw } = await import("playwright-core");
     return pw.launch({
       args: chromium.args,
-      defaultViewport: chromium.defaultViewport,
       executablePath: await chromium.executablePath(),
       headless: true,
     });
