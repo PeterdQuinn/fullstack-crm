@@ -683,139 +683,238 @@ function DialerPanel({
 
   if (!currentLead) return null;
 
+  const outcomeColors: Record<string, string> = {
+    "No answer":             "bg-gray-100 text-gray-700 border-gray-200",
+    "Left voicemail":        "bg-gray-100 text-gray-700 border-gray-200",
+    "Spoke with gatekeeper": "bg-orange-100 text-orange-800 border-orange-200",
+    "Spoke with owner":      "bg-blue-100 text-blue-800 border-blue-200",
+    "Callback requested":    "bg-yellow-100 text-yellow-800 border-yellow-200",
+    "Not interested":        "bg-red-100 text-red-800 border-red-200",
+    "Interested":            "bg-emerald-100 text-emerald-800 border-emerald-200",
+    "Booked meeting":        "bg-green-100 text-green-900 border-green-300",
+  };
+  const outcomeSelected: Record<string, string> = {
+    "No answer":             "bg-gray-600 text-white border-gray-600",
+    "Left voicemail":        "bg-gray-600 text-white border-gray-600",
+    "Spoke with gatekeeper": "bg-orange-500 text-white border-orange-500",
+    "Spoke with owner":      "bg-blue-600 text-white border-blue-600",
+    "Callback requested":    "bg-yellow-500 text-white border-yellow-500",
+    "Not interested":        "bg-red-500 text-white border-red-500",
+    "Interested":            "bg-emerald-600 text-white border-emerald-600",
+    "Booked meeting":        "bg-green-600 text-white border-green-600",
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-gray-950 flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-white font-bold">⚡ Power Dialer</span>
-          <span className="text-gray-500 text-sm">
-            {index + 1} / {queueIds.length}
-          </span>
-          <div className="w-32 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-            <div className="h-full bg-purple-500 rounded-full transition-all" style={{ width: `${((index + 1) / queueIds.length) * 100}%` }} />
+    <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col overflow-hidden">
+
+      {/* ── Top bar ── */}
+      <div className="bg-white border-b px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-sm font-bold">⚡</span>
+          </div>
+          <div className="min-w-0">
+            <div className="font-bold text-gray-900 text-sm sm:text-base">Power Dialer</div>
+            <div className="text-xs text-gray-400">Lead {index + 1} of {queueIds.length} — work through each one in order</div>
           </div>
         </div>
-        <button onClick={onClose} className="px-3 py-1.5 bg-gray-800 text-gray-400 text-sm rounded-lg hover:bg-gray-700">Stop</button>
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="hidden sm:flex items-center gap-2">
+            <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-full bg-purple-500 rounded-full transition-all duration-300" style={{ width: `${((index + 1) / queueIds.length) * 100}%` }} />
+            </div>
+            <span className="text-xs text-gray-400">{Math.round(((index + 1) / queueIds.length) * 100)}%</span>
+          </div>
+          <button onClick={onClose} className="px-3 py-1.5 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">Stop Dialing</button>
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="max-w-xl mx-auto px-4 py-5 space-y-4">
+        <div className="max-w-2xl mx-auto px-4 py-5 space-y-4">
 
-          {/* Current lead card */}
-          <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800">
-            <div className="flex items-start justify-between gap-3 mb-4">
-              <div className="min-w-0">
-                <h2 className="text-xl font-bold text-white leading-tight">{currentLead.business_name}</h2>
-                <p className="text-gray-400 text-sm mt-0.5">
-                  {currentLead.owner_name || "Owner unknown"} · {currentLead.city || "—"}
-                </p>
-                {currentLead.current_software && (
-                  <span className="inline-block mt-1.5 text-xs bg-blue-900/60 text-blue-300 px-2 py-0.5 rounded-full">
-                    Uses {currentLead.current_software}
-                  </span>
+          {/* ── STEP 1: Who you're calling ── */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="bg-purple-600 px-5 py-2.5 flex items-center justify-between">
+              <span className="text-white font-bold text-sm">STEP 1 — Review the lead</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium bg-white/20 text-white`}>{currentLead.status}</span>
+            </div>
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="min-w-0">
+                  <h2 className="text-2xl font-bold text-gray-900 leading-tight">{currentLead.business_name}</h2>
+                  <p className="text-gray-500 text-sm mt-0.5">
+                    {currentLead.owner_name ? <><span className="font-medium text-gray-700">Ask for: {currentLead.owner_name}</span></> : "Owner name unknown — ask who's in charge"}
+                    {currentLead.city ? ` · ${currentLead.city}` : ""}
+                  </p>
+                </div>
+              </div>
+              {currentLead.current_software && (
+                <div className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-sm px-3 py-1 rounded-full border border-blue-100 mb-3">
+                  <span className="font-medium">Currently uses:</span> {currentLead.current_software}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-500">
+                {currentLead.email    && <div>✉️ {currentLead.email}</div>}
+                {currentLead.address  && <div>📍 {currentLead.address}</div>}
+                {currentLead.website && currentLead.website !== "N/A" && (
+                  <a href={currentLead.website.startsWith("http") ? currentLead.website : `https://${currentLead.website}`} target="_blank" rel="noreferrer" className="text-brand hover:underline truncate">🌐 {currentLead.website}</a>
                 )}
               </div>
-              <span className={`text-xs px-2 py-1 rounded-full font-medium flex-shrink-0 ${STATUS_COLORS[currentLead.status]}`}>
-                {currentLead.status}
-              </span>
             </div>
-
-            {/* Phone + actions */}
-            <div className="mb-3">
-              {isCurrentScraping ? (
-                <div className="flex items-center gap-2 text-yellow-400 text-sm">
-                  <div className="w-3.5 h-3.5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                  Finding phone number…
-                </div>
-              ) : currentLead.phone && currentLead.phone !== "N/A" ? (
-                <div className="flex items-center gap-3 flex-wrap">
-                  <span className="text-2xl font-bold text-white tracking-wide">{currentLead.phone}</span>
-                  <a href={`https://voice.google.com/u/0/calls?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="px-4 py-2 bg-brand text-white font-semibold rounded-xl hover:bg-brand-dark text-sm">📞 Call</a>
-                  <a href={`https://voice.google.com/u/0/messages?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="px-4 py-2 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 text-sm">💬 Text</a>
-                </div>
-              ) : (
-                <span className="text-gray-600 text-sm">
-                  {scrapeStatus[currentLead.id] === "failed" ? "No number found" : "No phone number"}
-                </span>
-              )}
-            </div>
-            {currentLead.email && <p className="text-gray-500 text-xs">✉️ {currentLead.email}</p>}
-            {currentLead.address && <p className="text-gray-500 text-xs mt-0.5">📍 {currentLead.address}</p>}
-            {currentLead.website && currentLead.website !== "N/A" && (
-              <a href={currentLead.website.startsWith("http") ? currentLead.website : `https://${currentLead.website}`} target="_blank" rel="noreferrer" className="text-xs text-gray-600 hover:text-gray-400 mt-0.5 block truncate">🌐 {currentLead.website}</a>
-            )}
           </div>
 
-          {/* Gatekeeper quick ref */}
-          <div className="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden">
-            <button onClick={() => setShowGK(!showGK)} className="flex items-center justify-between w-full px-4 py-3 text-left">
-              <span className="text-orange-400 text-sm font-semibold">🚪 Gatekeeper Scripts</span>
-              <span className="text-gray-600 text-xs">{showGK ? "Hide" : "Show"}</span>
+          {/* ── STEP 2: Make the call ── */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="bg-green-600 px-5 py-2.5">
+              <span className="text-white font-bold text-sm">STEP 2 — Make the call</span>
+            </div>
+            <div className="p-5">
+              {isCurrentScraping ? (
+                <div className="flex items-center gap-3 py-2">
+                  <div className="w-5 h-5 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  <div>
+                    <div className="font-medium text-gray-800 text-sm">Finding phone number…</div>
+                    <div className="text-xs text-gray-400">This takes about 30 seconds. It will appear automatically.</div>
+                  </div>
+                </div>
+              ) : currentLead.phone && currentLead.phone !== "N/A" ? (
+                <div>
+                  <div className="text-3xl font-bold text-gray-900 tracking-wide mb-3">{currentLead.phone}</div>
+                  <div className="flex gap-3 flex-wrap">
+                    <a href={`https://voice.google.com/u/0/calls?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors text-base shadow-sm">
+                      📞 Click to Call
+                    </a>
+                    <a href={`https://voice.google.com/u/0/messages?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer"
+                      className="flex items-center gap-2 px-5 py-3 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition-colors text-sm">
+                      💬 Send Text Instead
+                    </a>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-2">Opens in Google Voice. Dial and wait for someone to pick up.</p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 py-2">
+                  <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 text-red-500">✕</div>
+                  <div>
+                    <div className="font-medium text-gray-700 text-sm">No phone number found</div>
+                    <div className="text-xs text-gray-400">Click Skip to move to the next lead.</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── Gatekeeper scripts — always visible ── */}
+          <div className="bg-orange-50 rounded-2xl border border-orange-200 overflow-hidden">
+            <button onClick={() => setShowGK(!showGK)} className="flex items-center justify-between w-full px-5 py-3 text-left">
+              <div>
+                <div className="font-bold text-orange-900 text-sm">🚪 If Someone Else Answers (Gatekeeper)</div>
+                <div className="text-orange-700 text-xs mt-0.5">Use these lines to get to the owner — tap to {showGK ? "hide" : "show"}</div>
+              </div>
+              <span className="text-orange-400 text-lg">{showGK ? "▲" : "▼"}</span>
             </button>
             {showGK && (
-              <div className="px-4 pb-4 space-y-2">
+              <div className="px-5 pb-5 space-y-2">
                 {GATEKEEPER_SCRIPTS.map((g, i) => (
-                  <div key={i} className="bg-gray-800 rounded-lg p-3">
-                    <div className="text-xs font-semibold text-orange-500 uppercase tracking-wide">{g.situation}</div>
-                    <div className="text-sm text-gray-200 mt-1 italic">&ldquo;{g.line}&rdquo;</div>
+                  <div key={i} className="bg-white rounded-xl border border-orange-100 p-3.5">
+                    <div className="text-xs font-bold uppercase tracking-wide text-orange-600 mb-1">{g.situation}</div>
+                    <div className="text-sm text-gray-800 italic">&ldquo;{g.line}&rdquo;</div>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Outcome */}
-          <div>
-            <p className="text-gray-500 text-xs uppercase tracking-wide mb-2">Outcome</p>
-            <div className="flex flex-wrap gap-2">
-              {CALL_OUTCOMES.map((o) => (
-                <button key={o} onClick={() => setOutcome(o)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${outcome === o ? "bg-purple-600 text-white" : "bg-gray-800 text-gray-300 hover:bg-gray-700"}`}>
-                  {o}
+          {/* ── STEP 3: What happened ── */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="bg-blue-600 px-5 py-2.5">
+              <span className="text-white font-bold text-sm">STEP 3 — What happened on the call?</span>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-sm text-gray-500 mb-3">Tap the button that best describes what happened. Required before moving on.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {CALL_OUTCOMES.map((o) => (
+                    <button key={o} onClick={() => setOutcome(o)}
+                      className={`px-3 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all text-left ${outcome === o ? outcomeSelected[o] : outcomeColors[o]}`}>
+                      {o === "No answer"             && "📵 "}
+                      {o === "Left voicemail"        && "📨 "}
+                      {o === "Spoke with gatekeeper" && "🚪 "}
+                      {o === "Spoke with owner"      && "🗣️ "}
+                      {o === "Callback requested"    && "📅 "}
+                      {o === "Not interested"        && "❌ "}
+                      {o === "Interested"            && "✅ "}
+                      {o === "Booked meeting"        && "🎯 "}
+                      {o}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">What software are they using? <span className="text-gray-300 font-normal normal-case">(if known)</span></label>
+                  <input value={software} onChange={(e) => setSoftware(e.target.value)} placeholder="e.g. Jobber, Housecall Pro, none…"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Quick note <span className="text-gray-300 font-normal normal-case">(optional)</span></label>
+                  <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. said to call back Thursday…"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── STEP 4: Log and move on ── */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="bg-gray-700 px-5 py-2.5">
+              <span className="text-white font-bold text-sm">STEP 4 — Save and go to the next lead</span>
+            </div>
+            <div className="p-5">
+              <p className="text-sm text-gray-500 mb-4">
+                Once you've logged the outcome above, hit the button below. Your call will be saved automatically.
+                {index + 1 >= queueIds.length ? " This is the last lead." : ` Next up: ${upNext[0]?.business_name ?? "—"}`}
+              </p>
+              <div className="flex gap-3">
+                <button onClick={advance}
+                  className="px-5 py-3 border border-gray-200 text-gray-500 font-medium rounded-xl hover:bg-gray-50 transition-colors text-sm">
+                  Skip (don't log)
                 </button>
-              ))}
+                <button onClick={logAndNext}
+                  className="flex-1 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-colors text-base shadow-sm">
+                  {index + 1 >= queueIds.length ? "✓ Save & Finish" : "✓ Save & Next Lead →"}
+                </button>
+              </div>
             </div>
           </div>
 
-          {/* Software + notes */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-gray-500 text-xs uppercase tracking-wide">Their Software</label>
-              <input value={software} onChange={(e) => setSoftware(e.target.value)} placeholder="Jobber, HCP…" className="mt-1 w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-600/50" />
-            </div>
-            <div>
-              <label className="text-gray-500 text-xs uppercase tracking-wide">Quick Note</label>
-              <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What happened…" className="mt-1 w-full bg-gray-800 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-purple-600/50" />
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-3">
-            <button onClick={advance} className="px-5 py-3 bg-gray-800 text-gray-400 font-medium rounded-xl hover:bg-gray-700 text-sm">Skip →</button>
-            <button onClick={logAndNext} className="flex-1 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 text-sm">Log & Next →</button>
-          </div>
-
-          {/* Up next */}
+          {/* ── Up Next ── */}
           {upNext.length > 0 && (
             <div>
-              <p className="text-gray-600 text-xs uppercase tracking-wide mb-2">Up Next</p>
-              <div className="space-y-1.5">
-                {upNext.map((lead) => (
-                  <div key={lead.id} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Coming up next</p>
+              <div className="space-y-2">
+                {upNext.map((lead, i) => (
+                  <div key={lead.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-gray-300 text-sm truncate">{lead.business_name}</div>
-                      {lead.current_software && <div className="text-gray-600 text-xs">Uses {lead.current_software}</div>}
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded-full bg-gray-100 text-gray-500 text-xs flex items-center justify-center font-bold flex-shrink-0">{index + 2 + i}</span>
+                        <span className="text-gray-800 text-sm font-medium truncate">{lead.business_name}</span>
+                      </div>
+                      {lead.current_software && <div className="text-gray-400 text-xs ml-7">Uses {lead.current_software}</div>}
                     </div>
-                    <div className="flex-shrink-0 text-xs">
+                    <div className="flex-shrink-0 text-xs font-medium">
                       {scrapeStatus[lead.id] === "scraping" ? (
-                        <span className="text-yellow-500 flex items-center gap-1"><div className="w-2.5 h-2.5 border border-yellow-500 border-t-transparent rounded-full animate-spin" />Scanning</span>
+                        <span className="text-amber-600 flex items-center gap-1">
+                          <div className="w-2.5 h-2.5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                          Finding #
+                        </span>
                       ) : lead.phone && lead.phone !== "N/A" ? (
-                        <span className="text-green-500">✓ {lead.phone}</span>
+                        <span className="text-green-600">✓ Ready</span>
                       ) : scrapeStatus[lead.id] === "failed" ? (
-                        <span className="text-gray-700">No number</span>
+                        <span className="text-gray-400">No number</span>
                       ) : (
-                        <span className="text-gray-700">—</span>
+                        <span className="text-gray-300">—</span>
                       )}
                     </div>
                   </div>
@@ -824,10 +923,6 @@ function DialerPanel({
             </div>
           )}
 
-          {/* Done state */}
-          {index + 1 >= queueIds.length && (
-            <div className="text-center py-4 text-gray-500 text-sm">Last lead in queue</div>
-          )}
         </div>
       </div>
     </div>
