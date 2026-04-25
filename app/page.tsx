@@ -15,32 +15,54 @@ const CALENDLY_LINK = "https://calendly.com/fullstackservicesllc/30min";
 
 const GATEKEEPER_SCRIPTS = [
   {
-    situation: "Opening — owner name known",
-    line: "Hey, is [Owner Name] in?",
+    situation: "🟢 OPENER — You know the owner's name",
+    line: "Hey — is [First Name] around?",
+    note: "Say it casual. Like you know them. Don't introduce yourself yet — that triggers the block.",
   },
   {
-    situation: "Opening — owner name unknown",
-    line: "Hey, who's the owner over there? Can you connect me with them real quick?",
+    situation: "🟢 OPENER — You don't know the name",
+    line: "Hey, who's the owner over there? I need to grab them for two seconds.",
+    note: "Don't say 'I'm calling from...' — just ask directly. Confident = gets through.",
   },
   {
-    situation: '"What\'s it about?"',
-    line: "It's about their current booking system — it'll take 60 seconds.",
+    situation: "🔴 \"What's this about?\"",
+    line: "It's about what they're currently paying for their scheduling software. It's specific to their business — they'd want to hear it directly.",
+    note: "Don't over-explain. Vague + relevant = she can't kill it without looking bad.",
   },
   {
-    situation: '"Can I take a message?"',
-    line: "I'd rather catch them directly — when's a good window today or tomorrow?",
+    situation: "🔴 \"What's this about?\" — Second option",
+    line: "I saw something on their website I wanted to run by them real quick. It won't take long — can you grab them?",
+    note: "Pattern interrupt. She doesn't know what you saw. Creates curiosity.",
   },
   {
-    situation: '"They\'re not available"',
-    line: "No problem — is there a direct number I can reach them on, or a better time to call back?",
+    situation: "🔴 \"They're not available\"",
+    line: "Got it — when do they usually answer direct? I want to make sure I actually get them.",
+    note: "You're not asking IF you can call back. You're asking WHEN. Assumes it's happening.",
   },
   {
-    situation: '"Who are you with?"',
-    line: "Full Stack Services — we work with [niche] businesses in the area on their scheduling software.",
+    situation: "🔴 \"Can I take a message?\"",
+    line: "I appreciate that — they won't know what it's about from a message though. What time do they pick up direct? I'll call back then.",
+    note: "Polite but firm. Message = death. Push for a time.",
   },
   {
-    situation: "They keep blocking — go around",
-    line: "Try calling before 8:30am or after 5pm — owner usually picks up directly.",
+    situation: "🔴 \"Who are you with?\"",
+    line: "Full Stack Services — we work with businesses in the area on their tech setup. It's relevant to what they're already spending. Can you connect me?",
+    note: "Don't pitch. Just enough to sound legit. Then redirect to the transfer.",
+  },
+  {
+    situation: "🔴 \"They're not interested\" (before they even talked to you)",
+    line: "Totally fair — real quick, do you know if they're locked into a contract with their current system? I just want to make sure it even makes sense before I take up their time.",
+    note: "Disarm + qualify. Now she's doing your job for you. Owner often jumps in.",
+  },
+  {
+    situation: "⚫ Hard block — nothing is working",
+    line: "Hey I hear you — can you just let [First Name] know that [your name] from Full Stack called about their booking software and what they're paying monthly? If it's not relevant they won't call back — but they usually do.",
+    note: "Leave a message that creates curiosity. 'They usually do' is a pattern interrupt.",
+  },
+  {
+    situation: "⚫ Nuclear option — go around completely",
+    line: "Call back before 8am or after 5pm. Owner picks up direct. Gatekeeper isn't there.",
+    note: "No script needed. Just call at a different time.",
   },
 ];
 
@@ -458,7 +480,7 @@ function DetailsTab({ lead, updateLead, showScript, setShowScript, showPositioni
       )}
       <div><label className="text-xs text-gray-400 uppercase tracking-wide">Next Follow-Up</label><input type="date" value={lead.next_follow_up_at ? lead.next_follow_up_at.split("T")[0] : ""} onChange={(e: any) => updateLead(lead.id, { next_follow_up_at: e.target.value ? `${e.target.value}T09:00:00` : undefined })} className="block w-full text-sm border rounded-lg px-3 py-2 mt-1 focus:outline-none focus:ring-2 focus:ring-brand/30" /></div>
 
-      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4"><button onClick={() => setShowGatekeeper(!showGatekeeper)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-orange-900 text-sm">🚪 Gatekeeper Scripts</span><span className="text-orange-600 text-xs flex-shrink-0">{showGatekeeper ? "Hide" : "Show"}</span></button>{showGatekeeper && <div className="mt-3 space-y-2">{GATEKEEPER_SCRIPTS.map((g, i) => <div key={i} className="rounded-lg bg-white/70 border border-orange-100 p-3"><div className="text-xs font-semibold uppercase tracking-wide text-orange-700">{g.situation}</div><div className="text-sm text-orange-900 mt-1 italic">&ldquo;{g.line}&rdquo;</div></div>)}</div>}</div>
+      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4"><button onClick={() => setShowGatekeeper(!showGatekeeper)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-orange-900 text-sm">🚪 Gatekeeper Scripts</span><span className="text-orange-600 text-xs flex-shrink-0">{showGatekeeper ? "Hide" : "Show"}</span></button>{showGatekeeper && <div className="mt-3 space-y-2">{GATEKEEPER_SCRIPTS.map((g, i) => <div key={i} className="rounded-lg bg-white/70 border border-orange-100 p-3"><div className="text-xs font-bold text-orange-700 mb-1">{g.situation}</div><div className="text-sm text-gray-900 font-medium italic mb-1">&ldquo;{g.line}&rdquo;</div>{(g as any).note && <div className="text-xs text-gray-400">{(g as any).note}</div>}</div>)}</div>}</div>
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4"><button onClick={() => setShowScript(!showScript)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-amber-900 text-sm">📋 Call Script</span><span className="text-amber-600 text-xs flex-shrink-0">{showScript ? "Hide" : "Show"}</span></button>{showScript && <div className="mt-3 space-y-2">{GUIDED_QUESTIONS.map((q: string, i: number) => <div key={i} className="flex gap-2 text-sm"><span className="text-amber-600 font-bold flex-shrink-0">{i+1}.</span><span className="text-amber-900">{q}</span></div>)}</div>}</div>
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4"><button onClick={() => setShowPositioning(!showPositioning)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-blue-900 text-sm">💬 Positioning Lines</span><span className="text-blue-600 text-xs flex-shrink-0">{showPositioning ? "Hide" : "Show"}</span></button>{showPositioning && <div className="mt-3 space-y-1.5">{POSITIONING_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-blue-800 italic">&ldquo;{line}&rdquo;</div>)}</div>}</div>
       <div className="bg-violet-50 border border-violet-200 rounded-lg p-4"><button onClick={() => setShowTieDowns(!showTieDowns)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-violet-900 text-sm">🎯 Tie-Downs</span><span className="text-violet-600 text-xs flex-shrink-0">{showTieDowns ? "Hide" : "Show"}</span></button>{showTieDowns && <div className="mt-3 space-y-2">{TIE_DOWN_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-violet-800">&ldquo;{line}&rdquo;</div>)}</div>}</div>
@@ -817,8 +839,9 @@ function DialerPanel({
               <div className="px-5 pb-5 space-y-2">
                 {GATEKEEPER_SCRIPTS.map((g, i) => (
                   <div key={i} className="bg-white rounded-xl border border-orange-100 p-3.5">
-                    <div className="text-xs font-bold uppercase tracking-wide text-orange-600 mb-1">{g.situation}</div>
-                    <div className="text-sm text-gray-800 italic">&ldquo;{g.line}&rdquo;</div>
+                    <div className="text-xs font-bold text-orange-700 mb-1.5">{g.situation}</div>
+                    <div className="text-sm text-gray-900 font-medium italic mb-1">&ldquo;{g.line}&rdquo;</div>
+                    {(g as any).note && <div className="text-xs text-gray-400">{(g as any).note}</div>}
                   </div>
                 ))}
               </div>
