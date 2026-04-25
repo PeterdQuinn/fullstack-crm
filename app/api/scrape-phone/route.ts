@@ -412,180 +412,158 @@ async function linkedomFallback(html: string): Promise<Partial<PageData>> {
   } catch { return {}; }
 }
 
-// ── directory / Google search ─────────────────────────────────────────────────
-
-async function searchByName(name: string, city: string): Promise<PageData> {
-  let merged = blankData();
-  const q = encodeURIComponent(`${name} ${city} phone number`);
-
-  // DuckDuckGo HTML — no JS needed, bot-friendly, returns local business snippets
-  try {
-    const html = await fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`);
-    merged = mergeData(merged, parsePage(html));
-  } catch {}
-
-  if (merged.phone) return merged;
-
-  // Yellow Pages
-  try {
-    const yq = encodeURIComponent(`${name} ${city}`);
-    const loc = encodeURIComponent(city);
-    const html = await fetchStatic(`https://www.yellowpages.com/search?search_terms=${yq}&geo_location_terms=${loc}`);
-    merged = mergeData(merged, parsePage(html));
-  } catch {}
-
-  if (merged.phone) return merged;
-
-  // Playwright on Bing (less bot detection than Google)
-  try {
-    const browser = await launchBrowser();
-    try {
-      const ctx = await browser.newContext({
-        locale: "en-US",
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      });
-      const page = await ctx.newPage();
-      await page.goto(`https://www.bing.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 12000 });
-      await page.waitForTimeout(1000);
-      merged = mergeData(merged, parsePage(await page.content()));
-    } finally { await browser.close(); }
-  } catch {}
-
-  return merged;
-}
-
 // ── handler ───────────────────────────────────────────────────────────────────
 
-export async function POST(req: NextRequest) {
-  const raw = await req.json();
-  const business_name: string = raw.business_name || "";
-  const city: string = raw.city || "";
-  // Treat "N/A", empty, or missing as no website
-  const website: string = (raw.website && raw.website !== "N/A" && raw.website.trim() !== "") ? raw.website.trim() : "";
-
-  // No website — search directories by name
-  if (!website) {
-    if (!business_name) return NextResponse.json({ error: "No website or business name provided", confidence: 0 });
-    const data = await searchByName(business_name, city || "");
-    return NextResponse.json({
-      phone:            data.phone,
-      owner:            data.owner,
-      email:            data.email,
-      current_software: data.current_software,
-      booking_detected: data.booking_detected,
-      facebook_url:     data.social.facebook || null,
-      instagram_url:    data.social.instagram || null,
-      linkedin_url:     data.social.linkedin || null,
-      technologies:     data.technologies.join(", ") || null,
-      description:      data.description,
-      address:          data.address,
-      confidence:       computeScore(data),
-    });
-  }
-
-  const url = website.startsWith("http") ? website : `https://${website}`;
-  let base: URL;
-  try { base = new URL(url); } catch {
-    return NextResponse.json({ error: "Invalid URL", confidence: 0 });
-  }
-
-  let data = blankData();
-  let homeHtml = "";
-
-  // Phase 1 — homepage
-  try {
-    homeHtml = await fetchStatic(url);
-    data = parsePage(homeHtml);
-  } catch (e) { console.error("[scrape] Phase1 failed:", url, e); }
-
-  // Phase 2 — contact/about/team subpages
-  if (!isComplete(data)) {
-    const discovered = homeHtml ? discoverLinks(homeHtml, base) : [];
-    const staticUrls = STATIC_PATHS.map((p) => `${base.origin}${p}`);
-    const candidates = [...new Set([...discovered, ...staticUrls])].filter(
-      (u) => u !== url && u !== `${url}/`
-    );
-    try {
-      const subResults = await crawlPages(candidates);
-      for (const r of subResults) {
-        data = mergeData(data, r);
-        if (isComplete(data)) break;
-      }
-    } catch (e) { console.error("[scrape] Phase2 failed:", e); }
-  }
-
-  // Phase 3 — Playwright (works locally and on Vercel via @sparticuz/chromium)
-  if (!isComplete(data)) {
-    try {
-      const browser = await launchBrowser();
-      try {
-        const ctx = await browser.newContext({ locale: "en-US" });
-        const targets = [url, `${base.origin}/contact`, `${base.origin}/about`];
-        for (const target of targets) {
-          if (isComplete(data)) break;
-          try {
-            const page = await ctx.newPage();
-            await page.goto(target, { waitUntil: "domcontentloaded", timeout: 12000 });
-            await page.waitForTimeout(1500);
-            data = mergeData(data, parsePage(await page.content()));
-            await page.close();
-          } catch {}
-        }
-      } finally { await browser.close(); }
-    } catch (e) { console.error("[scrape] Playwright failed:", e); }
-  }
-
-  // Phase 4 — Google cache (handles Cloudflare-blocked sites)
-  if (!data.phone) {
-    try {
-      const cacheHtml = await fetchStatic(`https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(url)}&hl=en`);
-      data = mergeData(data, parsePage(cacheHtml));
-    } catch {}
-  }
-
-  // Phase 5 — Google search by business name (knowledge panel has tel: links)
-  if (!data.phone && business_name) {
-    try {
-      const q = encodeURIComponent(`${business_name} ${city || ""}`);
-      const gHtml = await fetchStatic(`https://www.google.com/search?q=${q}&num=5&hl=en`);
-      const $ = cheerio.load(gHtml);
-      const phone = extractPhone($);
-      if (phone) data.phone = phone;
-      if (!data.email) { const email = extractEmail($); if (email) data.email = email; }
-      if (!data.owner) { const owner = ownerFromJsonLd($) || ownerFromText($); if (owner) data.owner = owner; }
-      if (!data.address) { const addr = extractAddress($); if (addr) data.address = addr; }
-    } catch (e) { console.error("[scrape] Google search failed:", e); }
-  }
-
-  // Phase 6 — Yellow Pages + Yelp by business name
-  if (!data.phone && business_name) {
-    try {
-      const dirData = await searchByName(business_name, city || "");
-      data = mergeData(data, dirData);
-    } catch {}
-  }
-
-  // Phase 7 — linkedom fallback on homepage html
-  if ((!data.phone || !data.owner) && homeHtml) {
-    const fallback = await linkedomFallback(homeHtml);
-    if (!data.phone && fallback.phone) data.phone = fallback.phone;
-    if (!data.owner && fallback.owner) data.owner = fallback.owner;
-  }
-
-  const confidence = computeScore(data);
-
+function buildResponse(data: PageData) {
   return NextResponse.json({
     phone:            data.phone,
     owner:            data.owner,
     email:            data.email,
     current_software: data.current_software,
     booking_detected: data.booking_detected,
-    facebook_url:     data.social.facebook || null,
+    facebook_url:     data.social.facebook  || null,
     instagram_url:    data.social.instagram || null,
-    linkedin_url:     data.social.linkedin || null,
+    linkedin_url:     data.social.linkedin  || null,
     technologies:     data.technologies.join(", ") || null,
     description:      data.description,
     address:          data.address,
-    confidence,
+    confidence:       computeScore(data),
   });
+}
+
+async function playwrightPage(ctx: any, url: string, wait = 2000): Promise<string> {
+  const page = await ctx.newPage();
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 12000 });
+    await page.waitForTimeout(wait);
+    return await page.content();
+  } finally { await page.close(); }
+}
+
+export async function POST(req: NextRequest) {
+  const raw = await req.json();
+  const business_name: string = raw.business_name || "";
+  const city: string          = raw.city || "";
+  const website: string       = (raw.website && raw.website !== "N/A" && raw.website.trim() !== "")
+    ? raw.website.trim() : "";
+
+  let data = blankData();
+
+  // ── no website: search directories only ──────────────────────────────────────
+  if (!website) {
+    if (!business_name) return NextResponse.json({ error: "No website or business name provided", confidence: 0 });
+
+    const q   = encodeURIComponent(`${business_name} ${city} phone number`);
+    const yq  = encodeURIComponent(`${business_name} ${city}`);
+    const loc = encodeURIComponent(city);
+
+    // DuckDuckGo + YellowPages (static, fast)
+    await Promise.allSettled([
+      fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`).then((h) => { data = mergeData(data, parsePage(h)); }),
+      fetchStatic(`https://www.yellowpages.com/search?search_terms=${yq}&geo_location_terms=${loc}`).then((h) => { data = mergeData(data, parsePage(h)); }),
+    ]);
+
+    // Playwright: Google + Bing for knowledge panel
+    let browser: any = null;
+    try {
+      browser = await launchBrowser();
+      const ctx = await browser.newContext({ locale: "en-US" });
+      for (const searchUrl of [
+        `https://www.google.com/search?q=${q}&hl=en`,
+        `https://www.bing.com/search?q=${q}`,
+      ]) {
+        if (data.phone && data.owner) break;
+        try {
+          data = mergeData(data, parsePage(await playwrightPage(ctx, searchUrl, 1500)));
+        } catch {}
+      }
+    } catch (e) { console.error("[scrape] browser search failed:", e); }
+    finally { if (browser) await browser.close().catch(() => {}); }
+
+    return buildResponse(data);
+  }
+
+  // ── has website ───────────────────────────────────────────────────────────────
+  const url = website.startsWith("http") ? website : `https://${website}`;
+  let base: URL;
+  try { base = new URL(url); } catch { return NextResponse.json({ error: "Invalid URL", confidence: 0 }); }
+
+  let homeHtml = "";
+
+  // Phase 1 — static homepage
+  try { homeHtml = await fetchStatic(url); data = parsePage(homeHtml); } catch {}
+
+  // Phase 2 — static subpages (parallel)
+  if (!isComplete(data)) {
+    const discovered  = homeHtml ? discoverLinks(homeHtml, base) : [];
+    const staticUrls  = STATIC_PATHS.map((p) => `${base.origin}${p}`);
+    const candidates  = [...new Set([...discovered, ...staticUrls])].filter((u) => u !== url && u !== `${url}/`);
+    try {
+      const results = await crawlPages(candidates);
+      for (const r of results) { data = mergeData(data, r); if (isComplete(data)) break; }
+    } catch {}
+  }
+
+  // Phase 3 — single Playwright browser: website crawl + Google search
+  let browser: any = null;
+  try {
+    browser = await launchBrowser();
+    const ctx = await browser.newContext({ locale: "en-US" });
+
+    // 3a — crawl website pages (more pages than before)
+    if (!isComplete(data)) {
+      const targets = [
+        url,
+        `${base.origin}/contact`,
+        `${base.origin}/contact-us`,
+        `${base.origin}/about`,
+        `${base.origin}/about-us`,
+        `${base.origin}/team`,
+        `${base.origin}/our-team`,
+        `${base.origin}/staff`,
+      ];
+      for (const target of targets) {
+        if (isComplete(data)) break;
+        try { data = mergeData(data, parsePage(await playwrightPage(ctx, target, 2000))); } catch {}
+      }
+    }
+
+    // 3b — Google knowledge panel (run whenever owner OR phone OR address is missing)
+    if (business_name && (!data.phone || !data.owner || !data.address)) {
+      try {
+        const q = encodeURIComponent(`${business_name} ${city}`);
+        data = mergeData(data, parsePage(await playwrightPage(ctx, `https://www.google.com/search?q=${q}&hl=en`, 1500)));
+      } catch {}
+    }
+
+    // 3c — Bing as extra phone/owner source
+    if (business_name && (!data.phone || !data.owner)) {
+      try {
+        const q = encodeURIComponent(`${business_name} ${city} phone`);
+        data = mergeData(data, parsePage(await playwrightPage(ctx, `https://www.bing.com/search?q=${q}`, 1000)));
+      } catch {}
+    }
+
+  } catch (e) { console.error("[scrape] Playwright failed:", e); }
+  finally { if (browser) await browser.close().catch(() => {}); }
+
+  // Phase 4 — static directory fallbacks
+  if (!data.phone && business_name) {
+    const q   = encodeURIComponent(`${business_name} ${city} phone number`);
+    const yq  = encodeURIComponent(`${business_name} ${city}`);
+    const loc = encodeURIComponent(city);
+    await Promise.allSettled([
+      fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`).then((h) => { data = mergeData(data, parsePage(h)); }),
+      fetchStatic(`https://www.yellowpages.com/search?search_terms=${yq}&geo_location_terms=${loc}`).then((h) => { data = mergeData(data, parsePage(h)); }),
+    ]);
+  }
+
+  // Phase 5 — linkedom fallback on homepage html
+  if ((!data.phone || !data.owner) && homeHtml) {
+    const fallback = await linkedomFallback(homeHtml);
+    if (!data.phone && fallback.phone) data.phone = fallback.phone;
+    if (!data.owner && fallback.owner) data.owner = fallback.owner;
+  }
+
+  return buildResponse(data);
 }
