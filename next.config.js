@@ -9,6 +9,8 @@ const nextConfig = {
     "got-scraping",
     "header-generator",
     "playwright",
+    "playwright-core",
+    "@sparticuz/chromium",
     "@crawlee/cheerio",
     "@crawlee/http",
     "@crawlee/core",

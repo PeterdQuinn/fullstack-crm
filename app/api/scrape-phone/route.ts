@@ -347,6 +347,23 @@ function blankData(): PageData {
   return { phone: null, owner: null, email: null, current_software: null, booking_detected: false, social: {}, technologies: [], description: null, address: null };
 }
 
+// ── browser launcher ─────────────────────────────────────────────────────────
+
+async function launchBrowser() {
+  if (process.env.VERCEL) {
+    const chromium = (await import("@sparticuz/chromium")).default;
+    const { chromium: pw } = await import("playwright-core");
+    return pw.launch({
+      args: chromium.args,
+      defaultViewport: chromium.defaultViewport,
+      executablePath: await chromium.executablePath(),
+      headless: true,
+    });
+  }
+  const { chromium } = await import("playwright");
+  return chromium.launch({ headless: true });
+}
+
 // ── fetchers ──────────────────────────────────────────────────────────────────
 
 async function fetchStatic(url: string): Promise<string> {
@@ -420,23 +437,20 @@ async function searchByName(name: string, city: string): Promise<PageData> {
 
   if (merged.phone) return merged;
 
-  // Local only: Playwright on Bing (less bot detection than Google)
-  if (!process.env.VERCEL) {
+  // Playwright on Bing (less bot detection than Google)
+  try {
+    const browser = await launchBrowser();
     try {
-      const { chromium } = await import("playwright");
-      const browser = await chromium.launch({ headless: true });
-      try {
-        const ctx = await browser.newContext({
-          locale: "en-US",
-          userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        });
-        const page = await ctx.newPage();
-        await page.goto(`https://www.bing.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 12000 });
-        await page.waitForTimeout(1000);
-        merged = mergeData(merged, parsePage(await page.content()));
-      } finally { await browser.close(); }
-    } catch {}
-  }
+      const ctx = await browser.newContext({
+        locale: "en-US",
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      });
+      const page = await ctx.newPage();
+      await page.goto(`https://www.bing.com/search?q=${q}`, { waitUntil: "domcontentloaded", timeout: 12000 });
+      await page.waitForTimeout(1000);
+      merged = mergeData(merged, parsePage(await page.content()));
+    } finally { await browser.close(); }
+  } catch {}
 
   return merged;
 }
@@ -501,12 +515,10 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.error("[scrape] Phase2 failed:", e); }
   }
 
-  // Phase 3 — Playwright (local only — Vercel has no Chromium)
-  const isVercel = !!process.env.VERCEL;
-  if (!isComplete(data) && !isVercel) {
+  // Phase 3 — Playwright (works locally and on Vercel via @sparticuz/chromium)
+  if (!isComplete(data)) {
     try {
-      const { chromium } = await import("playwright");
-      const browser = await chromium.launch({ headless: true });
+      const browser = await launchBrowser();
       try {
         const ctx = await browser.newContext({ locale: "en-US" });
         const targets = [url, `${base.origin}/contact`, `${base.origin}/about`];
