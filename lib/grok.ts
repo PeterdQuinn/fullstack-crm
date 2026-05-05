@@ -20,7 +20,7 @@ interface LeadData {
 }
 
 async function callHuggingFace(prompt: string): Promise<string> {
-  const response = await fetch("https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1", {
+  const response = await fetch("https://api-inference.huggingface.co/models/meta-llama/Llama-2-7b-chat-hf", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -28,10 +28,6 @@ async function callHuggingFace(prompt: string): Promise<string> {
     },
     body: JSON.stringify({
       inputs: prompt,
-      parameters: {
-        max_new_tokens: 500,
-        temperature: 0.7,
-      },
     }),
   });
 
@@ -40,7 +36,10 @@ async function callHuggingFace(prompt: string): Promise<string> {
   }
 
   const data = await response.json();
-  return data[0].generated_text || data[0];
+  if (Array.isArray(data)) {
+    return data[0]?.generated_text || JSON.stringify(data[0]);
+  }
+  return JSON.stringify(data);
 }
 
 async function callTogether(prompt: string): Promise<string> {
@@ -67,8 +66,8 @@ async function callTogether(prompt: string): Promise<string> {
 }
 
 async function callOllama(prompt: string): Promise<string> {
-  const baseUrl = process.env.OLLAMA_BASE_URL || "https://ollama.com/api";
-  const response = await fetch(`${baseUrl}/generate`, {
+  const baseUrl = process.env.OLLAMA_BASE_URL || "https://ollama.com";
+  const response = await fetch(`${baseUrl}/api/generate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
