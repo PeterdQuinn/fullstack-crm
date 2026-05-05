@@ -89,7 +89,10 @@ async function callOllama(prompt: string): Promise<string> {
 }
 
 export async function generateLeadSummary(lead: LeadData): Promise<GrokSummary> {
-  const prompt = `Analyze this business and generate a cold email sales summary.
+  let response: string;
+
+  try {
+    const prompt = `Analyze this business and generate a cold email sales summary.
 
 Business: ${lead.business_name}
 Owner: ${lead.owner_name || "Unknown"}
@@ -111,19 +114,27 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
   "missing_data_needed": ["list", "of", "missing", "info"]
 }`;
 
-  let response: string;
-  try {
-    response = await callHuggingFace(prompt);
-  } catch (error) {
-    console.warn("HF failed, trying Ollama:", error);
-    response = await callOllama(prompt);
-  }
+    try {
+      response = await callHuggingFace(prompt);
+    } catch (error) {
+      console.warn("HF failed, trying Together:", error);
+      response = await callTogether(prompt);
+    }
 
-  try {
     return JSON.parse(response);
   } catch (error) {
-    console.error("Failed to parse response:", response);
-    throw new Error("Invalid response format");
+    console.warn("AI APIs failed, using rule-based fallback");
+    const score = await scoreLead(lead);
+    return {
+      main_pain_point: `Using ${lead.current_software || "software"} without customization`,
+      pain_reason: `Off-the-shelf software doesn't fit their exact workflow`,
+      best_attack_angle: `Custom software built for their specific business`,
+      recommended_first_message: `Hi ${lead.owner_name || "there"},\n\nI noticed ${lead.business_name} is using ${lead.current_software || "software"}. Most ${lead.industry || "businesses"} are paying $300-700/month on software they don't fully own.\n\nWe build custom solutions that save owners like you thousands per year.\n\nWorth a quick conversation?`,
+      recommended_follow_up: `Just following up on my last message about custom software for ${lead.business_name}.\n\nMany businesses like yours have cut software costs in half by switching to owned solutions.\n\nLet me know if you're open to exploring it.`,
+      lead_score: score,
+      confidence_level: score > 70 ? "high" : score > 50 ? "medium" : "low",
+      missing_data_needed: []
+    };
   }
 }
 
