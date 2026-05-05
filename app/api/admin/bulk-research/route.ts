@@ -67,6 +67,32 @@ export async function POST(req: NextRequest) {
             results.found += Object.keys(updates).length;
             console.log(`✓ Updated ${lead.business_name} with ${Object.keys(updates).length} fields`);
           }
+
+          // Save social links to lead_socials table
+          const socials = [
+            { platform: "linkedin", url: scrapedData.linkedin_url },
+            { platform: "facebook", url: scrapedData.facebook_url },
+            { platform: "instagram", url: scrapedData.instagram_url },
+            { platform: "twitter", url: scrapedData.twitter_url },
+          ].filter(s => s.url);
+
+          for (const social of socials) {
+            try {
+              await supabase.from("lead_socials").upsert({
+                lead_id: lead.id,
+                platform: social.platform,
+                url: social.url,
+                is_active: true,
+              });
+            } catch (err) {
+              // Ignore conflicts
+            }
+          }
+
+          if (socials.length > 0) {
+            results.found += socials.length;
+            console.log(`✓ Added ${socials.length} social profiles for ${lead.business_name}`);
+          }
         }
 
         // Rate limit
