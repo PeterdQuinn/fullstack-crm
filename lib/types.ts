@@ -31,6 +31,10 @@ export interface Lead {
   next_follow_up_at?: string;
   meeting_booked: boolean;
   meeting_date?: string;
+  opt_out?: boolean;
+  bounced?: boolean;
+  complained?: boolean;
+  email_sent_count?: number;
   created_at: string;
   updated_at: string;
 }
