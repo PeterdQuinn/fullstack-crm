@@ -30,11 +30,15 @@ create table if not exists leads (
   apollo_account_id text,
   current_software text,
   monthly_spend_estimate text,
-  status text default 'New' check (status in ('New','Called','No Answer','Follow-Up','Interested','Booked','Dead')),
+  status text default 'New' check (status in ('New','Called','No Answer','Follow-Up','Interested','Booked','Dead','Needs Data','Ready for AI Summary','Ready for Outreach','Email 1 Sent','Email 2 Sent','Email 3 Sent','DM Needed','DM Sent','Call Needed','Called','Follow-Up Scheduled','Replied','Interested','Booking Link Sent','Booked','Onboarding Sent','Onboarding Completed','Won','Lost','No Response','Do Not Contact','Bad Data','Bad Email')),
   last_called_at timestamptz,
   next_follow_up_at timestamptz,
   meeting_booked boolean default false,
   meeting_date timestamptz,
+  opt_out boolean default false,
+  bounced boolean default false,
+  complained boolean default false,
+  email_sent_count integer default 0,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -103,3 +107,118 @@ create policy "Allow all on leads" on leads for all using (true) with check (tru
 create policy "Allow all on call_logs" on call_logs for all using (true) with check (true);
 create policy "Allow all on lead_notes" on lead_notes for all using (true) with check (true);
 create policy "Allow all on appointments" on appointments for all using (true) with check (true);
+
+-- AUTOMATION LAYER TABLES
+
+-- LEAD AI SUMMARIES TABLE
+create table if not exists lead_ai_summaries (
+  id uuid default gen_random_uuid() primary key,
+  lead_id uuid not null references leads(id) on delete cascade,
+  main_pain_point text,
+  pain_reason text,
+  best_attack_angle text,
+  recommended_first_message text,
+  recommended_follow_up text,
+  lead_score integer,
+  confidence_level text check (confidence_level in ('low', 'medium', 'high')),
+  missing_data_needed jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(lead_id)
+);
+
+-- LEAD SOCIALS TABLE
+create table if not exists lead_socials (
+  id uuid default gen_random_uuid() primary key,
+  lead_id uuid not null references leads(id) on delete cascade,
+  platform text not null,
+  url text,
+  username text,
+  is_active boolean default false,
+  last_post_date timestamptz,
+  followers_count integer,
+  last_checked_at timestamptz,
+  created_at timestamptz default now()
+);
+
+-- OUTREACH LOG TABLE
+create table if not exists outreach_log (
+  id uuid default gen_random_uuid() primary key,
+  lead_id uuid not null references leads(id) on delete cascade,
+  channel text not null,
+  direction text,
+  message_type text,
+  subject text,
+  message_body text,
+  status text,
+  provider text,
+  provider_message_id text,
+  sent_at timestamptz,
+  delivered_at timestamptz,
+  opened_at timestamptz,
+  clicked_at timestamptz,
+  replied_at timestamptz,
+  bounced_at timestamptz,
+  failed_at timestamptz,
+  created_at timestamptz default now()
+);
+
+-- FOLLOW UP TASKS TABLE
+create table if not exists follow_up_tasks (
+  id uuid default gen_random_uuid() primary key,
+  lead_id uuid not null references leads(id) on delete cascade,
+  outreach_log_id uuid references outreach_log(id) on delete set null,
+  task_type text not null,
+  due_at timestamptz not null,
+  status text default 'pending' check (status in ('pending', 'completed', 'cancelled')),
+  notes text,
+  completed_at timestamptz,
+  created_at timestamptz default now()
+);
+
+-- BOOKING TRACKER TABLE
+create table if not exists booking_tracker (
+  id uuid default gen_random_uuid() primary key,
+  lead_id uuid not null references leads(id) on delete cascade,
+  booking_status text,
+  booking_link_sent_at timestamptz,
+  booked_at timestamptz,
+  call_time timestamptz,
+  no_show boolean default false,
+  onboarding_sent boolean default false,
+  onboarding_completed boolean default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique(lead_id)
+);
+
+-- AUTOMATION INDEXES
+create index if not exists idx_lead_ai_summaries_lead_id on lead_ai_summaries(lead_id);
+create index if not exists idx_lead_socials_lead_id on lead_socials(lead_id);
+create index if not exists idx_outreach_log_lead_id on outreach_log(lead_id);
+create index if not exists idx_outreach_log_channel on outreach_log(channel);
+create index if not exists idx_follow_up_tasks_lead_id on follow_up_tasks(lead_id);
+create index if not exists idx_follow_up_tasks_due_at on follow_up_tasks(due_at);
+create index if not exists idx_booking_tracker_lead_id on booking_tracker(lead_id);
+
+-- TRIGGERS FOR AUTOMATION TABLES
+create trigger lead_ai_summaries_updated_at
+  before update on lead_ai_summaries
+  for each row execute function update_updated_at();
+
+create trigger booking_tracker_updated_at
+  before update on booking_tracker
+  for each row execute function update_updated_at();
+
+-- RLS FOR AUTOMATION TABLES
+alter table lead_ai_summaries enable row level security;
+alter table lead_socials enable row level security;
+alter table outreach_log enable row level security;
+alter table follow_up_tasks enable row level security;
+alter table booking_tracker enable row level security;
+
+create policy "Allow all on lead_ai_summaries" on lead_ai_summaries for all using (true) with check (true);
+create policy "Allow all on lead_socials" on lead_socials for all using (true) with check (true);
+create policy "Allow all on outreach_log" on outreach_log for all using (true) with check (true);
+create policy "Allow all on follow_up_tasks" on follow_up_tasks for all using (true) with check (true);
+create policy "Allow all on booking_tracker" on booking_tracker for all using (true) with check (true);

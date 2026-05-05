@@ -1,8 +1,3 @@
-"""
-Scrapes phone numbers from company websites for leads missing a phone.
-Run: python3 scripts/scrape_phones.py
-Outputs: scripts/scraped_phones.csv
-"""
 
 import csv
 import re

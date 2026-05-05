@@ -137,9 +137,11 @@ export default function CRMDashboard() {
   const [showPositioning, setShowPositioning] = useState(true);
   const [showTieDowns, setShowTieDowns] = useState(true);
   const [showObjections, setShowObjections] = useState(true);
-  const [tab, setTab] = useState<"details" | "calls" | "notes" | "meeting">("details");
+  const [tab, setTab] = useState<"details" | "calls" | "notes" | "meeting" | "email" | "replies" | "bookings" | "onboarding" | "activity">("details");
   const [dbMode, setDbMode] = useState<"local" | "supabase">("local");
   const [showDialer, setShowDialer] = useState(false);
+  const [generatingAI, setGeneratingAI] = useState(false);
+  const [leadScores, setLeadScores] = useState<Record<string, number>>({})
 
   useEffect(() => {
     async function init() {
@@ -151,6 +153,7 @@ export default function CRMDashboard() {
         // Sync any PRELOADED_LEADS not yet in Supabase
         const existingKeys = new Set(existing.map(dedupKey));
         const missing = PRELOADED_LEADS
+          .filter(l => l.niche === "Landscaping" || l.niche === "HVAC")
           .map((l) => ({ ...l, id: uid(), created_at: now(), updated_at: now() } as Lead))
           .filter((l) => !existingKeys.has(dedupKey(l)));
         if (missing.length > 0) {
@@ -158,7 +161,7 @@ export default function CRMDashboard() {
         }
 
         // Auto-dedup on load
-        const allLeads = [...missing, ...existing];
+        const allLeads = [...missing, ...existing].filter(l => l.niche === "Landscaping" || l.niche === "HVAC");
         const seenKeys = new Set<string>();
         const dupeIds: string[] = [];
         for (const l of [...allLeads].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())) {
@@ -167,7 +170,9 @@ export default function CRMDashboard() {
         if (dupeIds.length > 0) await Promise.all(dupeIds.map((id) => supabase.from("leads").delete().eq("id", id)));
         setLeads(allLeads.filter((l) => !dupeIds.includes(l.id)));
       } else {
-        setLeads(PRELOADED_LEADS.map((l) => ({ ...l, id: uid(), created_at: now(), updated_at: now() } as Lead)));
+        setLeads(PRELOADED_LEADS
+          .filter(l => l.niche === "Landscaping" || l.niche === "HVAC")
+          .map((l) => ({ ...l, id: uid(), created_at: now(), updated_at: now() } as Lead)));
       }
     }
     init();
@@ -185,6 +190,15 @@ export default function CRMDashboard() {
       setAppointments((prev) => prev.filter((a) => a.lead_id === selectedId));
     }
   }, [selectedId, dbMode]);
+
+  useEffect(() => {
+    if (dbMode !== "supabase" || leads.length === 0) return;
+    supabase.from("lead_ai_summaries").select("lead_id, lead_score").then(({ data }: any) => {
+      const scores: Record<string, number> = {};
+      (data || []).forEach((s: any) => { if (s.lead_score) scores[s.lead_id] = s.lead_score; });
+      setLeadScores(scores);
+    });
+  }, [leads, dbMode]);
 
   const selected = leads.find((l) => l.id === selectedId) || null;
 
@@ -270,6 +284,26 @@ export default function CRMDashboard() {
     return unique.length;
   }
 
+  async function bulkGenerateAI() {
+    if (!window.confirm(`Generate AI summaries for ${leads.length} leads? This will use API credits.`)) return;
+    setGeneratingAI(true);
+    let count = 0;
+    for (const lead of leads.slice(0, 50)) {
+      try {
+        await fetch("/api/ai/summarize", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leadId: lead.id }),
+        });
+        count++;
+      } catch (error) {
+        console.error(`Failed to generate for ${lead.business_name}`);
+      }
+    }
+    setGeneratingAI(false);
+    alert(`Generated AI summaries for ${count} leads`);
+  }
+
   async function addSingleLead(data: Partial<Lead>) {
     const lead: Lead = { id: uid(), business_name: data.business_name || "Unknown", owner_name: data.owner_name || "", phone: data.phone || "", email: data.email || "", website: data.website || "", address: data.address || "", city: data.city || "", state: data.state || "", postal_code: data.postal_code || "", niche: data.niche || "General", industry: data.industry || "", employees: data.employees || "", annual_revenue: data.annual_revenue || "", founded_year: data.founded_year || "", short_description: data.short_description || "", technologies: data.technologies || "", keywords: data.keywords || "", linkedin_url: data.linkedin_url || "", facebook_url: data.facebook_url || "", twitter_url: data.twitter_url || "", apollo_account_id: "", current_software: data.current_software || "", monthly_spend_estimate: data.monthly_spend_estimate || "", status: "New", meeting_booked: false, created_at: now(), updated_at: now() };
     setLeads((prev) => [lead, ...prev]);
@@ -291,6 +325,7 @@ export default function CRMDashboard() {
           <div className="min-w-0"><h1 className="text-base sm:text-lg font-bold text-gray-900 truncate">Full Stack Services CRM</h1><p className="text-xs text-gray-500 truncate">{COMPANY_EMAIL} · {COMPANY_PHONE}</p></div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={bulkGenerateAI} disabled={generatingAI} className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50">🤖 Gen AI</button>
           <button onClick={deduplicateLeads} className="px-3 py-1.5 bg-yellow-500 text-white text-sm font-medium rounded-lg hover:bg-yellow-600 transition-colors">Remove Duplicates</button>
           <button onClick={() => setShowDialer(true)} className="px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">⚡ Dial</button>
           <button onClick={() => setShowAddLead(true)} className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">+ Add Lead</button>
@@ -302,11 +337,11 @@ export default function CRMDashboard() {
 
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="lg:hidden h-full min-h-0">
-          <LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} />
+          <LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} leadScores={leadScores} />
           {selected && (<div className="fixed inset-0 z-40 bg-black/40"><div className="absolute inset-x-0 bottom-0 top-0 bg-white flex flex-col animate-slide-in"><div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"><div className="min-w-0"><div className="text-xs uppercase tracking-wide text-gray-400">Lead Details</div><div className="font-semibold text-gray-900 truncate">{selected.business_name}</div></div><button onClick={() => setSelectedId(null)} className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 text-gray-700">Close</button></div><div className="flex-1 min-h-0 overflow-hidden"><LeadDetailPanel lead={selected} callLogs={callLogs} notes={notes} appointments={appointments} tab={tab} setTab={setTab} showScript={showScript} setShowScript={setShowScript} showPositioning={showPositioning} setShowPositioning={setShowPositioning} showTieDowns={showTieDowns} setShowTieDowns={setShowTieDowns} showObjections={showObjections} setShowObjections={setShowObjections} updateLead={updateLead} addCallLog={addCallLog} addNote={addNote} bookMeeting={bookMeeting} deleteLead={deleteLead} onBack={() => setSelectedId(null)} mobile /></div></div></div>)}
         </div>
         <div className="hidden lg:flex h-full min-h-0">
-          <div className="w-1/2 xl:w-3/5 border-r bg-white min-h-0"><LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} /></div>
+          <div className="w-1/2 xl:w-3/5 border-r bg-white min-h-0"><LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} leadScores={leadScores} /></div>
           <div className="w-1/2 xl:w-2/5 bg-white min-h-0 flex flex-col">
             {selected ? (<LeadDetailPanel lead={selected} callLogs={callLogs} notes={notes} appointments={appointments} tab={tab} setTab={setTab} showScript={showScript} setShowScript={setShowScript} showPositioning={showPositioning} setShowPositioning={setShowPositioning} showTieDowns={showTieDowns} setShowTieDowns={setShowTieDowns} showObjections={showObjections} setShowObjections={setShowObjections} updateLead={updateLead} addCallLog={addCallLog} addNote={addNote} bookMeeting={bookMeeting} deleteLead={deleteLead} />) : (<div className="flex-1 flex items-center justify-center text-gray-400 p-6"><div className="text-center"><div className="text-5xl mb-4">📞</div><div className="text-lg font-medium">Select a lead to start</div><div className="text-sm mt-1">Click any row on the left</div></div></div>)}
           </div>
@@ -319,7 +354,14 @@ export default function CRMDashboard() {
   );
 }
 
-function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, search, setSearch, statusFilter, setStatusFilter, nicheFilter, setNicheFilter, niches }: any) {
+function getScoreBadgeColor(score: number) {
+  if (score >= 76) return "bg-green-100 text-green-700";
+  if (score >= 51) return "bg-yellow-100 text-yellow-700";
+  if (score >= 26) return "bg-orange-100 text-orange-700";
+  return "bg-red-100 text-red-700";
+}
+
+function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, search, setSearch, statusFilter, setStatusFilter, nicheFilter, setNicheFilter, niches, leadScores }: any) {
   const [view, setView] = useState<"leads" | "followups">("leads");
   const followUps = useMemo(() =>
     (allLeads as Lead[]).filter((l) => l.next_follow_up_at && isPast(l.next_follow_up_at) && l.status !== "Booked" && l.status !== "Dead")
@@ -376,7 +418,7 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
             <div className="p-3 space-y-3">
               {leads.length === 0 ? <div className="text-center py-12 text-gray-400">No leads found</div> : leads.map((lead: Lead) => (
                 <button key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("details"); }} className={`w-full text-left rounded-xl border p-4 bg-white shadow-sm transition ${selectedId === lead.id ? "border-brand ring-2 ring-brand/20" : "border-gray-200"}`}>
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-gray-900 break-words">{lead.business_name}</div><div className="text-sm text-gray-500 mt-0.5">{lead.owner_name || "—"}</div></div><span className={`text-[11px] px-2 py-1 rounded-full font-medium whitespace-nowrap ${STATUS_COLORS[lead.status]}`}>{lead.status}</span></div>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-gray-900 break-words">{lead.business_name}</div><div className="text-sm text-gray-500 mt-0.5">{lead.owner_name || "—"}</div></div><div className="flex flex-col gap-1 items-end"><span className={`text-[11px] px-2 py-1 rounded-full font-medium whitespace-nowrap ${STATUS_COLORS[lead.status]}`}>{lead.status}</span>{leadScores[lead.id] !== undefined && <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${getScoreBadgeColor(leadScores[lead.id])}`}>{leadScores[lead.id]}</span>}</div></div>
                   <div className="mt-3 grid grid-cols-1 gap-1 text-sm"><div className="text-gray-600">{lead.phone || "No phone"}</div><div className="text-gray-500">{lead.city || "—"}</div>{lead.current_software && <div className="text-xs text-gray-400">Uses {lead.current_software}</div>}</div>
                 </button>
               ))}
@@ -384,7 +426,7 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
           </div>
           <div className="hidden lg:block flex-1 min-h-0 overflow-auto">
             <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="text-left px-4 py-3 font-medium text-gray-600">Business</th><th className="text-left px-4 py-3 font-medium text-gray-600">Owner</th><th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th><th className="text-left px-4 py-3 font-medium text-gray-600">Status</th><th className="text-left px-4 py-3 font-medium text-gray-600">Follow-Up</th></tr></thead>
+              <thead className="bg-gray-50 sticky top-0 z-10"><tr><th className="text-left px-4 py-3 font-medium text-gray-600">Business</th><th className="text-left px-4 py-3 font-medium text-gray-600">Owner</th><th className="text-left px-4 py-3 font-medium text-gray-600">Phone</th><th className="text-left px-4 py-3 font-medium text-gray-600">Status</th><th className="text-center px-4 py-3 font-medium text-gray-600">Score</th><th className="text-left px-4 py-3 font-medium text-gray-600">Follow-Up</th></tr></thead>
               <tbody>
                 {leads.map((lead: Lead) => (
                   <tr key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("details"); }} className={`border-b cursor-pointer transition-colors hover:bg-brand/5 ${selectedId === lead.id ? "bg-brand/10 border-l-4 border-l-brand" : ""}`}>
@@ -392,10 +434,11 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
                     <td className="px-4 py-2.5 text-gray-700 truncate max-w-[160px]">{lead.owner_name || "—"}</td>
                     <td className="px-4 py-2.5">{lead.phone && lead.phone !== "N/A" ? <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="text-brand font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{lead.phone}</a> : <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[lead.status]}`}>{lead.status}</span></td>
+                    <td className="px-4 py-2.5 text-center">{leadScores[lead.id] !== undefined ? <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${getScoreBadgeColor(leadScores[lead.id])}`}>{leadScores[lead.id]}</span> : <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-2.5 text-xs text-gray-500">{lead.next_follow_up_at ? <span className={isPast(lead.next_follow_up_at) ? "text-red-600 font-medium" : ""}>{fmt(lead.next_follow_up_at)}</span> : "—"}</td>
                   </tr>
                 ))}
-                {leads.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-gray-400">No leads found</td></tr>}
+                {leads.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-gray-400">No leads found</td></tr>}
               </tbody>
             </table>
           </div>
@@ -470,12 +513,17 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
           {scrapeMsg && <span className={`text-xs font-medium ${scrapeMsg.startsWith("Found") ? "text-green-600" : "text-red-500"}`}>{scrapeMsg}</span>}
         </div>
       </div>
-      <div className="border-b px-4 overflow-x-auto flex-shrink-0"><div className="flex min-w-max">{(["details","calls","notes","meeting"] as const).map((t) => (<button key={t} onClick={() => setTab(t)} className={`px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-700"}`}>{t === "details" ? "Details" : t === "calls" ? "Call Log" : t === "notes" ? "Notes" : "Meeting"}</button>))}</div></div>
+      <div className="border-b px-4 overflow-x-auto flex-shrink-0"><div className="flex min-w-max">{(["details","calls","notes","meeting","email","replies","bookings","onboarding","activity"] as const).map((t) => (<button key={t} onClick={() => setTab(t)} className={`px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-700"}`}>{t === "details" ? "Details" : t === "calls" ? "Calls" : t === "notes" ? "Notes" : t === "meeting" ? "Meeting" : t === "email" ? "📧 Email" : t === "replies" ? "💬 Replies" : t === "bookings" ? "📅 Bookings" : t === "onboarding" ? "🎓 Onboarding" : "📊 Activity"}</button>))}</div></div>
       <div className="flex-1 min-h-0 overflow-y-auto p-4">
         {tab === "details" && <DetailsTab lead={lead} updateLead={updateLead} showScript={showScript} setShowScript={setShowScript} showPositioning={showPositioning} setShowPositioning={setShowPositioning} showTieDowns={showTieDowns} setShowTieDowns={setShowTieDowns} showObjections={showObjections} setShowObjections={setShowObjections} />}
         {tab === "calls" && <CallsTab lead={lead} callLogs={callLogs} addCallLog={addCallLog} />}
         {tab === "notes" && <NotesTab lead={lead} notes={notes} addNote={addNote} />}
         {tab === "meeting" && <MeetingTab lead={lead} appointments={appointments} bookMeeting={bookMeeting} />}
+        {tab === "email" && <EmailTab lead={lead} />}
+        {tab === "replies" && <RepliesTab lead={lead} />}
+        {tab === "bookings" && <BookingsTab lead={lead} />}
+        {tab === "onboarding" && <OnboardingTab lead={lead} />}
+        {tab === "activity" && <ActivityTab lead={lead} callLogs={callLogs} notes={notes} appointments={appointments} />}
       </div>
     </div>
   );
@@ -1003,6 +1051,293 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (le
           {result && <div className={`text-sm p-3 rounded-lg ${result.includes("Error") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{result}</div>}
           <button onClick={handleImport} disabled={!csvText.trim()} className="w-full py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Import Leads</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function EmailTab({ lead }: { lead: Lead }) {
+  const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<any>(null);
+  const [generating, setGenerating] = useState(false);
+  const [outreachLogs, setOutreachLogs] = useState<any[]>([]);
+  const nextNum = (lead.email_sent_count || 0) + 1;
+
+  useEffect(() => {
+    fetchSummary();
+    fetchOutreachLogs();
+  }, [lead.id]);
+
+  async function fetchOutreachLogs() {
+    try {
+      const res = await fetch(`/api/email/tracking?leadId=${lead.id}`);
+      const data = await res.json();
+      setOutreachLogs(data || []);
+    } catch (error) {
+      console.error("Error fetching outreach logs:", error);
+    }
+  }
+
+  async function fetchSummary() {
+    try {
+      const res = await fetch(`/api/ai/get-summary?leadId=${lead.id}`);
+      const data = await res.json();
+      setSummary(data);
+    } catch (error) {
+      console.error("Error fetching summary:", error);
+    }
+  }
+
+  async function generateSummary() {
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/ai/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: lead.id }),
+      });
+      const data = await res.json();
+      setSummary(data.summary);
+    } catch (error) {
+      alert("Error generating summary");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function sendEmail() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/email/send-batch", { method: "POST" });
+      const data = await res.json();
+      alert(`Email sent (${data.totalSent || 0})`);
+    } catch (error) {
+      alert("Error sending email");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+        <div className="font-semibold text-blue-900">Email #{nextNum} of 3</div>
+        <div className="text-sm text-blue-700 mt-1">Sent: {lead.email_sent_count || 0}</div>
+        {summary?.lead_score && <div className="text-sm text-blue-700 mt-1">Score: {summary.lead_score}/100</div>}
+      </div>
+
+      {!summary && (
+        <button onClick={generateSummary} disabled={generating} className="w-full py-2 px-4 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+          {generating ? "Generating AI Summary..." : "🤖 Generate Summary"}
+        </button>
+      )}
+
+      {summary && (
+        <div className="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+          <div className="text-sm"><strong>Pain Point:</strong> {summary.main_pain_point}</div>
+          <div className="text-sm"><strong>Message:</strong> {summary.recommended_first_message}</div>
+          <button onClick={generateSummary} disabled={generating} className="text-xs text-blue-600 hover:underline">
+            Regenerate
+          </button>
+        </div>
+      )}
+
+      {lead.email ? (
+        <button onClick={sendEmail} disabled={loading || nextNum > 3} className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+          {loading ? "Sending..." : nextNum > 3 ? "All emails sent" : `Send Email ${nextNum} → ${lead.email}`}
+        </button>
+      ) : (
+        <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded">No email address</div>
+      )}
+
+      {outreachLogs.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-gray-900">Email History</div>
+          {outreachLogs.map((log: any) => (
+            <div key={log.id} className="bg-white border border-gray-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-gray-900">{log.message_type || "Email"}</div>
+                <div className="text-xs text-gray-500">{fmt(log.sent_at)} {fmtTime(log.sent_at)}</div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {log.status === "sent" && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">📤 Sent</span>}
+                {log.delivered_at && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">✓ Delivered</span>}
+                {log.opened_at && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">👁️ Opened</span>}
+                {log.clicked_at && <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">🔗 Clicked</span>}
+                {log.bounced_at && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">⚠️ Bounced</span>}
+                {log.complained_at && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">🚫 Complained</span>}
+              </div>
+              {log.message_body && <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded line-clamp-2">{log.message_body}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityTab({ lead, callLogs, notes, appointments }: any) {
+  const [outreachLogs, setOutreachLogs] = useState<any[]>([]);
+
+  useEffect(() => {
+    fetchOutreachLogs();
+  }, [lead.id]);
+
+  async function fetchOutreachLogs() {
+    try {
+      const res = await fetch(`/api/email/tracking?leadId=${lead.id}`);
+      const data = await res.json();
+      setOutreachLogs(data || []);
+    } catch (error) {
+      console.error("Error fetching outreach logs:", error);
+    }
+  }
+
+  const allActivities = [
+    ...callLogs.map((c: any) => ({ type: "call", timestamp: c.called_at, data: c })),
+    ...notes.map((n: any) => ({ type: "note", timestamp: n.created_at, data: n })),
+    ...appointments.map((a: any) => ({ type: "meeting", timestamp: a.created_at, data: a })),
+    ...outreachLogs.map((e: any) => ({ type: "email", timestamp: e.sent_at, data: e })),
+  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  return (
+    <div className="space-y-3">
+      {allActivities.length === 0 ? (
+        <div className="bg-gray-50 p-6 rounded-lg text-center text-gray-400">
+          <div className="text-3xl mb-2">📊</div>
+          <div className="text-sm">No activity yet</div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {allActivities.map((activity: any, i: number) => (
+            <div key={`${activity.type}-${i}`} className="bg-white border border-gray-200 rounded-lg p-3 space-y-1">
+              <div className="flex items-center gap-2">
+                {activity.type === "call" && <span className="text-lg">📞</span>}
+                {activity.type === "note" && <span className="text-lg">📝</span>}
+                {activity.type === "meeting" && <span className="text-lg">📅</span>}
+                {activity.type === "email" && <span className="text-lg">📧</span>}
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-gray-900">
+                    {activity.type === "call" && `Call — ${activity.data.outcome}`}
+                    {activity.type === "note" && `Note`}
+                    {activity.type === "meeting" && `Meeting Booked`}
+                    {activity.type === "email" && `${activity.data.message_type || "Email"}`}
+                  </div>
+                  <div className="text-xs text-gray-500">{fmt(activity.timestamp)} {fmtTime(activity.timestamp)}</div>
+                </div>
+                {activity.type === "email" && (
+                  <div className="flex gap-1">
+                    {activity.data.delivered_at && <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded">✓</span>}
+                    {activity.data.opened_at && <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">👁️</span>}
+                    {activity.data.clicked_at && <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">🔗</span>}
+                  </div>
+                )}
+              </div>
+              {activity.type === "note" && <div className="text-sm text-gray-600 pl-6">{activity.data.note}</div>}
+              {activity.type === "call" && activity.data.notes && <div className="text-sm text-gray-600 pl-6">{activity.data.notes}</div>}
+              {activity.type === "email" && activity.data.message_body && <div className="text-xs text-gray-500 pl-6 line-clamp-2">{activity.data.message_body}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RepliesTab({ lead }: { lead: Lead }) {
+  const [replyText, setReplyText] = useState("");
+  const [classifying, setClassifying] = useState(false);
+  const [classification, setClassification] = useState<any>(null);
+
+  async function classifyReply() {
+    if (!replyText.trim()) return;
+    setClassifying(true);
+    try {
+      const res = await fetch("/api/ai/classify-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replyText: replyText.trim(), leadId: lead.id }),
+      });
+      const data = await res.json();
+      setClassification(data);
+    } catch (error) {
+      alert("Error classifying reply");
+    } finally {
+      setClassifying(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-3">
+        <div className="font-semibold text-blue-900">Classify a Reply</div>
+        <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Paste the email reply from the prospect..." rows={4} className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300" />
+        <button onClick={classifyReply} disabled={classifying || !replyText.trim()} className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+          {classifying ? "Classifying..." : "🤖 Classify Reply"}
+        </button>
+      </div>
+
+      {classification && (
+        <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="text-2xl">
+              {classification.category === "Interested" && "🔥"}
+              {classification.category === "Asked Price" && "💰"}
+              {classification.category === "Send Info" && "📧"}
+              {classification.category === "Too Busy" && "⏰"}
+              {classification.category === "Not Interested" && "❌"}
+              {classification.category === "Wrong Person" && "👤"}
+              {classification.category === "Stop" && "🚫"}
+              {classification.category === "Question" && "❓"}
+            </div>
+            <div>
+              <div className="font-semibold text-gray-900">{classification.category}</div>
+              <div className="text-sm text-gray-600">{classification.recommended_action}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-gray-50 p-6 rounded-lg text-center text-gray-400">
+        <div className="text-3xl mb-2">💬</div>
+        <div className="text-sm">Incoming replies will appear here</div>
+      </div>
+    </div>
+  );
+}
+
+function BookingsTab({ lead }: { lead: Lead }) {
+  return (
+    <div className="space-y-3">
+      <div className={`p-4 rounded-lg border ${lead.meeting_booked ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"}`}>
+        {lead.meeting_booked ? (
+          <>
+            <div className="font-semibold text-green-900">✓ Booked</div>
+            {lead.meeting_date && (
+              <div className="text-sm text-green-700 mt-2">
+                {new Date(lead.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="font-semibold text-yellow-900">Not Booked</div>
+            <a href="https://calendly.com/fullstackservicesllc/30min" target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-2 inline-block">
+              Send booking link →
+            </a>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OnboardingTab({ lead }: { lead: Lead }) {
+  return (
+    <div className="space-y-3">
+      <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+        <div className="font-semibold text-amber-900">Onboarding</div>
+        <div className="text-sm text-amber-700 mt-2">Available after meeting is booked</div>
       </div>
     </div>
   );

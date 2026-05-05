@@ -103,6 +103,81 @@ export const STATUS_COLORS: Record<LeadStatus, string> = {
   "Dead": "bg-red-100 text-red-700",
 };
 
+export interface LeadAISummary {
+  id: string;
+  lead_id: string;
+  main_pain_point?: string;
+  pain_reason?: string;
+  best_attack_angle?: string;
+  recommended_first_message?: string;
+  recommended_follow_up?: string;
+  lead_score?: number;
+  confidence_level?: "low" | "medium" | "high";
+  missing_data_needed?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LeadSocial {
+  id: string;
+  lead_id: string;
+  platform: string;
+  url?: string;
+  username?: string;
+  is_active: boolean;
+  last_post_date?: string;
+  followers_count?: number;
+  last_checked_at?: string;
+  created_at: string;
+}
+
+export interface OutreachLog {
+  id: string;
+  lead_id: string;
+  channel: string;
+  direction?: string;
+  message_type?: string;
+  subject?: string;
+  message_body?: string;
+  status?: string;
+  provider?: string;
+  provider_message_id?: string;
+  sent_at?: string;
+  delivered_at?: string;
+  opened_at?: string;
+  clicked_at?: string;
+  replied_at?: string;
+  bounced_at?: string;
+  failed_at?: string;
+  created_at: string;
+}
+
+export interface FollowUpTask {
+  id: string;
+  lead_id: string;
+  outreach_log_id?: string;
+  task_type: string;
+  due_at: string;
+  status: "pending" | "completed" | "cancelled";
+  notes?: string;
+  completed_at?: string;
+  created_at: string;
+}
+
+export interface BookingTracker {
+  id: string;
+  lead_id: string;
+  booking_status?: string;
+  booking_link_sent_at?: string;
+  booked_at?: string;
+  call_time?: string;
+  no_show: boolean;
+  onboarding_sent: boolean;
+  onboarding_completed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export const GUIDED_QUESTIONS = [
   "What software are you currently using to run your jobs and bookings?",
   "How many different tools are you paying for right now — like scheduling, invoicing, CRM, anything like that?",
