@@ -19,26 +19,74 @@ interface LeadData {
   technologies?: string;
 }
 
-async function callGrok(prompt: string): Promise<string> {
-  const response = await fetch("https://api.x.ai/v1/chat/completions", {
+async function callHuggingFace(prompt: string): Promise<string> {
+  const response = await fetch("https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.GROK_API_KEY}`,
+      Authorization: `Bearer ${process.env.HF_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "grok-3",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
+      inputs: prompt,
+      parameters: {
+        max_new_tokens: 500,
+        temperature: 0.7,
+      },
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Grok error: ${response.statusText}`);
+    throw new Error(`HF error: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data[0].generated_text || data[0];
+}
+
+async function callTogether(prompt: string): Promise<string> {
+  const response = await fetch("https://api.together.xyz/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.TOGETHER_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "mistralai/Mistral-7B-Instruct-v0.1",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      max_tokens: 500,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Together error: ${response.statusText}`);
   }
 
   const data = await response.json();
   return data.choices[0].message.content;
+}
+
+async function callOllama(prompt: string): Promise<string> {
+  const baseUrl = process.env.OLLAMA_BASE_URL || "https://ollama.com/api";
+  const response = await fetch(`${baseUrl}/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "kimi-k2.5:cloud",
+      prompt,
+      stream: false,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Ollama error: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  return data.response;
 }
 
 export async function generateLeadSummary(lead: LeadData): Promise<GrokSummary> {
@@ -64,13 +112,19 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
   "missing_data_needed": ["list", "of", "missing", "info"]
 }`;
 
-  const response = await callGrok(prompt);
+  let response: string;
+  try {
+    response = await callHuggingFace(prompt);
+  } catch (error) {
+    console.warn("HF failed, trying Ollama:", error);
+    response = await callOllama(prompt);
+  }
 
   try {
     return JSON.parse(response);
   } catch (error) {
-    console.error("Failed to parse Grok response:", response);
-    throw new Error("Invalid Grok response format");
+    console.error("Failed to parse response:", response);
+    throw new Error("Invalid response format");
   }
 }
 
@@ -111,7 +165,13 @@ Respond ONLY with valid JSON (no markdown):
   "recommended_action": "What to do next"
 }`;
 
-  const response = await callGrok(prompt);
+  let response: string;
+  try {
+    response = await callTogether(prompt);
+  } catch (error) {
+    console.warn("Together failed, trying Ollama:", error);
+    response = await callOllama(prompt);
+  }
 
   try {
     return JSON.parse(response);
