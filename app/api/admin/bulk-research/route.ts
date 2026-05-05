@@ -60,6 +60,8 @@ export async function POST(req: NextRequest) {
             updates.short_description = scrapedData.description;
           if (scrapedData.address && !lead.address) updates.address = scrapedData.address;
           if (scrapedData.technologies && !lead.technologies) updates.technologies = scrapedData.technologies;
+          if (scrapedData.yelp_url && !lead.yelp_url) updates.yelp_url = scrapedData.yelp_url;
+          if (scrapedData.bbb_url) updates.bbb_url = scrapedData.bbb_url;
 
           if (Object.keys(updates).length > 0) {
             await supabase.from("leads").update(updates).eq("id", lead.id);
@@ -71,9 +73,12 @@ export async function POST(req: NextRequest) {
           // Save social links to lead_socials table
           const socials = [
             { platform: "linkedin", url: scrapedData.linkedin_url },
+            { platform: "linkedin_company", url: scrapedData.linkedin_company_url },
             { platform: "facebook", url: scrapedData.facebook_url },
             { platform: "instagram", url: scrapedData.instagram_url },
             { platform: "twitter", url: scrapedData.twitter_url },
+            { platform: "yelp", url: scrapedData.yelp_url },
+            { platform: "bbb", url: scrapedData.bbb_url },
           ].filter(s => s.url);
 
           for (const social of socials) {
