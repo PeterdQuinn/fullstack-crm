@@ -19,26 +19,26 @@ interface LeadData {
   technologies?: string;
 }
 
-async function callOllama(prompt: string): Promise<string> {
-  const baseUrl = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
-  const model = process.env.OLLAMA_MODEL || "llama2";
-
-  const response = await fetch(`${baseUrl}/api/generate`, {
+async function callGrok(prompt: string): Promise<string> {
+  const response = await fetch("https://api.x.ai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.GROK_API_KEY}`,
+    },
     body: JSON.stringify({
-      model,
-      prompt,
-      stream: false,
+      model: "grok-3",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`Ollama error: ${response.statusText}`);
+    throw new Error(`Grok error: ${response.statusText}`);
   }
 
   const data = await response.json();
-  return data.response;
+  return data.choices[0].message.content;
 }
 
 export async function generateLeadSummary(lead: LeadData): Promise<GrokSummary> {
@@ -64,13 +64,13 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
   "missing_data_needed": ["list", "of", "missing", "info"]
 }`;
 
-  const response = await callOllama(prompt);
+  const response = await callGrok(prompt);
 
   try {
     return JSON.parse(response);
   } catch (error) {
-    console.error("Failed to parse Ollama response:", response);
-    throw new Error("Invalid Ollama response format");
+    console.error("Failed to parse Grok response:", response);
+    throw new Error("Invalid Grok response format");
   }
 }
 
@@ -111,7 +111,7 @@ Respond ONLY with valid JSON (no markdown):
   "recommended_action": "What to do next"
 }`;
 
-  const response = await callOllama(prompt);
+  const response = await callGrok(prompt);
 
   try {
     return JSON.parse(response);
