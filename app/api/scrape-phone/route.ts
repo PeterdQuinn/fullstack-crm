@@ -414,70 +414,6 @@ async function linkedomFallback(html: string): Promise<Partial<PageData>> {
 
 // ── handler ───────────────────────────────────────────────────────────────────
 
-async function extractYelpData(business_name: string, city: string): Promise<Record<string, any>> {
-  try {
-    const q = encodeURIComponent(`${business_name} ${city} yelp`);
-    const html = await fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`);
-    const $ = cheerio.load(html);
-    let yelpUrl: string | null = null;
-    $("a[href*='yelp.com']").each((_, el) => {
-      if (!yelpUrl) yelpUrl = $(el).attr("href") || null;
-    });
-    return { yelp_url: yelpUrl };
-  } catch { return {}; }
-}
-
-async function extractLinkedInData(business_name: string): Promise<Record<string, any>> {
-  try {
-    const q = encodeURIComponent(`${business_name} site:linkedin.com/company`);
-    const html = await fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`);
-    const $ = cheerio.load(html);
-    let linkedinCompanyUrl: string | null = null;
-    $("a[href*='linkedin.com/company']").each((_, el) => {
-      if (!linkedinCompanyUrl) linkedinCompanyUrl = $(el).attr("href") || null;
-    });
-    return { linkedin_company_url: linkedinCompanyUrl };
-  } catch { return {}; }
-}
-
-async function checkDomainAge(website: string): Promise<Record<string, any>> {
-  try {
-    const domain = website.replace(/^https?:\/\//, "").split("/")[0];
-    const html = await fetchStatic(`https://whois.domaintools.com/${domain}`);
-    const $ = cheerio.load(html);
-    const registrationText = $("body").text();
-    const dateMatch = registrationText.match(/(\d{4})[–-](\d{2})[–-](\d{2})/);
-    if (dateMatch) {
-      return { domain_age: `Registered ${dateMatch[0]}` };
-    }
-    return {};
-  } catch { return {}; }
-}
-
-async function checkJobPostings(business_name: string, city: string): Promise<Record<string, any>> {
-  try {
-    const q = encodeURIComponent(`${business_name} ${city} jobs`);
-    const html = await fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`);
-    const jobIndicators = (html.match(/\b(hiring|jobs|careers|apply now|open position)\b/gi) || []).length;
-    return {
-      hiring_signals: jobIndicators > 0 ? jobIndicators : null,
-      is_hiring: jobIndicators >= 3
-    };
-  } catch { return {}; }
-}
-
-async function checkBBB(business_name: string, city: string): Promise<Record<string, any>> {
-  try {
-    const q = encodeURIComponent(`${business_name} ${city} site:bbb.org`);
-    const html = await fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`);
-    const $ = cheerio.load(html);
-    let bbbUrl: string | null = null;
-    $("a[href*='bbb.org']").each((_, el) => {
-      if (!bbbUrl) bbbUrl = $(el).attr("href") || null;
-    });
-    return { bbb_url: bbbUrl };
-  } catch { return {}; }
-}
 
 function buildResponse(data: PageData) {
   return NextResponse.json({
@@ -575,21 +511,32 @@ export async function POST(req: NextRequest) {
     browser = await launchBrowser();
     const ctx = await browser.newContext({ locale: "en-US" });
 
-    // 3a — crawl website pages (more pages than before)
+    // 3a — crawl website pages (AGGRESSIVE: many more pages)
     if (!isComplete(data)) {
       const targets = [
         url,
+        `${base.origin}/`,
         `${base.origin}/contact`,
         `${base.origin}/contact-us`,
+        `${base.origin}/contact-info`,
         `${base.origin}/about`,
         `${base.origin}/about-us`,
+        `${base.origin}/about-the-company`,
         `${base.origin}/team`,
         `${base.origin}/our-team`,
         `${base.origin}/staff`,
+        `${base.origin}/leadership`,
+        `${base.origin}/employees`,
+        `${base.origin}/people`,
+        `${base.origin}/get-in-touch`,
+        `${base.origin}/call-us`,
+        `${base.origin}/phone`,
+        `${base.origin}/services`,
+        `${base.origin}/home`,
       ];
       for (const target of targets) {
         if (isComplete(data)) break;
-        try { data = mergeData(data, parsePage(await playwrightPage(ctx, target, 2000))); } catch {}
+        try { data = mergeData(data, parsePage(await playwrightPage(ctx, target, 1500))); } catch {}
       }
     }
 
@@ -612,13 +559,17 @@ export async function POST(req: NextRequest) {
   } catch (e) { console.error("[scrape] Playwright failed:", e); }
   finally { if (browser) await browser.close().catch(() => {}); }
 
-  // Phase 4 — static directory fallbacks
-  if (!data.phone && business_name) {
+  // Phase 4 — static directory fallbacks (AGGRESSIVE)
+  if (business_name) {
     const q   = encodeURIComponent(`${business_name} ${city} phone number`);
+    const q2  = encodeURIComponent(`${business_name} phone ${city}`);
+    const q3  = encodeURIComponent(`${business_name} contact ${city}`);
     const yq  = encodeURIComponent(`${business_name} ${city}`);
     const loc = encodeURIComponent(city);
     await Promise.allSettled([
       fetchStatic(`https://html.duckduckgo.com/html/?q=${q}`).then((h) => { data = mergeData(data, parsePage(h)); }),
+      fetchStatic(`https://html.duckduckgo.com/html/?q=${q2}`).then((h) => { data = mergeData(data, parsePage(h)); }),
+      fetchStatic(`https://html.duckduckgo.com/html/?q=${q3}`).then((h) => { data = mergeData(data, parsePage(h)); }),
       fetchStatic(`https://www.yellowpages.com/search?search_terms=${yq}&geo_location_terms=${loc}`).then((h) => { data = mergeData(data, parsePage(h)); }),
     ]);
   }
@@ -630,33 +581,5 @@ export async function POST(req: NextRequest) {
     if (!data.owner && fallback.owner) data.owner = fallback.owner;
   }
 
-  // Phase 6 — Enrich with Yelp, LinkedIn, BBB, Domain age, Hiring signals
-  const [yelpData, linkedInData, bbbData, jobsData, domainData] = await Promise.allSettled([
-    extractYelpData(business_name, city),
-    extractLinkedInData(business_name),
-    checkBBB(business_name, city),
-    checkJobPostings(business_name, city),
-    website ? checkDomainAge(website) : Promise.resolve({}),
-  ]).then(results => results.map(r => r.status === "fulfilled" ? (r.value as Record<string, any>) : {} as Record<string, any>));
-
-  return NextResponse.json({
-    phone:            data.phone,
-    owner:            data.owner,
-    email:            data.email,
-    current_software: data.current_software,
-    booking_detected: data.booking_detected,
-    facebook_url:     data.social.facebook  || null,
-    instagram_url:    data.social.instagram || null,
-    linkedin_url:     data.social.linkedin  || null,
-    technologies:     data.technologies.join(", ") || null,
-    description:      data.description,
-    address:          data.address,
-    confidence:       computeScore(data),
-    yelp_url:         (yelpData as any).yelp_url || null,
-    linkedin_company_url: (linkedInData as any).linkedin_company_url || null,
-    bbb_url:          (bbbData as any).bbb_url || null,
-    is_hiring:        (jobsData as any).is_hiring || false,
-    hiring_signals:   (jobsData as any).hiring_signals || null,
-    domain_age:       (domainData as any).domain_age || null,
-  });
+  return buildResponse(data);
 }
