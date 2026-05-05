@@ -14,6 +14,8 @@ interface Lead {
   bbb_url?: string;
   facebook_url?: string;
   linkedin_url?: string;
+  linkedin_company_url?: string;
+  google_business_url?: string;
   instagram_url?: string;
   twitter_url?: string;
   current_software?: string;
@@ -161,7 +163,9 @@ export default function DashboardTabs() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         {[
-          { name: "LinkedIn", url: selectedLead?.linkedin_url, icon: "🔗" },
+          { name: "Google Business", url: selectedLead?.google_business_url, icon: "🏢" },
+          { name: "LinkedIn Company", url: selectedLead?.linkedin_company_url, icon: "🔗" },
+          { name: "LinkedIn", url: selectedLead?.linkedin_url, icon: "💼" },
           { name: "Facebook", url: selectedLead?.facebook_url, icon: "f" },
           { name: "Instagram", url: selectedLead?.instagram_url, icon: "📷" },
           { name: "Twitter", url: selectedLead?.twitter_url, icon: "𝕏" },

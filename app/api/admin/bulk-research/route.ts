@@ -32,8 +32,6 @@ export async function POST(req: NextRequest) {
     const { data: leads, error } = await supabase
       .from("leads")
       .select("*")
-      .neq("email", null)
-      .neq("email", "")
       .limit(100);
 
     if (error || !leads) {
@@ -77,6 +75,7 @@ export async function POST(req: NextRequest) {
             { platform: "facebook", url: scrapedData.facebook_url },
             { platform: "instagram", url: scrapedData.instagram_url },
             { platform: "twitter", url: scrapedData.twitter_url },
+            { platform: "google_business", url: scrapedData.google_business_url },
             { platform: "yelp", url: scrapedData.yelp_url },
             { platform: "bbb", url: scrapedData.bbb_url },
           ].filter(s => s.url);

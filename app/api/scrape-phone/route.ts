@@ -63,6 +63,8 @@ type SocialLinks = {
   instagram?: string;
   linkedin?: string;
   twitter?: string;
+  linkedin_company?: string;
+  google_business?: string;
 };
 
 type PageData = {
@@ -75,6 +77,7 @@ type PageData = {
   technologies: string[];
   description: string | null;
   address: string | null;
+  google_profile?: string | null;
 };
 
 // ── phone ─────────────────────────────────────────────────────────────────────
@@ -86,12 +89,14 @@ function normalizePhone(raw: string): string | null {
 
 function extractPhone($: cheerio.CheerioAPI): string | null {
   let phone: string | null = null;
+
   // tel: links — most reliable
   $("a[href^='tel:']").each((_, el) => {
     if (phone) return;
     phone = normalizePhone($(el).attr("href")!.replace(/^tel:/i, ""));
   });
   if (phone) return phone;
+
   // Google knowledge panel: data-attrid containing phone
   $("[data-attrid*='phone'], [data-dtype='d3ifr'], [data-local-attribute='d3ifr']").each((_, el) => {
     if (phone) return;
@@ -99,6 +104,16 @@ function extractPhone($: cheerio.CheerioAPI): string | null {
     if (n) phone = n;
   });
   if (phone) return phone;
+
+  // Google Knowledge Panel: look in divs with specific data attributes
+  $("div[data-attrid='phone']").each((_, el) => {
+    if (phone) return;
+    const text = $(el).text();
+    const n = normalizePhone(text);
+    if (n) phone = n;
+  });
+  if (phone) return phone;
+
   // Google spans with aria-label containing phone pattern
   $("span[aria-label]").each((_, el) => {
     if (phone) return;
@@ -107,11 +122,23 @@ function extractPhone($: cheerio.CheerioAPI): string | null {
     if (n) phone = n;
   });
   if (phone) return phone;
-  // Plain text scan
-  for (const m of ($("body").text().match(PHONE_RE) || [])) {
+
+  // Look for phone in headings and common patterns
+  const bodyText = $("body").text();
+  const phoneMatches = bodyText.match(PHONE_RE) || [];
+  for (const m of phoneMatches) {
     const n = normalizePhone(m);
     if (n) return n;
   }
+
+  // Aggressive: check all text nodes for phone-like patterns
+  const allText = $("body").text().replace(/\s+/g, " ");
+  const aggressiveMatches = allText.match(/\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})/g) || [];
+  for (const m of aggressiveMatches) {
+    const n = normalizePhone(m);
+    if (n) return n;
+  }
+
   return null;
 }
 
@@ -119,15 +146,40 @@ function extractPhone($: cheerio.CheerioAPI): string | null {
 
 function extractEmail($: cheerio.CheerioAPI): string | null {
   let email: string | null = null;
+
+  // mailto: links
   $("a[href^='mailto:']").each((_, el) => {
     if (email) return;
     const raw = $(el).attr("href")!.replace(/^mailto:/i, "").split("?")[0].trim();
     if (raw.includes("@")) email = raw;
   });
   if (email) return email;
-  return ($("body").text().match(EMAIL_RE) || []).find(
-    (m) => !m.includes("example.") && !m.includes("yourname")
-  ) || null;
+
+  // Meta tags
+  const metaEmail = $('meta[name="email"]').attr("content") ||
+                   $('meta[property="email"]').attr("content");
+  if (metaEmail && metaEmail.includes("@")) return metaEmail;
+
+  // Data attributes
+  $("[data-email]").each((_, el) => {
+    if (email) return;
+    const e = $(el).attr("data-email");
+    if (e && e.includes("@")) email = e;
+  });
+  if (email) return email;
+
+  // Aggressive text scan - look in common patterns
+  const bodyText = $("body").text();
+  const matches = bodyText.match(EMAIL_RE) || [];
+
+  for (const m of matches) {
+    if (!m.includes("example.") && !m.includes("yourname") && !m.includes("noreply") && !m.includes("donotreply")) {
+      email = m;
+      break;
+    }
+  }
+
+  return email;
 }
 
 // ── owner ─────────────────────────────────────────────────────────────────────
@@ -155,30 +207,56 @@ function ownerFromText($: cheerio.CheerioAPI): string | null {
   const metaAuthor = $('meta[name="author"]').attr("content")?.trim();
   if (metaAuthor && NAME_RE.test(metaAuthor)) return metaAuthor;
 
+  // Check data attributes
+  const dataOwner = $("[data-owner], [data-founder], [data-ceo]").first().text().trim();
+  if (dataOwner && NAME_RE.test(dataOwner)) return dataOwner;
+
   const text = $("body").text().replace(/\s+/g, " ");
 
+  // Aggressive inline pattern matching
   const inlineRe = /([A-Z][a-z]+ [A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s*[,|–\-]\s*(owner|founder|co-founder|president|ceo|chief executive|principal|proprietor|managing partner|managing director|general manager)/gi;
-  const inlineMatch = inlineRe.exec(text);
-  if (inlineMatch?.[1] && NAME_RE.test(inlineMatch[1]) && !SKIP_RE.test(inlineMatch[1].split(" ")[0])) {
-    return inlineMatch[1];
+  let inlineMatch;
+  while ((inlineMatch = inlineRe.exec(text)) !== null) {
+    if (inlineMatch[1] && NAME_RE.test(inlineMatch[1]) && !SKIP_RE.test(inlineMatch[1].split(" ")[0])) {
+      return inlineMatch[1];
+    }
   }
 
-  const sample = text.slice(0, 8000);
+  const sample = text.slice(0, 12000);
   const people = (nlp(sample).people().out("array") as string[]);
   for (const person of people) {
     if (!NAME_RE.test(person) || SKIP_RE.test(person.split(" ")[0])) continue;
     const idx = sample.indexOf(person);
-    if (idx !== -1 && OWNER_TITLES_RE.test(sample.slice(Math.max(0, idx - 150), idx + person.length + 150))) {
+    if (idx !== -1 && OWNER_TITLES_RE.test(sample.slice(Math.max(0, idx - 200), idx + person.length + 200))) {
       return person;
     }
   }
 
+  // Check all headings, not just h1-h3
   const headings: string[] = [];
-  $("h1, h2, h3").each((_, el) => { headings.push($(el).text().replace(/\s+/g, " ").trim()); });
+  $("h1, h2, h3, h4, h5, strong, b").each((_, el) => {
+    const t = $(el).text().replace(/\s+/g, " ").trim();
+    if (t.length > 5 && t.length < 50) headings.push(t);
+  });
+
   for (let i = 0; i < headings.length; i++) {
     const h = headings[i], next = headings[i + 1] || "";
-    if (NAME_RE.test(h) && !SKIP_RE.test(h.split(" ")[0]) && OWNER_TITLES_RE.test(next)) return h;
-    if (OWNER_TITLES_RE.test(h) && NAME_RE.test(next) && !SKIP_RE.test(next.split(" ")[0])) return next;
+    if (NAME_RE.test(h) && !SKIP_RE.test(h.split(" ")[0])) {
+      if (OWNER_TITLES_RE.test(next)) return h;
+      if (OWNER_TITLES_RE.test(h)) return next;
+    }
+  }
+
+  // Last resort: look for common owner patterns
+  const ownerPatterns = [
+    /(?:meet\s+(?:the\s+)?(?:owner|founder|team|ceo)\s*:?\s*)([A-Z][a-z]+ [A-Z][a-z]+)/i,
+    /(?:owned\s+by\s+)([A-Z][a-z]+ [A-Z][a-z]+)/i,
+    /(?:founded\s+by\s+)([A-Z][a-z]+ [A-Z][a-z]+)/i,
+  ];
+
+  for (const pattern of ownerPatterns) {
+    const m = pattern.exec(text);
+    if (m && m[1] && NAME_RE.test(m[1])) return m[1];
   }
 
   return null;
@@ -216,22 +294,63 @@ function detectTechnologies(html: string): string[] {
 
 function extractSocial($: cheerio.CheerioAPI): SocialLinks {
   const social: SocialLinks = {};
+  const allText = $.html() || "";
+
+  // Extract from all links
   $("a[href]").each((_, el) => {
     const href = $(el).attr("href") || "";
-    if (!social.facebook && /facebook\.com\//i.test(href)) social.facebook = href;
-    if (!social.instagram && /instagram\.com\//i.test(href)) social.instagram = href;
-    if (!social.linkedin && /linkedin\.com\//i.test(href)) social.linkedin = href;
-    if (!social.twitter && /twitter\.com\/|x\.com\//i.test(href)) social.twitter = href;
+    const text = $(el).text().toLowerCase();
+
+    if (!social.facebook && (/facebook\.com\//i.test(href) || (text.includes("facebook") && href.includes("facebook")))) {
+      social.facebook = href;
+    }
+    if (!social.instagram && (/instagram\.com\//i.test(href) || (text.includes("instagram") && href.includes("instagram")))) {
+      social.instagram = href;
+    }
+    if (!social.linkedin && /linkedin\.com\/company\//i.test(href)) {
+      social.linkedin_company = href;
+    }
+    if (!social.linkedin && /linkedin\.com\/(in|people|company)\//i.test(href)) {
+      social.linkedin = href;
+    }
+    if (!social.twitter && (/twitter\.com\//i.test(href) || /x\.com\//i.test(href))) {
+      social.twitter = href;
+    }
+    if (!social.google_business && (/maps\.google\.com/i.test(href) || /google\.com\/maps/i.test(href) || /maps\.app\.goo\.gl/i.test(href) || /google\.com\/business/i.test(href))) {
+      social.google_business = href;
+    }
   });
+
+  // Search for social URLs in text content
+  const fbMatch = allText.match(/https?:\/\/(?:www\.)?facebook\.com\/[\w\-.\/%]+/i);
+  if (fbMatch && !social.facebook) social.facebook = fbMatch[0];
+
+  const instaMatch = allText.match(/https?:\/\/(?:www\.)?instagram\.com\/[\w\-.\/%]+/i);
+  if (instaMatch && !social.instagram) social.instagram = instaMatch[0];
+
+  const linkedinMatch = allText.match(/https?:\/\/(?:www\.)?linkedin\.com\/company\/[\w\-]+/i);
+  if (linkedinMatch && !social.linkedin_company) social.linkedin_company = linkedinMatch[0];
+
+  const googleMapsMatch = allText.match(/https?:\/\/(?:maps\.app\.goo\.gl|maps\.google\.com|google\.com\/maps)[\w\-.\/?%=&]+/i);
+  if (googleMapsMatch && !social.google_business) social.google_business = googleMapsMatch[0];
+
   return social;
 }
 
 // ── description ───────────────────────────────────────────────────────────────
 
 function extractDescription($: cheerio.CheerioAPI): string | null {
-  return $('meta[name="description"]').attr("content")?.trim()
+  const desc = $('meta[name="description"]').attr("content")?.trim()
     || $('meta[property="og:description"]').attr("content")?.trim()
-    || null;
+    || $('meta[name="og:description"]').attr("content")?.trim();
+
+  if (desc) return desc;
+
+  // Fallback: grab first paragraph from main content
+  const firstP = $("main p, article p, .content p, .description p").first().text().trim();
+  if (firstP && firstP.length > 20) return firstP.substring(0, 200);
+
+  return null;
 }
 
 // ── address ───────────────────────────────────────────────────────────────────
@@ -265,7 +384,7 @@ function extractAddress($: cheerio.CheerioAPI): string | null {
 
 // ── full page parse ───────────────────────────────────────────────────────────
 
-function parsePage(html: string): PageData {
+function parsePage(html: string, businessName?: string): PageData {
   const $ = cheerio.load(html);
   const sw = detectSoftware(html);
   return {
@@ -278,6 +397,7 @@ function parsePage(html: string): PageData {
     technologies:     detectTechnologies(html),
     description:      extractDescription($),
     address:          extractAddress($),
+    google_profile:   businessName ? extractGoogleProfile($, businessName) : null,
   };
 }
 
@@ -294,11 +414,14 @@ function mergeData(base: PageData, next: PageData): PageData {
       facebook:  base.social.facebook  || next.social.facebook,
       instagram: base.social.instagram || next.social.instagram,
       linkedin:  base.social.linkedin  || next.social.linkedin,
+      linkedin_company: base.social.linkedin_company || next.social.linkedin_company,
+      google_business: base.social.google_business || next.social.google_business,
       twitter:   base.social.twitter   || next.social.twitter,
     },
     technologies:     [...new Set([...base.technologies, ...next.technologies])],
     description:      base.description || next.description,
     address:          base.address     || next.address,
+    google_profile:   base.google_profile || next.google_profile,
   };
 }
 
@@ -333,6 +456,30 @@ function discoverLinks(html: string, base: URL): string[] {
   return links;
 }
 
+function extractGoogleProfile($: cheerio.CheerioAPI, businessName: string): string | null {
+  let googleProfile: string | null = null;
+
+  // Google Maps/Business Profile links
+  $("a[href*='google.com/maps'], a[href*='maps.app.goo.gl'], a[href*='business.google.com']").each((_, el) => {
+    if (!googleProfile) {
+      const href = $(el).attr("href") || "";
+      if (href) googleProfile = href;
+    }
+  });
+
+  // Look in knowledge panels for business profile link
+  $("a").each((_, el) => {
+    if (googleProfile) return;
+    const href = $(el).attr("href") || "";
+    const text = $(el).text().toLowerCase();
+    if ((href.includes("google.com/maps") || href.includes("maps.app.goo.gl")) && text.includes(businessName.toLowerCase())) {
+      googleProfile = href;
+    }
+  });
+
+  return googleProfile;
+}
+
 function computeScore(d: PageData): number {
   let s = 2; // +2 for having a website (always true here)
   if (d.phone) s += 3;
@@ -344,7 +491,7 @@ function computeScore(d: PageData): number {
 }
 
 function blankData(): PageData {
-  return { phone: null, owner: null, email: null, current_software: null, booking_detected: false, social: {}, technologies: [], description: null, address: null };
+  return { phone: null, owner: null, email: null, current_software: null, booking_detected: false, social: {}, technologies: [], description: null, address: null, google_profile: null };
 }
 
 // ── browser launcher ─────────────────────────────────────────────────────────
@@ -415,7 +562,7 @@ async function linkedomFallback(html: string): Promise<Partial<PageData>> {
 // ── handler ───────────────────────────────────────────────────────────────────
 
 
-function buildResponse(data: PageData) {
+function buildResponse(data: PageData, debug?: Record<string, any>) {
   return NextResponse.json({
     phone:            data.phone,
     owner:            data.owner,
@@ -425,10 +572,14 @@ function buildResponse(data: PageData) {
     facebook_url:     data.social.facebook  || null,
     instagram_url:    data.social.instagram || null,
     linkedin_url:     data.social.linkedin  || null,
+    linkedin_company_url: data.social.linkedin_company || null,
+    google_business_url: data.social.google_business || null,
     technologies:     data.technologies.join(", ") || null,
     description:      data.description,
     address:          data.address,
+    google_profile:   data.google_profile || null,
     confidence:       computeScore(data),
+    debug: debug || {},
   });
 }
 
@@ -449,6 +600,7 @@ export async function POST(req: NextRequest) {
     ? raw.website.trim() : "";
 
   let data = blankData();
+  const debug = { phases: [] as any[] };
 
   // ── no website: search directories only ──────────────────────────────────────
   if (!website) {
@@ -475,13 +627,26 @@ export async function POST(req: NextRequest) {
       ]) {
         if (data.phone && data.owner) break;
         try {
-          data = mergeData(data, parsePage(await playwrightPage(ctx, searchUrl, 1500)));
+          const searchData = parsePage(await playwrightPage(ctx, searchUrl, 1500), business_name);
+          data = mergeData(data, searchData);
+          debug.phases.push({
+            phase: `Search: ${searchUrl.includes("google") ? "Google" : "Bing"}`,
+            phone: searchData.phone,
+            owner: searchData.owner,
+          });
         } catch {}
       }
-    } catch (e) { console.error("[scrape] browser search failed:", e); }
+    } catch (e) { debug.phases.push({ error: String(e) }); }
     finally { if (browser) await browser.close().catch(() => {}); }
 
-    return buildResponse(data);
+    debug.final = {
+      phone: data.phone,
+      owner: data.owner,
+      email: data.email,
+      confidence: computeScore(data),
+    };
+
+    return buildResponse(data, debug);
   }
 
   // ── has website ───────────────────────────────────────────────────────────────
@@ -492,7 +657,19 @@ export async function POST(req: NextRequest) {
   let homeHtml = "";
 
   // Phase 1 — static homepage
-  try { homeHtml = await fetchStatic(url); data = parsePage(homeHtml); } catch {}
+  try {
+    homeHtml = await fetchStatic(url);
+    data = parsePage(homeHtml, business_name);
+    debug.phases.push({
+      phase: 1,
+      name: "Static Homepage",
+      phone: data.phone,
+      owner: data.owner,
+      email: data.email,
+    });
+  } catch (e) {
+    debug.phases.push({ phase: 1, name: "Static Homepage", error: String(e) });
+  }
 
   // Phase 2 — static subpages (parallel)
   if (!isComplete(data)) {
@@ -502,7 +679,17 @@ export async function POST(req: NextRequest) {
     try {
       const results = await crawlPages(candidates);
       for (const r of results) { data = mergeData(data, r); if (isComplete(data)) break; }
-    } catch {}
+      debug.phases.push({
+        phase: 2,
+        name: "Static Subpages",
+        urlCount: candidates.length,
+        phone: data.phone,
+        owner: data.owner,
+        email: data.email,
+      });
+    } catch (e) {
+      debug.phases.push({ phase: 2, name: "Static Subpages", error: String(e) });
+    }
   }
 
   // Phase 3 — single Playwright browser: website crawl + Google search
@@ -544,16 +731,35 @@ export async function POST(req: NextRequest) {
     if (business_name && (!data.phone || !data.owner || !data.address)) {
       try {
         const q = encodeURIComponent(`${business_name} ${city}`);
-        data = mergeData(data, parsePage(await playwrightPage(ctx, `https://www.google.com/search?q=${q}&hl=en`, 1500)));
-      } catch {}
+        const googleData = parsePage(await playwrightPage(ctx, `https://www.google.com/search?q=${q}&hl=en`, 1500), business_name);
+        data = mergeData(data, googleData);
+        debug.phases.push({
+          phase: "3b",
+          name: "Google Knowledge Panel",
+          phone: googleData.phone,
+          owner: googleData.owner,
+          google_profile: googleData.google_profile,
+        });
+      } catch (e) {
+        debug.phases.push({ phase: "3b", name: "Google Knowledge Panel", error: String(e) });
+      }
     }
 
     // 3c — Bing as extra phone/owner source
     if (business_name && (!data.phone || !data.owner)) {
       try {
         const q = encodeURIComponent(`${business_name} ${city} phone`);
-        data = mergeData(data, parsePage(await playwrightPage(ctx, `https://www.bing.com/search?q=${q}`, 1000)));
-      } catch {}
+        const bingData = parsePage(await playwrightPage(ctx, `https://www.bing.com/search?q=${q}`, 1000), business_name);
+        data = mergeData(data, bingData);
+        debug.phases.push({
+          phase: "3c",
+          name: "Bing Search",
+          phone: bingData.phone,
+          owner: bingData.owner,
+        });
+      } catch (e) {
+        debug.phases.push({ phase: "3c", name: "Bing Search", error: String(e) });
+      }
     }
 
   } catch (e) { console.error("[scrape] Playwright failed:", e); }
@@ -579,7 +785,20 @@ export async function POST(req: NextRequest) {
     const fallback = await linkedomFallback(homeHtml);
     if (!data.phone && fallback.phone) data.phone = fallback.phone;
     if (!data.owner && fallback.owner) data.owner = fallback.owner;
+    debug.phases.push({
+      phase: 5,
+      name: "Linkedom Fallback",
+      phone: fallback.phone,
+      owner: fallback.owner,
+    });
   }
 
-  return buildResponse(data);
+  debug.final = {
+    phone: data.phone,
+    owner: data.owner,
+    email: data.email,
+    confidence: computeScore(data),
+  };
+
+  return buildResponse(data, debug);
 }

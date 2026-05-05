@@ -13,7 +13,8 @@ export async function POST(req: NextRequest) {
       .from("leads")
       .select("id, business_name, owner_name, short_description, industry, current_software, monthly_spend_estimate, technologies")
       .neq("email", null)
-      .neq("email", "");
+      .neq("email", "")
+      .limit(500);
 
     if (leadsError || !leads) {
       return NextResponse.json({ error: "Failed to fetch leads" }, { status: 500 });
@@ -50,6 +51,19 @@ export async function POST(req: NextRequest) {
 
         if (score > 50) {
           results.highScore++;
+          // Set status to Ready for Outreach if not already sent emails
+          const { data: existing } = await supabase
+            .from("leads")
+            .select("status, email_sent_count")
+            .eq("id", lead.id)
+            .single();
+
+          if (existing && (!existing.status || existing.status === "New")) {
+            await supabase
+              .from("leads")
+              .update({ status: "Ready for Outreach" })
+              .eq("id", lead.id);
+          }
         } else {
           idsToDelete.push(lead.id);
           console.log(`❌ Deleting ${lead.business_name} (score: ${score})`);
