@@ -221,52 +221,46 @@ export default function UnifiedDashboard() {
   ];
 
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#f9fafb" }}>
+    <div className="min-h-screen bg-gray-50">
       {/* HEADER */}
-      <div style={{ backgroundColor: "white", borderBottom: "2px solid #e5e7eb", padding: "16px 20px" }}>
-        <div style={{ maxWidth: "1600px", margin: "0 auto" }}>
-          <h1 style={{ margin: "0 0 16px 0", fontSize: "28px", fontWeight: "700", color: "#1f2937" }}>CRM Control Center</h1>
+      <div className="border-b-2 border-gray-200 bg-white px-5 py-4">
+        <div className="mx-auto max-w-6xl">
+          <h1 className="mb-4 text-3xl font-bold text-gray-900">CRM Control Center</h1>
 
           {/* STATS */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "16px" }}>
-            <div style={{ backgroundColor: "#f3f4f6", padding: "12px", borderRadius: "6px" }}>
-              <div style={{ fontSize: "24px", fontWeight: "700", color: "#3b82f6" }}>{stats.total}</div>
-              <div style={{ fontSize: "12px", color: "#6b7280" }}>Total Leads</div>
+          <div className="grid gap-4 grid-cols-4">
+            <div className="rounded-md bg-gray-100 p-3">
+              <div className="text-2xl font-bold text-blue-500">{stats.total}</div>
+              <div className="text-xs text-gray-500">Total Leads</div>
             </div>
-            <div style={{ backgroundColor: "#f3f4f6", padding: "12px", borderRadius: "6px" }}>
-              <div style={{ fontSize: "24px", fontWeight: "700", color: "#10b981" }}>{stats.withEmail}</div>
-              <div style={{ fontSize: "12px", color: "#6b7280" }}>With Email</div>
+            <div className="rounded-md bg-gray-100 p-3">
+              <div className="text-2xl font-bold text-green-600">{stats.withEmail}</div>
+              <div className="text-xs text-gray-500">With Email</div>
             </div>
-            <div style={{ backgroundColor: "#f3f4f6", padding: "12px", borderRadius: "6px" }}>
-              <div style={{ fontSize: "24px", fontWeight: "700", color: "#f59e0b" }}>{stats.highQuality}</div>
-              <div style={{ fontSize: "12px", color: "#6b7280" }}>High Quality</div>
+            <div className="rounded-md bg-gray-100 p-3">
+              <div className="text-2xl font-bold text-amber-500">{stats.highQuality}</div>
+              <div className="text-xs text-gray-500">High Quality</div>
             </div>
-            <div style={{ backgroundColor: "#f3f4f6", padding: "12px", borderRadius: "6px" }}>
-              <div style={{ fontSize: "24px", fontWeight: "700", color: "#8b5cf6" }}>{stats.sentToday}</div>
-              <div style={{ fontSize: "12px", color: "#6b7280" }}>Sent Today</div>
+            <div className="rounded-md bg-gray-100 p-3">
+              <div className="text-2xl font-bold text-purple-600">{stats.sentToday}</div>
+              <div className="text-xs text-gray-500">Sent Today</div>
             </div>
           </div>
         </div>
       </div>
 
       {/* TAB NAVIGATION */}
-      <div style={{ backgroundColor: "white", borderBottom: "1px solid #e5e7eb", padding: "0 20px", overflowX: "auto" }}>
-        <div style={{ maxWidth: "1600px", margin: "0 auto", display: "flex", gap: "0" }}>
+      <div className="border-b border-gray-200 overflow-x-auto bg-white px-5">
+        <div className="mx-auto max-w-6xl flex gap-0">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: "16px 24px",
-                border: "none",
-                backgroundColor: "transparent",
-                color: activeTab === tab.id ? "#3b82f6" : "#6b7280",
-                borderBottom: activeTab === tab.id ? "3px solid #3b82f6" : "none",
-                cursor: "pointer",
-                fontSize: "14px",
-                fontWeight: activeTab === tab.id ? "600" : "500",
-                whiteSpace: "nowrap",
-              }}
+              className={`border-b-4 px-6 py-4 whitespace-nowrap text-sm font-medium transition-colors ${
+                activeTab === tab.id
+                  ? "border-b-4 border-blue-500 text-blue-600"
+                  : "border-b-4 border-transparent text-gray-500 hover:text-gray-700"
+              }`}
             >
               {tab.icon} {tab.label}
             </button>
@@ -275,41 +269,31 @@ export default function UnifiedDashboard() {
       </div>
 
       {/* TAB CONTENT */}
-      <div style={{ maxWidth: "1600px", margin: "0 auto", padding: "20px" }}>
+      <div className="mx-auto max-w-6xl px-5 py-5">
         {activeTab === "overview" && (
-          <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "20px" }}>
-            <h2 style={{ margin: "0 0 16px 0" }}>Dashboard Overview</h2>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "20px" }}>
-              <div style={{ padding: "16px", backgroundColor: "#f0f9ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
-                <h3 style={{ margin: "0 0 8px 0", color: "#1e40af" }}>Discovery Pipeline</h3>
+          <div className="rounded-lg bg-white p-5">
+            <h2 className="mb-4 text-xl font-bold">Dashboard Overview</h2>
+            <div className="grid gap-5 grid-cols-2">
+              <div className="rounded-lg border border-blue-300 bg-blue-50 p-4">
+                <h3 className="mb-2 font-bold text-blue-900">Discovery Pipeline</h3>
                 <button
                   onClick={runDiscovery}
                   disabled={discovering}
-                  style={{
-                    padding: "8px 16px",
-                    backgroundColor: "#3b82f6",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontSize: "14px",
-                    fontWeight: "600",
-                    opacity: discovering ? 0.6 : 1,
-                  }}
+                  className="rounded-md bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 disabled:opacity-60"
                 >
                   {discovering ? "🔍 Discovering..." : "🚀 Run Discovery"}
                 </button>
-                <p style={{ margin: "12px 0 0 0", fontSize: "12px", color: "#6b7280" }}>
+                <p className="mt-3 text-xs text-gray-600">
                   Automatically finds and imports new leads nationwide
                 </p>
               </div>
 
-              <div style={{ padding: "16px", backgroundColor: "#f0fdf4", borderRadius: "8px", border: "1px solid #bbf7d0" }}>
-                <h3 style={{ margin: "0 0 8px 0", color: "#15803d" }}>Email Automation</h3>
-                <p style={{ margin: "0 0 12px 0", fontSize: "12px", color: "#6b7280" }}>
+              <div className="rounded-lg border border-green-300 bg-green-50 p-4">
+                <h3 className="mb-2 font-bold text-green-900">Email Automation</h3>
+                <p className="text-xs text-gray-600">
                   Sends up to 25 emails per day to high-quality leads
                 </p>
-                <p style={{ margin: "0", fontSize: "12px", fontWeight: "600", color: "#16a34a" }}>
+                <p className="mt-2 text-sm font-semibold text-green-700">
                   {stats.sentToday}/25 emails sent today
                 </p>
               </div>
@@ -318,11 +302,11 @@ export default function UnifiedDashboard() {
         )}
 
         {activeTab === "discovery" && (
-          <div style={{ display: "grid", gridTemplateColumns: "250px 1fr", gap: "20px", minHeight: "600px" }}>
+          <div className="grid gap-5 grid-cols-[250px_1fr] min-h-[600px]">
             {/* LEFT SIDEBAR - TABS AND LEADS */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div className="flex flex-col gap-4">
               {/* DISCOVERY CONTENT TABS */}
-              <div style={{ backgroundColor: "white", borderRadius: "8px", overflow: "hidden" }}>
+              <div className="overflow-hidden rounded-lg bg-white">
                 {[
                   { id: "info", label: "Info" },
                   { id: "source", label: "Source" },
@@ -333,18 +317,11 @@ export default function UnifiedDashboard() {
                   <button
                     key={tab.id}
                     onClick={() => setDiscoveryActiveTab(tab.id)}
-                    style={{
-                      width: "100%",
-                      padding: "12px 16px",
-                      border: "none",
-                      backgroundColor: discoveryActiveTab === tab.id ? "#3b82f6" : "white",
-                      color: discoveryActiveTab === tab.id ? "white" : "#1f2937",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      fontWeight: discoveryActiveTab === tab.id ? "600" : "500",
-                      borderBottom: "1px solid #e5e7eb",
-                      textAlign: "left",
-                    }}
+                    className={`w-full border-b px-4 py-3 text-left text-sm font-medium transition-colors ${
+                      discoveryActiveTab === tab.id
+                        ? "bg-blue-500 text-white"
+                        : "border-gray-200 bg-white text-gray-900 hover:bg-gray-50"
+                    }`}
                   >
                     {tab.label}
                   </button>
@@ -352,15 +329,15 @@ export default function UnifiedDashboard() {
               </div>
 
               {/* DISCOVERED LEADS LIST */}
-              <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "12px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)" }}>
-                <div style={{ fontSize: "11px", fontWeight: "600", color: "#6b7280", marginBottom: "8px" }}>
+              <div className="rounded-lg bg-white p-3 shadow-sm">
+                <div className="mb-2 text-xs font-bold text-gray-500">
                   Discovered ({discoveredLeads.length})
                 </div>
-                <div style={{ maxHeight: "calc(100vh - 450px)", overflowY: "auto" }}>
+                <div className="max-h-[calc(100vh-450px)] overflow-y-auto">
                   {discoveryLoading ? (
-                    <div style={{ fontSize: "12px", color: "#6b7280", padding: "12px", textAlign: "center" }}>Loading...</div>
+                    <div className="py-3 text-center text-xs text-gray-500">Loading...</div>
                   ) : discoveredLeads.length === 0 ? (
-                    <div style={{ fontSize: "12px", color: "#6b7280", padding: "12px", textAlign: "center" }}>No leads discovered yet</div>
+                    <div className="py-3 text-center text-xs text-gray-500">No leads discovered yet</div>
                   ) : (
                     discoveredLeads.slice(0, leadsDisplayCount).map((lead) => (
                       <button
@@ -369,24 +346,17 @@ export default function UnifiedDashboard() {
                           setSelectedLead(lead);
                           setDiscoveryActiveTab("info");
                         }}
-                        style={{
-                          width: "100%",
-                          padding: "10px",
-                          marginBottom: "4px",
-                          backgroundColor: selectedLead?.id === lead.id ? "#eff6ff" : "transparent",
-                          border: selectedLead?.id === lead.id ? "2px solid #3b82f6" : "1px solid #e5e7eb",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          textAlign: "left",
-                        }}
+                        className={`w-full rounded-md p-2 mb-1 text-left text-xs transition-colors ${
+                          selectedLead?.id === lead.id
+                            ? "border-2 border-blue-500 bg-blue-50"
+                            : "border border-gray-200 bg-transparent hover:bg-gray-50"
+                        }`}
                       >
-                        <div style={{ fontSize: "12px", fontWeight: "600", color: "#1f2937" }}>
-                          {lead.business_name}
-                        </div>
-                        <div style={{ fontSize: "11px", color: "#6b7280" }}>
+                        <div className="font-semibold text-gray-900">{lead.business_name}</div>
+                        <div className="text-gray-500">
                           {lead.city || lead.state ? `${lead.city || "Unknown"}, ${lead.state || ""}` : "No location"}
                         </div>
-                        {lead.email && <div style={{ fontSize: "10px", color: "#10b981", fontWeight: "600" }}>✓ Email</div>}
+                        {lead.email && <div className="font-semibold text-green-600">✓ Email</div>}
                       </button>
                     ))
                   )}
@@ -394,18 +364,7 @@ export default function UnifiedDashboard() {
                 {discoveredLeads.length > leadsDisplayCount && (
                   <button
                     onClick={() => setLeadsDisplayCount(leadsDisplayCount + 20)}
-                    style={{
-                      width: "100%",
-                      padding: "8px",
-                      marginTop: "8px",
-                      backgroundColor: "#f3f4f6",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "4px",
-                      cursor: "pointer",
-                      fontSize: "12px",
-                      color: "#3b82f6",
-                      fontWeight: "600",
-                    }}
+                    className="mt-2 w-full rounded-md border border-gray-200 bg-gray-100 py-2 text-xs font-semibold text-blue-500 hover:bg-gray-200"
                   >
                     Show {Math.min(20, discoveredLeads.length - leadsDisplayCount)} more
                   </button>
@@ -415,18 +374,18 @@ export default function UnifiedDashboard() {
 
             {/* RIGHT SIDE - LEAD DETAILS WITH TABS */}
             {selectedLead ? (
-              <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "24px", boxShadow: "0 1px 3px rgba(0,0,0,0.1)", overflowY: "auto", maxHeight: "calc(100vh - 200px)" }}>
-                <h2 style={{ margin: "0 0 16px 0", fontSize: "24px", fontWeight: "700", color: "#1f2937" }}>
+              <div className="max-h-[calc(100vh-200px)] overflow-y-auto rounded-lg bg-white p-6 shadow-sm">
+                <h2 className="mb-4 text-2xl font-bold text-gray-900">
                   {selectedLead.business_name}
                 </h2>
 
                 {discoveryActiveTab === "info" && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                  <div className="grid gap-4 grid-cols-2">
                     <div>
-                      <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "600", marginBottom: "6px" }}>Phone</div>
-                      <div style={{ fontSize: "14px", color: "#1f2937", fontWeight: "500" }}>
+                      <div className="mb-1 text-xs font-bold text-gray-500">Phone</div>
+                      <div className="text-sm font-medium text-gray-900">
                         {selectedLead.phone ? (
-                          <a href={`tel:${selectedLead.phone.replace(/\D/g, "")}`} style={{ color: "#0066cc", textDecoration: "none" }}>
+                          <a href={`tel:${selectedLead.phone.replace(/\D/g, "")}`} className="text-blue-600 no-underline hover:underline">
                             {formatPhoneNumber(selectedLead.phone)}
                           </a>
                         ) : (
@@ -435,32 +394,32 @@ export default function UnifiedDashboard() {
                       </div>
                     </div>
                     <div>
-                      <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "600", marginBottom: "6px" }}>Email</div>
-                      <div style={{ fontSize: "14px", color: "#0066cc", fontWeight: "500" }}>{selectedLead.email || "Not found"}</div>
+                      <div className="mb-1 text-xs font-bold text-gray-500">Email</div>
+                      <div className="text-sm font-medium text-blue-600">{selectedLead.email || "Not found"}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "600", marginBottom: "6px" }}>City</div>
-                      <div style={{ fontSize: "14px", color: "#1f2937", fontWeight: "500" }}>{selectedLead.city || "—"}</div>
+                      <div className="mb-1 text-xs font-bold text-gray-500">City</div>
+                      <div className="text-sm font-medium text-gray-900">{selectedLead.city || "—"}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: "12px", color: "#6b7280", fontWeight: "600", marginBottom: "6px" }}>Industry</div>
-                      <div style={{ fontSize: "14px", color: "#1f2937", fontWeight: "500" }}>{selectedLead.industry || selectedLead.niche || "—"}</div>
+                      <div className="mb-1 text-xs font-bold text-gray-500">Industry</div>
+                      <div className="text-sm font-medium text-gray-900">{selectedLead.industry || selectedLead.niche || "—"}</div>
                     </div>
                   </div>
                 )}
 
                 {discoveryActiveTab === "source" && (
-                  <div style={{ padding: "16px", backgroundColor: "#f0f9ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
-                    <p style={{ margin: "0 0 8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Source: <span style={{ fontWeight: "600", color: "#1f2937" }}>{selectedLead.niche || "Google Business"}</span>
+                  <div className="rounded-lg border border-blue-300 bg-blue-50 p-4">
+                    <p className="mb-2 text-xs text-gray-500">
+                      Source: <span className="font-semibold text-gray-900">{selectedLead.niche || "Google Business"}</span>
                     </p>
-                    <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Industry: <span style={{ fontWeight: "600", color: "#1f2937" }}>{selectedLead.industry || selectedLead.niche || "Unknown"}</span>
+                    <p className="my-2 text-xs text-gray-500">
+                      Industry: <span className="font-semibold text-gray-900">{selectedLead.industry || selectedLead.niche || "Unknown"}</span>
                     </p>
-                    <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Website: <span style={{ fontWeight: "600", color: "#1f2937" }}>
+                    <p className="my-2 text-xs text-gray-500">
+                      Website: <span className="font-semibold text-gray-900">
                         {selectedLead.website ? (
-                          <a href={selectedLead.website} target="_blank" rel="noopener noreferrer" style={{ color: "#0066cc", textDecoration: "underline" }}>
+                          <a href={selectedLead.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
                             {selectedLead.website.replace(/^https?:\/\//, "")}
                           </a>
                         ) : (
@@ -468,18 +427,18 @@ export default function UnifiedDashboard() {
                         )}
                       </span>
                     </p>
-                    <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Address: <span style={{ fontWeight: "600", color: "#1f2937" }}>{selectedLead.address || "Not found"}</span>
+                    <p className="my-2 text-xs text-gray-500">
+                      Address: <span className="font-semibold text-gray-900">{selectedLead.address || "Not found"}</span>
                     </p>
-                    <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Discovered: <span style={{ fontWeight: "600", color: "#1f2937" }}>
+                    <p className="my-2 text-xs text-gray-500">
+                      Discovered: <span className="font-semibold text-gray-900">
                         {selectedLead.created_at
                           ? `${new Date(selectedLead.created_at).toLocaleDateString()} ${new Date(selectedLead.created_at).toLocaleTimeString()}`
                           : "Today"}
                       </span>
                     </p>
-                    <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Status: <span style={{ fontWeight: "600", color: selectedLead.status === "Ready for Outreach" ? "#16a34a" : "#f59e0b" }}>
+                    <p className="my-2 text-xs text-gray-500">
+                      Status: <span className={`font-semibold ${selectedLead.status === "Ready for Outreach" ? "text-green-700" : "text-amber-600"}`}>
                         {selectedLead.status || "New"}
                       </span>
                     </p>
@@ -487,14 +446,14 @@ export default function UnifiedDashboard() {
                 )}
 
                 {discoveryActiveTab === "enrichment" && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <div style={{ padding: "12px", backgroundColor: selectedLead.email ? "#dcfce7" : "#fee2e2", borderRadius: "6px", border: `1px solid ${selectedLead.email ? "#86efac" : "#fca5a5"}` }}>
-                      <p style={{ margin: "0", fontSize: "13px", fontWeight: "600", color: selectedLead.email ? "#166534" : "#991b1b" }}>
+                  <div className="flex flex-col gap-2">
+                    <div className={`rounded-md border p-3 ${selectedLead.email ? "border-green-300 bg-green-100" : "border-red-300 bg-red-100"}`}>
+                      <p className={`text-xs font-semibold m-0 ${selectedLead.email ? "text-green-900" : "text-red-900"}`}>
                         {selectedLead.email ? "✓ Email Found" : "✗ Email Missing"}
                       </p>
                     </div>
-                    <div style={{ padding: "12px", backgroundColor: selectedLead.phone ? "#dcfce7" : "#fee2e2", borderRadius: "6px", border: `1px solid ${selectedLead.phone ? "#86efac" : "#fca5a5"}` }}>
-                      <p style={{ margin: "0", fontSize: "13px", fontWeight: "600", color: selectedLead.phone ? "#166534" : "#991b1b" }}>
+                    <div className={`rounded-md border p-3 ${selectedLead.phone ? "border-green-300 bg-green-100" : "border-red-300 bg-red-100"}`}>
+                      <p className={`text-xs font-semibold m-0 ${selectedLead.phone ? "text-green-900" : "text-red-900"}`}>
                         {selectedLead.phone ? "✓ Phone Found" : "✗ Phone Missing"}
                       </p>
                     </div>
@@ -502,25 +461,25 @@ export default function UnifiedDashboard() {
                 )}
 
                 {discoveryActiveTab === "email" && (
-                  <div style={{ padding: "16px", backgroundColor: "#f0fdf4", borderRadius: "8px", border: "1px solid #bbf7d0" }}>
-                    <p style={{ margin: "0 0 8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Status: <span style={{ fontWeight: "600", color: "#16a34a" }}>{selectedLead.status || "Ready for Outreach"}</span>
+                  <div className="rounded-lg border border-green-300 bg-green-50 p-4">
+                    <p className="mb-2 text-xs text-gray-500">
+                      Status: <span className="font-semibold text-green-700">{selectedLead.status || "Ready for Outreach"}</span>
                     </p>
-                    <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                      Emails Sent: <span style={{ fontWeight: "600" }}>{selectedLead.email_sent_count || 0}/3</span>
+                    <p className="my-2 text-xs text-gray-500">
+                      Emails Sent: <span className="font-semibold">{selectedLead.email_sent_count || 0}/3</span>
                     </p>
                     {(selectedLead.outreach_log?.length || 0) > 0 && (
-                      <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #bbf7d0" }}>
-                        <p style={{ margin: "0 0 8px 0", fontSize: "12px", fontWeight: "600", color: "#166534" }}>Outreach History:</p>
+                      <div className="border-t border-green-300 pt-3 mt-3">
+                        <p className="mb-2 text-xs font-semibold text-green-900">Outreach History:</p>
                         {selectedLead.outreach_log?.slice(0, 3).map((log, idx) => (
-                          <div key={idx} style={{ fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>
+                          <div key={idx} className="mb-1 text-xs text-gray-500">
                             📧 {log.channel === "email" ? "Email" : log.channel} • {new Date(log.sent_at).toLocaleDateString()}
                           </div>
                         ))}
                       </div>
                     )}
                     {selectedLead.email && (
-                      <button onClick={handleSendEmailFromDiscovery} style={{ marginTop: "12px", padding: "8px 16px", backgroundColor: "#16a34a", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>
+                      <button onClick={handleSendEmailFromDiscovery} className="mt-3 rounded-md bg-green-600 px-4 py-2 text-xs font-semibold text-white hover:bg-green-700">
                         Send Email
                       </button>
                     )}
@@ -528,28 +487,28 @@ export default function UnifiedDashboard() {
                 )}
 
                 {discoveryActiveTab === "scoring" && (
-                  <div style={{ padding: "16px", backgroundColor: "#f3f0ff", borderRadius: "8px", border: "1px solid #e9d5ff" }}>
+                  <div className="rounded-lg border border-purple-300 bg-purple-50 p-4">
                     {selectedLead.lead_ai_summaries ? (
                       <>
-                        <p style={{ margin: "0 0 8px 0", fontSize: "13px", color: "#6b7280" }}>
-                          Lead Score: <span style={{ fontWeight: "600", color: "#7c3aed" }}>{selectedLead.lead_ai_summaries.lead_score || "Pending"}/100</span>
+                        <p className="mb-2 text-xs text-gray-500">
+                          Lead Score: <span className="font-semibold text-purple-700">{selectedLead.lead_ai_summaries.lead_score || "Pending"}/100</span>
                         </p>
-                        <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                          Confidence: <span style={{ fontWeight: "600", color: "#7c3aed" }}>{selectedLead.lead_ai_summaries.confidence_level || "N/A"}</span>
+                        <p className="my-2 text-xs text-gray-500">
+                          Confidence: <span className="font-semibold text-purple-700">{selectedLead.lead_ai_summaries.confidence_level || "N/A"}</span>
                         </p>
                         {selectedLead.lead_ai_summaries.main_pain_point && (
-                          <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                            Pain Point: <span style={{ fontWeight: "600", color: "#1f2937" }}>{selectedLead.lead_ai_summaries.main_pain_point}</span>
+                          <p className="my-2 text-xs text-gray-500">
+                            Pain Point: <span className="font-semibold text-gray-900">{selectedLead.lead_ai_summaries.main_pain_point}</span>
                           </p>
                         )}
                         {selectedLead.lead_ai_summaries.best_attack_angle && (
-                          <p style={{ margin: "8px 0", fontSize: "13px", color: "#6b7280" }}>
-                            Best Angle: <span style={{ fontWeight: "600", color: "#1f2937" }}>{selectedLead.lead_ai_summaries.best_attack_angle}</span>
+                          <p className="my-2 text-xs text-gray-500">
+                            Best Angle: <span className="font-semibold text-gray-900">{selectedLead.lead_ai_summaries.best_attack_angle}</span>
                           </p>
                         )}
                       </>
                     ) : (
-                      <p style={{ color: "#6b7280", fontSize: "13px" }}>
+                      <p className="text-xs text-gray-500">
                         ⏳ AI scoring in progress... This lead was recently imported and will be auto-scored within the next few hours by our automation pipeline.
                       </p>
                     )}
@@ -557,25 +516,15 @@ export default function UnifiedDashboard() {
                 )}
               </div>
             ) : discoveryLoading ? (
-              <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "40px", textAlign: "center", color: "#6b7280" }}>
+              <div className="rounded-lg bg-white p-10 text-center text-gray-500">
                 <p>Loading discovered leads...</p>
               </div>
             ) : (
-              <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "40px", textAlign: "center", color: "#6b7280" }}>
+              <div className="rounded-lg bg-white p-10 text-center text-gray-500">
                 <button
                   onClick={runDiscovery}
                   disabled={discovering}
-                  style={{
-                    padding: "12px 24px",
-                    backgroundColor: "#3b82f6",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontWeight: "600",
-                    fontSize: "14px",
-                    opacity: discovering ? 0.6 : 1,
-                  }}
+                  className="rounded-md bg-blue-500 px-6 py-3 font-semibold text-white hover:bg-blue-600 disabled:opacity-60"
                 >
                   {discovering ? "🔍 Discovering..." : "🚀 Run Discovery"}
                 </button>
@@ -585,62 +534,44 @@ export default function UnifiedDashboard() {
         )}
 
         {activeTab === "email" && (
-          <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "20px" }}>
-            <h2 style={{ margin: "0 0 16px 0" }}>Email Queue</h2>
+          <div className="rounded-lg bg-white p-5">
+            <h2 className="mb-4 text-xl font-bold">Email Queue</h2>
             {emailStatus && (
-              <div style={{
-                padding: "12px",
-                backgroundColor: emailSent > 0 ? "#d1fae5" : "#fee2e2",
-                border: `2px solid ${emailSent > 0 ? "#10b981" : "#ef4444"}`,
-                borderRadius: "6px",
-                marginBottom: "16px",
-                fontSize: "14px",
-              }}>
+              <div className={`mb-4 rounded-md border-2 p-3 text-sm ${
+                emailSent > 0
+                  ? "border-green-500 bg-green-100"
+                  : "border-red-500 bg-red-100"
+              }`}>
                 {emailStatus}
               </div>
             )}
             {emailLoading ? (
-              <p style={{ color: "#6b7280" }}>Loading queue...</p>
+              <p className="text-gray-500">Loading queue...</p>
             ) : emailLeads.length === 0 ? (
-              <p style={{ color: "#6b7280" }}>No leads with email addresses ready to send</p>
+              <p className="text-gray-500">No leads with email addresses ready to send</p>
             ) : (
               <>
-                <div style={{ padding: "16px", backgroundColor: "#f0fdf4", borderRadius: "8px", marginBottom: "16px", border: "2px solid #22c55e" }}>
-                  <p style={{ margin: "0 0 12px 0", color: "#166534", fontSize: "16px", fontWeight: "600" }}>{emailLeads.length} leads ready to email</p>
+                <div className="mb-4 rounded-lg border-2 border-green-500 bg-green-50 p-4">
+                  <p className="mb-3 text-base font-bold text-green-900">{emailLeads.length} leads ready to email</p>
                   <button
                     onClick={handleSendEmailBatch}
                     disabled={emailSending}
-                    style={{
-                      padding: "10px 20px",
-                      backgroundColor: "#059669",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "6px",
-                      cursor: emailSending ? "wait" : "pointer",
-                      fontWeight: "600",
-                      opacity: emailSending ? 0.8 : 1,
-                    }}
+                    className="rounded-md bg-emerald-600 px-5 py-2 font-semibold text-white hover:bg-emerald-700 disabled:opacity-80"
                   >
                     {emailSending ? `Sending... ${emailSent}/${emailLeads.length}` : "SEND ALL NOW"}
                   </button>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "12px" }}>
+                <div className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(280px,1fr))]">
                   {emailLeads.slice(0, 20).map((lead) => (
-                    <div key={lead.id} style={{
-                      padding: "12px",
-                      backgroundColor: "#f9fafb",
-                      border: "1px solid #e5e7eb",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                    }}>
-                      <div style={{ fontWeight: "600", color: "#1f2937", marginBottom: "4px" }}>{lead.business_name}</div>
-                      <div style={{ color: "#6b7280", wordBreak: "break-all" }}>{lead.email}</div>
-                      <div style={{ color: "#9ca3af", marginTop: "6px" }}>Email #{lead.email_sent_count + 1}/3</div>
+                    <div key={lead.id} className="rounded-md border border-gray-200 bg-gray-50 p-3 text-xs">
+                      <div className="mb-1 font-semibold text-gray-900">{lead.business_name}</div>
+                      <div className="break-all text-gray-500">{lead.email}</div>
+                      <div className="mt-1.5 text-gray-400">Email #{lead.email_sent_count + 1}/3</div>
                     </div>
                   ))}
                 </div>
                 {emailLeads.length > 20 && (
-                  <p style={{ marginTop: "12px", textAlign: "center", color: "#6b7280", fontSize: "12px" }}>+{emailLeads.length - 20} more</p>
+                  <p className="mt-3 text-center text-xs text-gray-500">+{emailLeads.length - 20} more</p>
                 )}
               </>
             )}
@@ -648,66 +579,42 @@ export default function UnifiedDashboard() {
         )}
 
         {activeTab === "calls" && (
-          <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "20px" }}>
-            <h2 style={{ margin: "0 0 16px 0" }}>Call Queue</h2>
-            <p style={{ color: "#6b7280", marginBottom: "16px" }}>Track and manage outbound calling campaigns</p>
-            <a href="/crm/call-queue" style={{
-              display: "inline-block",
-              padding: "10px 20px",
-              backgroundColor: "#ef4444",
-              color: "white",
-              textDecoration: "none",
-              borderRadius: "6px",
-              fontWeight: "600",
-            }}>Go to Call Queue →</a>
+          <div className="rounded-lg bg-white p-5">
+            <h2 className="mb-4 text-xl font-bold">Call Queue</h2>
+            <p className="mb-4 text-gray-500">Track and manage outbound calling campaigns</p>
+            <a href="/crm/call-queue" className="inline-block rounded-md bg-red-500 px-5 py-2.5 font-semibold text-white no-underline hover:bg-red-600">
+              Go to Call Queue →
+            </a>
           </div>
         )}
 
         {activeTab === "replies" && (
-          <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "20px" }}>
-            <h2 style={{ margin: "0 0 16px 0" }}>Replies</h2>
-            <p style={{ color: "#6b7280", marginBottom: "16px" }}>Monitor and respond to lead replies</p>
-            <a href="/crm/replies" style={{
-              display: "inline-block",
-              padding: "10px 20px",
-              backgroundColor: "#8b5cf6",
-              color: "white",
-              textDecoration: "none",
-              borderRadius: "6px",
-              fontWeight: "600",
-            }}>Go to Replies →</a>
+          <div className="rounded-lg bg-white p-5">
+            <h2 className="mb-4 text-xl font-bold">Replies</h2>
+            <p className="mb-4 text-gray-500">Monitor and respond to lead replies</p>
+            <a href="/crm/replies" className="inline-block rounded-md bg-purple-600 px-5 py-2.5 font-semibold text-white no-underline hover:bg-purple-700">
+              Go to Replies →
+            </a>
           </div>
         )}
 
         {activeTab === "bookings" && (
-          <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "20px" }}>
-            <h2 style={{ margin: "0 0 16px 0" }}>Bookings</h2>
-            <p style={{ color: "#6b7280", marginBottom: "16px" }}>Track scheduled calls and meetings</p>
-            <a href="/crm/bookings" style={{
-              display: "inline-block",
-              padding: "10px 20px",
-              backgroundColor: "#10b981",
-              color: "white",
-              textDecoration: "none",
-              borderRadius: "6px",
-              fontWeight: "600",
-            }}>Go to Bookings →</a>
+          <div className="rounded-lg bg-white p-5">
+            <h2 className="mb-4 text-xl font-bold">Bookings</h2>
+            <p className="mb-4 text-gray-500">Track scheduled calls and meetings</p>
+            <a href="/crm/bookings" className="inline-block rounded-md bg-green-600 px-5 py-2.5 font-semibold text-white no-underline hover:bg-green-700">
+              Go to Bookings →
+            </a>
           </div>
         )}
 
         {activeTab === "leads" && (
-          <div style={{ backgroundColor: "white", borderRadius: "8px", padding: "20px" }}>
-            <h2 style={{ margin: "0 0 16px 0" }}>All Leads Database</h2>
-            <p style={{ color: "#6b7280", marginBottom: "16px" }}>View and manage your complete lead database</p>
-            <a href="/crm/dashboard-tabs" style={{
-              display: "inline-block",
-              padding: "10px 20px",
-              backgroundColor: "#3b82f6",
-              color: "white",
-              textDecoration: "none",
-              borderRadius: "6px",
-              fontWeight: "600",
-            }}>Go to All Leads →</a>
+          <div className="rounded-lg bg-white p-5">
+            <h2 className="mb-4 text-xl font-bold">All Leads Database</h2>
+            <p className="mb-4 text-gray-500">View and manage your complete lead database</p>
+            <a href="/crm/dashboard-tabs" className="inline-block rounded-md bg-blue-500 px-5 py-2.5 font-semibold text-white no-underline hover:bg-blue-600">
+              Go to All Leads →
+            </a>
           </div>
         )}
       </div>
