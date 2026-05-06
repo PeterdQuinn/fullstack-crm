@@ -9,27 +9,22 @@ interface Lead {
   email?: string;
   phone?: string;
   website?: string;
-  short_description?: string;
-  yelp_url?: string;
-  bbb_url?: string;
-  facebook_url?: string;
-  linkedin_url?: string;
-  linkedin_company_url?: string;
-  google_business_url?: string;
-  instagram_url?: string;
-  twitter_url?: string;
-  current_software?: string;
   status?: string;
   email_sent_count?: number;
+  industry?: string;
+  niche?: string;
+  lead_ai_summaries?: Array<{
+    lead_score?: number;
+    confidence_level?: number;
+    recommended_follow_up?: string;
+  }>;
 }
-
-type Tab = "info" | "credibility" | "growth" | "outreach" | "ai" | "social";
 
 export default function DashboardTabs() {
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("info");
   const [loading, setLoading] = useState(true);
+  const [sortField, setSortField] = useState<keyof Lead>("business_name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     fetchLeads();
@@ -37,12 +32,9 @@ export default function DashboardTabs() {
 
   async function fetchLeads() {
     try {
-      const res = await fetch("/api/email/queue");
+      const res = await fetch("/api/admin/all-leads");
       const data = await res.json();
       setLeads(data.leads || []);
-      if (data.leads && data.leads.length > 0) {
-        setSelectedLead(data.leads[0]);
-      }
     } catch (error) {
       console.error("Error fetching leads:", error);
     } finally {
@@ -50,221 +42,134 @@ export default function DashboardTabs() {
     }
   }
 
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: "info", label: "Business Info", icon: "🏢" },
-    { id: "credibility", label: "Credibility", icon: "⭐" },
-    { id: "growth", label: "Growth Signals", icon: "📈" },
-    { id: "outreach", label: "Outreach", icon: "📧" },
-    { id: "ai", label: "AI Summary", icon: "🤖" },
-    { id: "social", label: "Social", icon: "🔗" },
-  ];
+  const getLeadScore = (lead: Lead) => {
+    const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
+    return summary?.lead_score || 0;
+  };
 
-  const renderInfoTab = () => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="text-sm font-semibold text-gray-600">Business Name</label>
-          <p className="text-lg">{selectedLead?.business_name || "—"}</p>
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-600">Owner</label>
-          <p className="text-lg">{selectedLead?.owner_name || "—"}</p>
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-600">Phone</label>
-          <p className="text-lg">{selectedLead?.phone || "—"}</p>
-        </div>
-        <div>
-          <label className="text-sm font-semibold text-gray-600">Email</label>
-          <p className="text-lg">{selectedLead?.email || "—"}</p>
-        </div>
-      </div>
-      <div>
-        <label className="text-sm font-semibold text-gray-600">Website</label>
-        {selectedLead?.website ? (
-          <a href={selectedLead.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-            {selectedLead.website}
-          </a>
-        ) : (
-          <p>—</p>
-        )}
-      </div>
-      <div>
-        <label className="text-sm font-semibold text-gray-600">Current Software</label>
-        <p>{selectedLead?.current_software || "—"}</p>
-      </div>
-      <div>
-        <label className="text-sm font-semibold text-gray-600">Description</label>
-        <p className="text-gray-700">{selectedLead?.short_description || "—"}</p>
-      </div>
-    </div>
-  );
+  const getFollowUp = (lead: Lead) => {
+    const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
+    return summary?.recommended_follow_up || "—";
+  };
 
-  const renderCredibilityTab = () => (
-    <div className="space-y-4">
-      <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-        <h3 className="font-semibold mb-3">Trust Indicators</h3>
-        <div className="space-y-2">
-          {selectedLead?.yelp_url ? (
-            <div className="flex items-center justify-between">
-              <span>🟡 Yelp Profile</span>
-              <a href={selectedLead.yelp_url} target="_blank" className="text-blue-600 text-sm">View</a>
-            </div>
-          ) : (
-            <div className="text-gray-400">🟡 Yelp Profile: Not found</div>
-          )}
-          {selectedLead?.bbb_url ? (
-            <div className="flex items-center justify-between">
-              <span>✓ BBB Accredited</span>
-              <a href={selectedLead.bbb_url} target="_blank" className="text-blue-600 text-sm">View</a>
-            </div>
-          ) : (
-            <div className="text-gray-400">✓ BBB Status: Not found</div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  const sortedLeads = [...leads].sort((a, b) => {
+    let aVal = a[sortField];
+    let bVal = b[sortField];
 
-  const renderGrowthTab = () => (
-    <div className="space-y-4">
-      <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-        <h3 className="font-semibold mb-3">Growth Signals</h3>
-        <div className="space-y-2 text-gray-700">
-          <p>📊 Analyzing growth opportunities...</p>
-          <p className="text-sm">Job postings, employee count, and expansion signals</p>
-        </div>
-      </div>
-    </div>
-  );
+    if (sortField === "business_name" || sortField === "owner_name") {
+      aVal = String(aVal || "").toLowerCase();
+      bVal = String(bVal || "").toLowerCase();
+    }
 
-  const renderOutreachTab = () => (
-    <div className="space-y-4">
-      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-        <h3 className="font-semibold mb-3">Outreach History</h3>
-        <div className="space-y-2">
-          <p>📧 Emails Sent: <strong>{selectedLead?.email_sent_count || 0}/3</strong></p>
-          <p className="text-sm text-gray-600">Status: {selectedLead?.status || "—"}</p>
-        </div>
-      </div>
-    </div>
-  );
+    if (aVal < bVal) return sortDir === "asc" ? -1 : 1;
+    if (aVal > bVal) return sortDir === "asc" ? 1 : -1;
+    return 0;
+  });
 
-  const renderAITab = () => (
-    <div className="space-y-4">
-      <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-        <h3 className="font-semibold mb-3">AI Analysis</h3>
-        <p className="text-gray-700 text-sm">Pain points, attack angles, and recommended messaging will appear here after AI scoring.</p>
-      </div>
-    </div>
-  );
-
-  const renderSocialTab = () => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          { name: "Google Business", url: selectedLead?.google_business_url, icon: "🏢" },
-          { name: "LinkedIn Company", url: selectedLead?.linkedin_company_url, icon: "🔗" },
-          { name: "LinkedIn", url: selectedLead?.linkedin_url, icon: "💼" },
-          { name: "Facebook", url: selectedLead?.facebook_url, icon: "f" },
-          { name: "Instagram", url: selectedLead?.instagram_url, icon: "📷" },
-          { name: "Twitter", url: selectedLead?.twitter_url, icon: "𝕏" },
-        ].map((social) => (
-          <div key={social.name} className="p-3 border rounded-lg">
-            <p className="text-sm font-semibold mb-1">{social.icon} {social.name}</p>
-            {social.url ? (
-              <a href={social.url} target="_blank" className="text-blue-600 text-xs truncate">
-                View Profile
-              </a>
-            ) : (
-              <p className="text-gray-400 text-xs">Not found</p>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
-  const renderTab = () => {
-    switch (activeTab) {
-      case "info":
-        return renderInfoTab();
-      case "credibility":
-        return renderCredibilityTab();
-      case "growth":
-        return renderGrowthTab();
-      case "outreach":
-        return renderOutreachTab();
-      case "ai":
-        return renderAITab();
-      case "social":
-        return renderSocialTab();
-      default:
-        return null;
+  const handleSort = (field: keyof Lead) => {
+    if (sortField === field) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortDir("asc");
     }
   };
 
-  if (loading) return <div className="p-8">Loading...</div>;
+  const SortIcon = ({ field }: { field: keyof Lead }) => {
+    if (sortField !== field) return <span className="text-gray-300">↕</span>;
+    return <span>{sortDir === "asc" ? "↑" : "↓"}</span>;
+  };
+
+  if (loading) return <div className="p-8 text-center">Loading leads...</div>;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
+    <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto p-6">
-        <div className="grid grid-cols-3 gap-6">
-          {/* Left: Lead List */}
-          <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="bg-blue-600 text-white p-4 font-semibold">Leads ({leads.length})</div>
-            <div className="overflow-y-auto max-h-[calc(100vh-150px)]">
-              {leads.map((lead) => (
-                <div
-                  key={lead.id}
-                  onClick={() => setSelectedLead(lead)}
-                  className={`p-4 border-b cursor-pointer transition ${
-                    selectedLead?.id === lead.id ? "bg-blue-50 border-l-4 border-blue-600" : "hover:bg-gray-50"
-                  }`}
-                >
-                  <p className="font-semibold text-gray-900">{lead.business_name}</p>
-                  <p className="text-xs text-gray-500 mt-1">{lead.owner_name || "No owner"}</p>
-                  <p className="text-xs text-gray-400 mt-1">{lead.email || "No email"}</p>
-                </div>
-              ))}
-            </div>
+        <div className="bg-white rounded-lg shadow-md overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6">
+            <h1 className="text-3xl font-bold">All Leads</h1>
+            <p className="text-blue-100 mt-1">Showing {leads.length} leads</p>
           </div>
 
-          {/* Right: Lead Details with Tabs */}
-          <div className="col-span-2 bg-white rounded-lg shadow-md overflow-hidden">
-            {selectedLead ? (
-              <>
-                {/* Header */}
-                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6">
-                  <h1 className="text-3xl font-bold">{selectedLead.business_name}</h1>
-                  <p className="text-blue-100 mt-1">Owner: {selectedLead.owner_name || "Unknown"}</p>
-                </div>
-
-                {/* Tabs */}
-                <div className="flex border-b overflow-x-auto">
-                  {tabs.map((tab) => (
-                    <button
-                      key={tab.id}
-                      onClick={() => setActiveTab(tab.id)}
-                      className={`flex items-center gap-2 px-4 py-3 font-medium text-sm whitespace-nowrap transition ${
-                        activeTab === tab.id
-                          ? "border-b-2 border-blue-600 text-blue-600 bg-blue-50"
-                          : "text-gray-600 hover:text-gray-900"
-                      }`}
-                    >
-                      <span>{tab.icon}</span>
-                      <span>{tab.label}</span>
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b bg-gray-50">
+                  <th className="px-6 py-3 text-left">
+                    <button onClick={() => handleSort("business_name")} className="flex items-center gap-2 font-semibold text-gray-700 hover:text-gray-900">
+                      Business <SortIcon field="business_name" />
                     </button>
-                  ))}
-                </div>
+                  </th>
+                  <th className="px-6 py-3 text-left">
+                    <button onClick={() => handleSort("owner_name")} className="flex items-center gap-2 font-semibold text-gray-700 hover:text-gray-900">
+                      Owner <SortIcon field="owner_name" />
+                    </button>
+                  </th>
+                  <th className="px-6 py-3 text-left font-semibold text-gray-700">Phone</th>
+                  <th className="px-6 py-3 text-left font-semibold text-gray-700">Email</th>
+                  <th className="px-6 py-3 text-left font-semibold text-gray-700">Status</th>
+                  <th className="px-6 py-3 text-left">
+                    <button onClick={() => handleSort("id")} className="flex items-center gap-2 font-semibold text-gray-700 hover:text-gray-900">
+                      Score <SortIcon field="id" />
+                    </button>
+                  </th>
+                  <th className="px-6 py-3 text-left font-semibold text-gray-700">Follow-Up</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedLeads.map((lead) => {
+                  const score = getLeadScore(lead);
+                  const scoreColor = score >= 70 ? "bg-green-100 text-green-800" : score >= 50 ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-800";
 
-                {/* Tab Content */}
-                <div className="p-6">{renderTab()}</div>
-              </>
-            ) : (
-              <div className="p-6 text-center text-gray-500">Select a lead to view details</div>
-            )}
+                  return (
+                    <tr key={lead.id} className="border-b hover:bg-gray-50 transition">
+                      <td className="px-6 py-4 font-medium text-gray-900">{lead.business_name}</td>
+                      <td className="px-6 py-4 text-gray-700">{lead.owner_name || "—"}</td>
+                      <td className="px-6 py-4 text-gray-700">
+                        {lead.phone ? (
+                          <a href={`tel:${lead.phone}`} className="text-blue-600 hover:underline">
+                            {lead.phone}
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-gray-700">
+                        {lead.email ? (
+                          <a href={`mailto:${lead.email}`} className="text-blue-600 hover:underline truncate max-w-xs">
+                            {lead.email}
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
+                          {lead.status || "New"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${scoreColor}`}>
+                          {score}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-gray-700 text-sm max-w-xs truncate">
+                        {getFollowUp(lead)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+
+          {leads.length === 0 && (
+            <div className="p-8 text-center text-gray-500">
+              <p>No leads found. Start by discovering leads or importing them.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
