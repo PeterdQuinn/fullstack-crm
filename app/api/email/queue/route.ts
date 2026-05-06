@@ -15,6 +15,8 @@ export async function GET() {
       .eq("bounced", false)
       .neq("status", "Do Not Contact")
       .neq("status", "Bad Email")
+      .not("email", "is", null)
+      .neq("email", "")
       .lt("email_sent_count", 3)
       .in("status", [
         "Ready for Outreach",

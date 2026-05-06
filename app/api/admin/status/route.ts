@@ -31,14 +31,20 @@ export async function GET(req: NextRequest) {
       .select("*", { count: "exact", head: true })
       .not("owner_name", "is", null);
 
-    const { count: leadsScored } = await supabase
+    // Count unique leads that have been scored (avoid duplicates)
+    const { data: scoredLeads } = await supabase
       .from("lead_ai_summaries")
-      .select("*", { count: "exact", head: true });
+      .select("lead_id", { distinct: true });
 
-    const { count: leadsHighScore } = await supabase
+    const leadsScored = scoredLeads?.length || 0;
+
+    // Count unique leads with high scores
+    const { data: highScoreLeads } = await supabase
       .from("lead_ai_summaries")
-      .select("*", { count: "exact", head: true })
+      .select("lead_id", { distinct: true })
       .gt("lead_score", 50);
+
+    const leadsHighScore = highScoreLeads?.length || 0;
 
     // Email sending stats
     const { count: emailsSentToday } = await supabase
@@ -74,7 +80,7 @@ export async function GET(req: NextRequest) {
       summary: {
         readyToSend: leadsHighScore,
         needsEmail: totalLeads! - (leadsWithEmail || 0),
-        needsScoring: (leadsWithEmail || 0) - (leadsScored || 0),
+        needsScoring: Math.max(0, (leadsWithEmail || 0) - (leadsScored || 0)),
       },
     });
   } catch (error) {

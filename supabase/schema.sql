@@ -222,3 +222,15 @@ create policy "Allow all on lead_socials" on lead_socials for all using (true) w
 create policy "Allow all on outreach_log" on outreach_log for all using (true) with check (true);
 create policy "Allow all on follow_up_tasks" on follow_up_tasks for all using (true) with check (true);
 create policy "Allow all on booking_tracker" on booking_tracker for all using (true) with check (true);
+
+-- LEAD DISCOVERY CONFIG
+create table if not exists lead_discovery_config (
+  id uuid default gen_random_uuid() primary key,
+  key text unique not null,
+  last_state_index integer default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create policy "Allow all on lead_discovery_config" on lead_discovery_config for all using (true) with check (true);
+alter table lead_discovery_config enable row level security;

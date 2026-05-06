@@ -9,8 +9,9 @@ export async function sendEmail(
   replyTo?: string
 ) {
   try {
+    const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@fullstackservicesllc.net";
     const result = await resend.emails.send({
-      from: "noreply@fullstackservicesllc.net",
+      from: fromEmail,
       to: email,
       subject,
       html,
