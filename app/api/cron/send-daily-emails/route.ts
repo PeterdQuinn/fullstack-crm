@@ -90,7 +90,7 @@ export async function GET(req: NextRequest) {
 
     for (const lead of leads) {
       try {
-        const summary = lead.lead_ai_summaries;
+        const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
         const score = summary?.lead_score || 0;
 
         // Only send if score is decent

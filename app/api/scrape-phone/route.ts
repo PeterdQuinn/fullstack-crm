@@ -600,7 +600,7 @@ export async function POST(req: NextRequest) {
     ? raw.website.trim() : "";
 
   let data = blankData();
-  const debug = { phases: [] as any[] };
+  const debug: any = { phases: [] as any[], final: undefined };
 
   // ── no website: search directories only ──────────────────────────────────────
   if (!website) {

@@ -9,16 +9,30 @@ const supabase = createClient(
 export async function GET() {
   try {
     // Get lead processing summary
-    const { data: leads } = await supabase
+    const { data: allLeads } = await supabase
       .from("leads")
-      .select("status, COUNT(*) as count")
-      .group_by("status");
+      .select("status");
+
+    const statusCounts = allLeads?.reduce((acc: Record<string, number>, lead: { status: string | null }) => {
+      const status = lead.status || "Unknown";
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {}) || {};
+
+    const leads = Object.entries(statusCounts).map(([status, count]) => ({ status, count }));
 
     // Get discovery source distribution
-    const { data: sources } = await supabase
+    const { data: allSources } = await supabase
       .from("leads")
-      .select("niche, COUNT(*) as count")
-      .group_by("niche");
+      .select("niche");
+
+    const sourceCounts = allSources?.reduce((acc: Record<string, number>, lead: { niche: string | null }) => {
+      const niche = lead.niche || "Unknown";
+      acc[niche] = (acc[niche] || 0) + 1;
+      return acc;
+    }, {}) || {};
+
+    const sources = Object.entries(sourceCounts).map(([niche, count]) => ({ niche, count }));
 
     // Get enrichment status
     const { count: withEmail } = await supabase
@@ -36,9 +50,11 @@ export async function GET() {
       .select("*", { count: "exact", head: true })
       .not("owner_name", "is", null);
 
-    const { count: withScore } = await supabase
+    const { data: scores } = await supabase
       .from("lead_ai_summaries")
-      .select("lead_id", { count: "exact", head: true, distinct: true });
+      .select("lead_id");
+
+    const withScore = new Set(scores?.map(s => s.lead_id) || []).size;
 
     // Get recent processing logs
     const { data: recentLogs } = await supabase

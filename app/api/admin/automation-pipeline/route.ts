@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { generateLeadSummary } from "@/lib/grok";
+import { scoreLead } from "@/lib/ai-scoring";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -103,24 +103,27 @@ export async function POST(req: NextRequest) {
 
             if (existing) continue;
 
-            const summary = await generateLeadSummary(lead);
+            const summary = await scoreLead({
+              business_name: lead.business_name,
+              owner_name: lead.owner_name,
+              industry: lead.industry,
+              current_software: lead.current_software,
+              technologies: lead.technologies,
+              short_description: lead.short_description,
+            });
             const score = summary.lead_score || 0;
 
             // Upsert summary
-            await supabase.from("lead_ai_summaries").upsert(
-              {
-                lead_id: lead.id,
-                main_pain_point: summary.main_pain_point,
-                pain_reason: summary.pain_reason,
-                best_attack_angle: summary.best_attack_angle,
-                recommended_first_message: summary.recommended_first_message,
-                recommended_follow_up: summary.recommended_follow_up,
-                lead_score: score,
-                confidence_level: summary.confidence_level,
-                missing_data_needed: summary.missing_data_needed,
-              },
-              { onConflict: "lead_id" }
-            );
+            await supabase.from("lead_ai_summaries").upsert({
+              lead_id: lead.id,
+              main_pain_point: summary.main_pain_point,
+              best_attack_angle: summary.best_attack_angle,
+              recommended_first_message: summary.recommended_first_message,
+              recommended_follow_up: summary.recommended_follow_up,
+              lead_score: score,
+              confidence_level: summary.confidence_level,
+              missing_data_needed: summary.missing_data_needed,
+            });
 
             if (score > 50) {
               scoredCount++;
@@ -200,7 +203,7 @@ export async function POST(req: NextRequest) {
         };
 
         for (const lead of leads || []) {
-          const summary = lead.lead_ai_summaries;
+          const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
           const score = summary?.lead_score || 0;
 
           if (score <= 50 || !lead.email) continue;

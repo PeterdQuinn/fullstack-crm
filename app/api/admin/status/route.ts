@@ -34,17 +34,17 @@ export async function GET(req: NextRequest) {
     // Count unique leads that have been scored (avoid duplicates)
     const { data: scoredLeads } = await supabase
       .from("lead_ai_summaries")
-      .select("lead_id", { distinct: true });
+      .select("lead_id");
 
-    const leadsScored = scoredLeads?.length || 0;
+    const leadsScored = new Set(scoredLeads?.map(s => s.lead_id) || []).size;
 
     // Count unique leads with high scores
     const { data: highScoreLeads } = await supabase
       .from("lead_ai_summaries")
-      .select("lead_id", { distinct: true })
+      .select("lead_id, lead_score")
       .gt("lead_score", 50);
 
-    const leadsHighScore = highScoreLeads?.length || 0;
+    const leadsHighScore = new Set(highScoreLeads?.map(s => s.lead_id) || []).size;
 
     // Email sending stats
     const { count: emailsSentToday } = await supabase

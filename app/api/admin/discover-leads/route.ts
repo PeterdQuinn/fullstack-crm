@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     }
 
     // PHASE 5: Import to database
-    let importResult = { imported: 0, skipped: 0, errors: 0, importedIds: [] };
+    let importResult: { imported: number; skipped: number; errors: number; importedIds: string[] } = { imported: 0, skipped: 0, errors: 0, importedIds: [] };
     if (importToDb && enrichedLeads.length > 0) {
       console.log(`\n💾 PHASE 5: Importing ${enrichedLeads.length} leads to database...`);
       importResult = await importLeads(enrichedLeads);

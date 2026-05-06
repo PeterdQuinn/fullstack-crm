@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     const results = { sent: [] as any[], failed: [] as any[] };
 
     for (const lead of leads || []) {
-      const summary = lead.lead_ai_summaries;
+      const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
       const score = summary?.lead_score || 0;
 
       console.log(`  Checking ${lead.business_name}: score=${score}, email=${lead.email}, sent=${lead.email_sent_count}`);
