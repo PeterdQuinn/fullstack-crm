@@ -9,6 +9,19 @@ const supabase = createClient(
 
 export const maxDuration = 120;
 
+// Health check — lets you open the URL in a browser and see JSON instead of a 405.
+// This does NOT run the job or send any emails; the actual work is POST-only below.
+export async function GET() {
+  return NextResponse.json({
+    status: "ok",
+    route: "/api/cron/process-followups",
+    method: "POST",
+    auth: "Authorization: Bearer <CRON_SECRET>",
+    note: "This endpoint runs on POST only. Trigger it from cron-job.org or curl, not a browser.",
+    cron_secret_configured: Boolean(process.env.CRON_SECRET),
+  });
+}
+
 // Same template logic as app/api/email/send-daily/route.ts
 const EMAIL_TEMPLATES: Record<number, (company: string, message: string) => { subject: string; html: string }> = {
   1: (company, message) => ({
