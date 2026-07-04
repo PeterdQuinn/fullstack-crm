@@ -75,6 +75,7 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
     "/crm",
     "/crm/:path*",
     "/api/admin/:path*",
