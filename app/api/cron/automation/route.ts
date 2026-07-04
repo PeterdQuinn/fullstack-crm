@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
+  // Require a valid CRON_SECRET (same pattern as the other cron routes).
+  // Vercel Cron automatically sends `Authorization: Bearer ${CRON_SECRET}`
+  // when CRON_SECRET is configured on the project.
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
+  }
+  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
-    // Vercel cron jobs are internal and secure, no auth needed
-    const isVercelCron = req.headers.get("x-vercel-cron-secret");
-    // Accept both Vercel internal cron and manual triggers
-
-
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
     // Run the three phases of automation

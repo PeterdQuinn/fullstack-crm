@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { Webhook } from "svix";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,8 +8,31 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
+  // Verify the Svix signature Resend attaches to every webhook delivery
+  // before trusting any of the payload.
+  const webhookSecret = process.env.RESEND_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    return NextResponse.json(
+      { error: "RESEND_WEBHOOK_SECRET not configured" },
+      { status: 500 }
+    );
+  }
+
+  const payload = await req.text();
+  const svixHeaders = {
+    "svix-id": req.headers.get("svix-id") || "",
+    "svix-timestamp": req.headers.get("svix-timestamp") || "",
+    "svix-signature": req.headers.get("svix-signature") || "",
+  };
+
+  let event: any;
   try {
-    const event = await req.json();
+    event = new Webhook(webhookSecret).verify(payload, svixHeaders);
+  } catch {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  try {
     const messageId = event.data?.email_id;
 
     if (!messageId) {
