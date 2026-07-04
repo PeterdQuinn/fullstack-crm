@@ -53,8 +53,8 @@ export default function DashboardTabs() {
   };
 
   const sortedLeads = [...leads].sort((a, b) => {
-    let aVal = a[sortField];
-    let bVal = b[sortField];
+    let aVal = a[sortField] ?? "";
+    let bVal = b[sortField] ?? "";
 
     if (sortField === "business_name" || sortField === "owner_name") {
       aVal = String(aVal || "").toLowerCase();
