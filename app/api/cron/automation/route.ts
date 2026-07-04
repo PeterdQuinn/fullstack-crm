@@ -33,9 +33,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // item 6: clear "what was sent and where" readout for this run.
+    const sendEntry = results.find(
+      (r: any) => r.success && r.result?.phase === "send"
+    ) as any;
+    const emailedThisRun = sendEntry?.result?.emailed ?? [];
+
     return NextResponse.json({
       success: true,
       message: "✅ Daily automation completed",
+      emailedThisRun,
       results,
       timestamp: new Date().toISOString(),
     });

@@ -173,12 +173,12 @@ Return ONLY valid JSON with these fields:
 
   console.log(`Scoring ${leadData.business_name} with available providers...`);
 
-  // Try providers in order of preference: Claude first, then the legacy
-  // fallbacks. Each returns null if unconfigured or on failure.
+  // Try providers in order of preference: Ollama first, then Claude, then the
+  // remaining fallbacks. Each returns null if unconfigured or on failure.
   const providers = [
+    () => scoreWithOllama(prompt),
     () => scoreWithClaude(prompt),
     () => scoreWithTogether(prompt),
-    () => scoreWithOllama(prompt),
     () => scoreWithHuggingFace(prompt),
   ];
 

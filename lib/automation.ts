@@ -18,12 +18,32 @@ const supabase = createClient(
 // SCRAPE_TIMEOUT_MS. The 107-lead backlog is worked down over daily runs.
 const SCRAPE_BATCH = 3;
 const SCRAPE_TIMEOUT_MS = 9000;
-const DAILY_EMAIL_CAP = 25;
+// Leads scored per run — bounded so scrape+score+send fit the ~60s function
+// limit (each scored lead is an AI call, plus a possible enrichment scrape).
+const SCORE_BATCH = 10;
+// Max emails per run. Sends fewer if fewer qualify — never forces a number.
+const SEND_CAP_PER_RUN = 100;
+// A lead must have all of these (non-null, non-empty) to be scored. City/state
+// and other fields (socials, employees, founded_year, ...) may stay null.
+const REQUIRED_FIELDS = ["business_name", "email", "phone"] as const;
+// Real (non-fallback) scores strictly below this are deleted.
+const SCORE_KEEP_THRESHOLD = 80;
+
+type EmailedLead = { business_name: string; email: string; city: string | null; state: string | null };
 
 export type PhaseResult =
   | { phase: "scrape"; considered: number; enriched: number; fieldsFound: number }
-  | { phase: "score"; considered: number; scored: number; kept: number; deleted: number; fallback: number }
-  | { phase: "send"; eligible: number; sent: number; skipped: number; capReached: boolean };
+  | {
+      phase: "score";
+      considered: number;
+      scored: number;
+      kept: number;
+      deleted: number;
+      fallback: number;
+      incompleteDeleted: number;
+      enriched: number;
+    }
+  | { phase: "send"; eligible: number; sent: number; skipped: number; emailed: EmailedLead[] };
 
 async function scrapeLeadData(lead: any) {
   // Bound every scrape so a single slow/hanging browser launch can't consume
@@ -104,31 +124,69 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     return { phase: "scrape", considered: (leadsToScrape || []).length, enriched, fieldsFound };
   }
 
-  // PHASE 2: SCORE — generate AI summaries for scored-worthy leads.
+  // PHASE 2: SCORE — enforce data completeness, then AI-score.
   if (phase === "score") {
-    const { data: leadsToScore } = await supabase
+    // Over-fetch candidates; we process at most SCORE_BATCH *unscored* leads per
+    // run (already-scored leads are skipped) to stay inside the 60s limit.
+    const { data: candidates } = await supabase
       .from("leads")
       .select(
-        "id, business_name, owner_name, short_description, industry, current_software, monthly_spend_estimate, technologies"
+        "id, business_name, email, phone, city, state, website, owner_name, short_description, industry, current_software, technologies"
       )
-      .not("email", "is", null)
-      .neq("email", "")
-      .limit(100);
+      .limit(SCORE_BATCH * 5);
 
+    let considered = 0;
     let scored = 0;
     let kept = 0;
     let deleted = 0;
     let fallback = 0;
+    let incompleteDeleted = 0;
+    let enriched = 0;
 
-    for (const lead of leadsToScore || []) {
+    const isBlank = (v: any) => v === null || v === undefined || String(v).trim() === "";
+
+    for (const lead of candidates || []) {
+      if (considered >= SCORE_BATCH) break;
       try {
         const { data: existing } = await supabase
           .from("lead_ai_summaries")
           .select("id")
           .eq("lead_id", lead.id)
           .single();
-        if (existing) continue;
+        if (existing) continue; // already scored
 
+        considered++;
+
+        // --- Data-completeness gate (item 5) ---
+        // Required fields must all be present. Missing ones get ONE targeted,
+        // cheap enrichment attempt; if still missing, the lead is deleted.
+        let missing = REQUIRED_FIELDS.filter((f) => isBlank((lead as any)[f]));
+        if (missing.length > 0) {
+          // The only cheap scraper path (scrape-phone) can fill email/phone and
+          // needs a business_name to search. A lead missing business_name has
+          // no scraper path and can't be enriched.
+          const scrapeable = !isBlank(lead.business_name) && missing.some((f) => f === "email" || f === "phone");
+          if (scrapeable) {
+            const scraped = await scrapeLeadData(lead); // one bounded attempt, no LLM
+            const updates: any = {};
+            if (isBlank(lead.email) && scraped.email) { updates.email = scraped.email; lead.email = scraped.email; }
+            if (isBlank(lead.phone) && scraped.phone) { updates.phone = scraped.phone; lead.phone = scraped.phone; }
+            if (Object.keys(updates).length > 0) {
+              await supabase.from("leads").update(updates).eq("id", lead.id);
+              enriched++;
+            }
+            missing = REQUIRED_FIELDS.filter((f) => isBlank((lead as any)[f]));
+          }
+
+          if (missing.length > 0) {
+            // Still missing a required field after the enrichment attempt.
+            await supabase.from("leads").delete().eq("id", lead.id);
+            incompleteDeleted++;
+            continue;
+          }
+        }
+
+        // --- Scoring ---
         const summary = await scoreLead({
           business_name: lead.business_name,
           owner_name: lead.owner_name,
@@ -138,15 +196,13 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           short_description: lead.short_description,
         });
 
-        // scoreLead tags the winning provider on `provider`; "fallback" means
-        // EVERY AI provider failed and lead_score is a placeholder (50), not a
-        // real judgment. Missing/unknown provider is treated as fallback too so
-        // we never delete on an uncertain score.
+        // "fallback" means EVERY AI provider failed and lead_score is a
+        // placeholder (50), not a real judgment. Missing/unknown provider is
+        // treated as fallback too, so we never delete on an uncertain score.
         const isFallback = (summary.provider || "fallback") === "fallback";
         if (isFallback) {
           // Leave the lead completely as-is: no summary persisted, no status
-          // change, no delete. Because no summary row is written, the next run
-          // re-scores this lead once providers recover.
+          // change, no delete. Re-scored next run once a provider recovers.
           fallback++;
           continue;
         }
@@ -165,7 +221,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           missing_data_needed: summary.missing_data_needed,
         });
 
-        if (score > 50) {
+        if (score >= SCORE_KEEP_THRESHOLD) {
           kept++;
           const { data: leadData } = await supabase
             .from("leads")
@@ -176,7 +232,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
             await supabase.from("leads").update({ status: "Ready for Outreach" }).eq("id", lead.id);
           }
         } else {
-          // Only delete when a REAL provider judged this lead low-value (<=50).
+          // Only delete when a REAL provider judged this lead below the bar (item 4).
           await supabase.from("leads").delete().eq("id", lead.id);
           deleted++;
         }
@@ -185,28 +241,17 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       }
     }
 
-    return { phase: "score", considered: (leadsToScore || []).length, scored, kept, deleted, fallback };
+    return { phase: "score", considered, scored, kept, deleted, fallback, incompleteDeleted, enriched };
   }
 
-  // PHASE 3: SEND — email high-score leads, respecting the daily cap.
+  // PHASE 3: SEND — email high-score leads, up to SEND_CAP_PER_RUN per run.
   if (phase === "send") {
-    const today = new Date().toISOString().split("T")[0];
-    const { count } = await supabase
-      .from("outreach_log")
-      .select("*", { count: "exact", head: true })
-      .eq("channel", "email")
-      .gte("sent_at", `${today}T00:00:00Z`);
-
-    const sentToday = count || 0;
-    const remaining = Math.max(0, DAILY_EMAIL_CAP - sentToday);
-    if (remaining <= 0) {
-      return { phase: "send", eligible: 0, sent: 0, skipped: 0, capReached: true };
-    }
-
+    // Per-run cap only (item 3): fetch at most SEND_CAP_PER_RUN candidates and
+    // send however many qualify — no per-day tracking, no forced count.
     const { data: leads } = await supabase
       .from("leads")
       .select(
-        "id, business_name, email, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
+        "id, business_name, email, city, state, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
       )
       .eq("opt_out", false)
       .eq("bounced", false)
@@ -214,10 +259,11 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       .not("email", "is", null)
       .neq("email", "")
       .lt("email_sent_count", 3)
-      .limit(remaining);
+      .limit(SEND_CAP_PER_RUN);
 
     let sent = 0;
     let skipped = 0;
+    const emailed: EmailedLead[] = [];
 
     for (const lead of leads || []) {
       const summary = Array.isArray(lead.lead_ai_summaries)
@@ -267,13 +313,20 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           .update({ email_sent_count: emailNum, status: `Email ${emailNum} Sent` })
           .eq("id", lead.id);
         sent++;
+        // item 6: record exactly who was emailed and where.
+        emailed.push({
+          business_name: lead.business_name,
+          email: lead.email,
+          city: lead.city ?? null,
+          state: lead.state ?? null,
+        });
       } catch (err) {
         console.error(`Error sending to ${lead.business_name}:`, err);
         skipped++;
       }
     }
 
-    return { phase: "send", eligible: (leads || []).length, sent, skipped, capReached: false };
+    return { phase: "send", eligible: (leads || []).length, sent, skipped, emailed };
   }
 
   throw new Error(`Unknown automation phase: ${phase}`);
