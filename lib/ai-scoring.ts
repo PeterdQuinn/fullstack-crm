@@ -1,3 +1,5 @@
+import Anthropic from "@anthropic-ai/sdk";
+
 interface ScoringResult {
   lead_score: number;
   confidence_level: "low" | "medium" | "high";
@@ -7,6 +9,35 @@ interface ScoringResult {
   recommended_follow_up?: string;
   missing_data_needed?: string[];
   provider?: string;
+}
+
+// Primary provider. Uses the official Anthropic SDK (api.anthropic.com).
+// Tags results as "claude" so the automation pipeline treats them as a real
+// score (not the never-delete fallback path).
+async function scoreWithClaude(prompt: string): Promise<ScoringResult | null> {
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) return null;
+
+    const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
+
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = response.content
+      .map((block) => (block.type === "text" ? block.text : ""))
+      .join("");
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const result = JSON.parse(jsonMatch[0]);
+    return { ...result, provider: "claude" };
+  } catch (error) {
+    console.error("Claude scoring failed:", error);
+    return null;
+  }
 }
 
 async function scoreWithHuggingFace(prompt: string): Promise<ScoringResult | null> {
@@ -142,8 +173,10 @@ Return ONLY valid JSON with these fields:
 
   console.log(`Scoring ${leadData.business_name} with available providers...`);
 
-  // Try providers in order of preference
+  // Try providers in order of preference: Claude first, then the legacy
+  // fallbacks. Each returns null if unconfigured or on failure.
   const providers = [
+    () => scoreWithClaude(prompt),
     () => scoreWithTogether(prompt),
     () => scoreWithOllama(prompt),
     () => scoreWithHuggingFace(prompt),

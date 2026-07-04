@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0",
     "@sparticuz/chromium": "^147.0.2",
     "@supabase/supabase-js": "^2.42.0",
     "@tailwindcss/postcss": "^4.2.2",
