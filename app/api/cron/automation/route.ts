@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { runAutomationPhase } from "@/lib/automation";
+
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   // Require a valid CRON_SECRET (same pattern as the other cron routes).
@@ -13,23 +16,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-
-    // Run the three phases of automation
+    // Run the three phases in-process (direct function calls). No HTTP self-call,
+    // so this is not blocked by the Basic Auth middleware on /api/admin and does
+    // not pay a second serverless cold-start per phase.
     const phases = ["scrape", "score", "send"];
     const results = [];
 
     for (const phase of phases) {
       try {
-        const res = await fetch(`${appUrl}/api/admin/automation-pipeline`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phase }),
-        });
-
-        const data = await res.json();
-        results.push({ phase, success: res.ok, data });
-        console.log(`✓ Phase ${phase} completed`);
+        const result = await runAutomationPhase(phase);
+        results.push({ phase, success: true, result });
+        console.log(`✓ Phase ${phase} completed`, result);
       } catch (error) {
         console.error(`Error in phase ${phase}:`, error);
         results.push({ phase, success: false, error: String(error) });
