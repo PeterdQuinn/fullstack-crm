@@ -13,8 +13,11 @@ const supabase = createClient(
 );
 
 // Kept small so the whole cron (all three phases) completes inside the
-// Hobby-tier ~60s function limit. Each scrape is a headless-browser call.
-const SCRAPE_BATCH = 8;
+// Hobby-tier ~60s function limit. Each scrape is a headless-browser call that
+// can take several seconds, so the batch is tiny and every call is bounded by
+// SCRAPE_TIMEOUT_MS. The 107-lead backlog is worked down over daily runs.
+const SCRAPE_BATCH = 3;
+const SCRAPE_TIMEOUT_MS = 9000;
 const DAILY_EMAIL_CAP = 25;
 
 export type PhaseResult =
@@ -23,6 +26,10 @@ export type PhaseResult =
   | { phase: "send"; eligible: number; sent: number; skipped: number; capReached: boolean };
 
 async function scrapeLeadData(lead: any) {
+  // Bound every scrape so a single slow/hanging browser launch can't consume
+  // the whole cron's 60s budget.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SCRAPE_TIMEOUT_MS);
   try {
     const res = await fetch(
       `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/scrape-phone`,
@@ -34,12 +41,15 @@ async function scrapeLeadData(lead: any) {
           business_name: lead.business_name,
           city: lead.city || "",
         }),
+        signal: controller.signal,
       }
     );
     return await res.json();
   } catch (error) {
-    console.error(`Scrape failed for ${lead.business_name}:`, error);
+    console.error(`Scrape failed/timed out for ${lead.business_name}:`, error);
     return {};
+  } finally {
+    clearTimeout(timer);
   }
 }
 
