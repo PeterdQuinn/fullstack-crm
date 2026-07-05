@@ -119,7 +119,9 @@ async function scoreWithOllama(prompt: string): Promise<ScoringResult | null> {
         Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "neural-chat",
+        // Ollama's cloud API only serves "-cloud" models; a plain local name
+        // like "neural-chat" 404s even with a valid key.
+        model: "gpt-oss:120b-cloud",
         prompt,
         stream: false,
       }),
