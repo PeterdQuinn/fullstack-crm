@@ -143,29 +143,79 @@ export async function enrichLeadsEmails(leads: DiscoveredLead[], maxConcurrent =
   return enriched;
 }
 
-// Import leads via bulk-import endpoint
+// Import leads directly (in-process). Runs inside the discovery pipeline, which
+// lives under /api/admin behind Basic Auth, so a self-HTTP call to the
+// bulk-import route would 401 — we insert with the service-role client instead.
+// Accepts any real lead with a name and at least one of phone/website/email
+// (Places/Overpass give phone+website; email is enriched or captured later).
 export async function importLeads(leads: DiscoveredLead[]): Promise<{
   imported: number;
   skipped: number;
   errors: number;
   importedIds: string[];
 }> {
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/admin/bulk-import-leads`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leads }),
-    });
+  const result = { imported: 0, skipped: 0, errors: 0, importedIds: [] as string[] };
 
-    const data = await res.json();
-    return {
-      imported: data.imported || 0,
-      skipped: data.skipped || 0,
-      errors: data.errors || 0,
-      importedIds: data.importedLeadIds || [],
-    };
-  } catch (error) {
-    console.error("Import failed:", error);
-    return { imported: 0, skipped: 0, errors: leads.length, importedIds: [] };
+  for (const lead of leads) {
+    try {
+      if (!lead.business_name || !(lead.phone || lead.website || lead.email)) {
+        result.skipped++;
+        continue;
+      }
+
+      // Dedupe against existing rows: by email if present, else name + city.
+      let exists = false;
+      if (lead.email) {
+        const { data } = await supabase.from("leads").select("id").eq("email", lead.email).maybeSingle();
+        exists = !!data;
+      }
+      if (!exists) {
+        const { data } = await supabase
+          .from("leads")
+          .select("id")
+          .eq("business_name", lead.business_name)
+          .eq("city", lead.city || "")
+          .maybeSingle();
+        exists = !!data;
+      }
+      if (exists) {
+        result.skipped++;
+        continue;
+      }
+
+      const { data: inserted, error } = await supabase
+        .from("leads")
+        .insert({
+          business_name: lead.business_name,
+          email: lead.email || null,
+          phone: lead.phone || null,
+          website: lead.website || null,
+          address: lead.address || null,
+          city: lead.city || null,
+          state: lead.state || null,
+          niche: lead.niche || "General",
+          industry: lead.industry || lead.niche || null,
+          short_description: lead.short_description || null,
+          status: "New",
+          opt_out: false,
+          bounced: false,
+          complained: false,
+          email_sent_count: 0,
+        })
+        .select("id");
+
+      if (error) {
+        console.error(`Error importing ${lead.business_name}:`, error.message);
+        result.errors++;
+      } else {
+        result.imported++;
+        if (inserted?.[0]?.id) result.importedIds.push(inserted[0].id);
+      }
+    } catch (error) {
+      console.error(`Exception importing ${lead.business_name}:`, error);
+      result.errors++;
+    }
   }
+
+  return result;
 }
