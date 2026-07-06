@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { computeLeadDashboardStats } from "@/lib/lead-stats";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,25 +8,20 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    const [emailQ, replies, callQ, dmQ, bookings, onboarding] = await Promise.all([
+    // One leads read → all lead-derived numbers come from the shared
+    // lib/lead-stats definitions (same logic the leads workspace uses).
+    // The three non-lead queues live in other tables, so they stay as counts.
+    const [leadsRes, replies, dmQ, bookings] = await Promise.all([
       supabase
         .from("leads")
-        .select("id", { count: "exact", head: true })
-        .eq("opt_out", false)
-        .eq("bounced", false)
-        .neq("status", "Do Not Contact")
-        .in("status", ["Ready for Outreach", "Email 1 Sent", "Email 2 Sent"])
-        .not("email", "is", null)
-        .neq("email", ""),
-
-      supabase.from("outreach_log").select("id", { count: "exact", head: true }).eq("replied_at", null),
+        .select(
+          "status, email, phone, opt_out, bounced, meeting_booked, meeting_date, created_at"
+        ),
 
       supabase
-        .from("leads")
+        .from("outreach_log")
         .select("id", { count: "exact", head: true })
-        .neq("phone", null)
-        .neq("phone", "")
-        .in("status", ["Call Needed", "Ready for Outreach"]),
+        .not("replied_at", "is", null),
 
       supabase
         .from("lead_socials")
@@ -36,21 +32,23 @@ export async function GET() {
         .from("booking_tracker")
         .select("id", { count: "exact", head: true })
         .neq("booked_at", null),
-
-      supabase
-        .from("leads")
-        .select("id", { count: "exact", head: true })
-        .eq("meeting_booked", true)
-        .eq("opt_out", false),
     ]);
 
+    const leadStats = computeLeadDashboardStats(leadsRes.data || []);
+    const repliesCount = replies.count || 0;
+
     return Response.json({
-      emailQueue: emailQ.count || 0,
-      callQueue: callQ.count || 0,
+      // Per-queue pending counts (drive the queue cards + dynamic primary CTA).
+      emailQueue: leadStats.emailQueue,
+      callQueue: leadStats.callQueue,
       dmQueue: dmQ.count || 0,
-      replies: replies.count || 0,
+      replies: repliesCount,
       bookings: bookings.count || 0,
-      onboarding: onboarding.count || 0,
+      onboarding: leadStats.onboarding,
+      // Today-scoped headline numbers.
+      actionToday: repliesCount + leadStats.callQueue,
+      meetingsToday: leadStats.meetingsToday,
+      newLeads: leadStats.newLeads,
     });
   } catch (error) {
     console.error("Stats error:", error);
@@ -61,6 +59,9 @@ export async function GET() {
       replies: 0,
       bookings: 0,
       onboarding: 0,
+      actionToday: 0,
+      meetingsToday: 0,
+      newLeads: 0,
     });
   }
 }
