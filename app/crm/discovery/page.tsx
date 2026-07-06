@@ -29,35 +29,13 @@ export default function DiscoveryDashboard() {
 
   async function fetchLeads() {
     try {
-      const res = await fetch("/api/admin/status");
+      // Real recently-discovered leads (status "New", newest first) from the DB.
+      const res = await fetch("/api/admin/discovered-leads", { cache: "no-store" });
       const data = await res.json();
-      // Simulate discovered leads for now
-      const mockLeads: Lead[] = [
-        {
-          id: "1",
-          business_name: "Phoenix HVAC Pro",
-          phone: "602-555-0101",
-          email: "contact@phoenixhvac.com",
-          city: "Phoenix",
-          state: "AZ",
-          niche: "HVAC",
-          rating: 4.5,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "2",
-          business_name: "Desert Landscaping",
-          phone: "602-555-0102",
-          email: "info@desertlandscape.com",
-          city: "Mesa",
-          state: "AZ",
-          niche: "Landscaping",
-          rating: 4.7,
-          created_at: new Date().toISOString(),
-        },
-      ];
-      setLeads(mockLeads);
-      if (mockLeads.length > 0) setSelectedLead(mockLeads[0]);
+      const real: Lead[] = data.leads || [];
+      setLeads(real);
+      // Keep the current selection if it still exists; otherwise show the newest.
+      setSelectedLead((prev) => (prev && real.find((l) => l.id === prev.id)) || real[0] || null);
     } catch (error) {
       console.error("Error fetching leads:", error);
     } finally {
