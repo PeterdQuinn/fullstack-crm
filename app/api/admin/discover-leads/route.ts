@@ -5,8 +5,12 @@ import {
   importLeads,
 } from "@/lib/lead-discovery";
 import {
-  INDUSTRIES,
+  HVAC_SEARCH_TERMS,
+  HVAC_OSM_FILTERS,
+  HVAC_NICHE,
   MAJOR_CITIES_BY_STATE,
+  googleTextQuery,
+  buildOverpassQuery,
   searchGooglePlaces,
   searchOverpass,
 } from "@/lib/discovery-sources";
@@ -16,8 +20,8 @@ import { getNextStates } from "@/lib/state-rotation";
 
 export const maxDuration = 120;
 
-// Real lead discovery: Google Places (weekly-capped) + OpenStreetMap Overpass
-// (free), combined, AI-cleaned (Ollama), then imported. Everything runs
+// Real lead discovery — HVAC ONLY. Google Places (weekly-capped) + OpenStreetMap
+// Overpass (free), combined, AI-cleaned (Ollama), then imported. Everything runs
 // in-process — no self-HTTP calls — so Basic Auth on /api/admin never blocks it.
 export async function POST(req: NextRequest) {
   try {
@@ -26,7 +30,6 @@ export async function POST(req: NextRequest) {
       limit = 30,
       city,
       state,
-      niche,
       importToDb = true,
     } = await req.json().catch(() => ({}));
 
@@ -42,26 +45,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const industries = niche && niche !== "all"
-      ? INDUSTRIES.filter((i) => i.niche.toLowerCase() === String(niche).toLowerCase())
-      : INDUSTRIES;
-
-    // ── PHASE 1: gather from both sources (in-process) ──
+    // ── PHASE 1: gather from both sources (HVAC only, in-process) ──
     const rawGoogle: RawLead[] = [];
     const rawOverpass: RawLead[] = [];
+    const queriesSent: { source: string; query: string }[] = [];
 
     for (const { city: c, state: st } of targets) {
-      for (const ind of industries) {
-        if (rawGoogle.length + rawOverpass.length >= limit * 2) break;
+      if (rawGoogle.length + rawOverpass.length >= limit * 2) break;
 
-        const g = await searchGooglePlaces({ term: ind.term, niche: ind.niche, city: c, state: st });
+      // Google Places: one request per HVAC search term — nothing else.
+      for (const term of HVAC_SEARCH_TERMS) {
+        queriesSent.push({ source: "google_places", query: googleTextQuery(term, c, st) });
+        const g = await searchGooglePlaces({ term, niche: HVAC_NICHE, city: c, state: st });
         rawGoogle.push(...g.map((l: DiscoveredLead) => ({ ...l, source: "google_places" })));
-
-        const o = await searchOverpass({ osmFilters: ind.osm, niche: ind.niche, city: c, state: st, limit: 25 });
-        rawOverpass.push(...o.map((l: DiscoveredLead) => ({ ...l, source: "overpass" })));
-
-        await new Promise((r) => setTimeout(r, 300)); // be polite to Overpass
       }
+
+      // Overpass: HVAC OSM tags only (no free-text search in Overpass).
+      queriesSent.push({ source: "overpass", query: buildOverpassQuery(HVAC_OSM_FILTERS, c, 25) });
+      const o = await searchOverpass({ osmFilters: HVAC_OSM_FILTERS, niche: HVAC_NICHE, city: c, state: st, limit: 25 });
+      rawOverpass.push(...o.map((l: DiscoveredLead) => ({ ...l, source: "overpass" })));
+
+      await new Promise((r) => setTimeout(r, 300)); // be polite to Overpass
     }
 
     const combined = [...rawGoogle, ...rawOverpass];
@@ -82,6 +86,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      niche: HVAC_NICHE,
+      queries: queriesSent,
       pipeline: {
         discovered: combined.length,
         cleaned: clean.cleaned.length,
@@ -103,7 +109,7 @@ export async function POST(req: NextRequest) {
       },
       targets,
       importedLeadIds: importResult.importedIds,
-      message: `Discovered ${combined.length} raw (${rawGoogle.length} Google / ${rawOverpass.length} Overpass), cleaned to ${clean.cleaned.length}, imported ${importResult.imported}.`,
+      message: `HVAC discovery — ${combined.length} raw (${rawGoogle.length} Google / ${rawOverpass.length} Overpass), cleaned to ${clean.cleaned.length}, imported ${importResult.imported}.`,
     });
   } catch (error) {
     console.error("Discovery pipeline error:", error);

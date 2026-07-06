@@ -1,14 +1,26 @@
 import { DiscoveredLead } from "@/lib/lead-discovery";
 import { reserveGoogleRequest } from "@/lib/api-usage";
 
-// Target niches. `term` is the Google Places / free-text search phrase; `niche`
-// is what we store; `osm` are the OpenStreetMap tag filters for Overpass.
-export const INDUSTRIES = [
-  { term: "HVAC contractor", niche: "HVAC", osm: ['"craft"="hvac"', '"shop"="hvac"', '"craft"="air_conditioning"'] },
-  { term: "Landscaping company", niche: "Landscaping", osm: ['"craft"="gardener"', '"shop"="garden_centre"'] },
-  { term: "Plumber", niche: "Plumbing", osm: ['"craft"="plumber"'] },
-  { term: "Roofing contractor", niche: "Roofing", osm: ['"craft"="roofer"'] },
-];
+// ── HVAC ONLY ──────────────────────────────────────────────────────────────
+// Discovery is locked to HVAC. These are the ONLY Google Places search terms
+// used; nothing else is searched.
+export const HVAC_SEARCH_TERMS = [
+  "HVAC contractor",
+  "air conditioning repair",
+  "heating and cooling company",
+  "AC installation",
+] as const;
+
+// Overpass has no free-text search — HVAC businesses are matched by OSM tags.
+export const HVAC_OSM_FILTERS = ['"craft"="hvac"', '"shop"="hvac"', '"craft"="air_conditioning"'];
+
+export const HVAC_NICHE = "HVAC";
+
+// The literal text sent to Google Places for a term/location. Exported so the
+// exact string can be recorded/verified.
+export function googleTextQuery(term: string, city: string, state: string): string {
+  return `${term} in ${city}, ${state}`;
+}
 
 export const MAJOR_CITIES_BY_STATE: Record<string, string[]> = {
   CA: ["Los Angeles", "San Francisco", "San Diego", "Sacramento", "Fresno"],
@@ -81,7 +93,7 @@ export async function searchGooglePlaces(opts: {
         "X-Goog-FieldMask": PLACES_FIELD_MASK,
       },
       body: JSON.stringify({
-        textQuery: `${term} in ${city}, ${state}`,
+        textQuery: googleTextQuery(term, city, state),
         maxResultCount: Math.min(maxResults, 20),
         regionCode: "US",
       }),
@@ -116,7 +128,7 @@ export async function searchGooglePlaces(opts: {
 // ─────────────────────── OpenStreetMap Overpass (free) ──────────────────────
 const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
 
-function buildOverpassQuery(osmFilters: string[], city: string, limit: number): string {
+export function buildOverpassQuery(osmFilters: string[], city: string, limit: number): string {
   const selectors = osmFilters
     .flatMap((f) => [`node[${f}](area.a);`, `way[${f}](area.a);`])
     .join("");
