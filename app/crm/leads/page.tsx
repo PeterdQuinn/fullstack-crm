@@ -13,7 +13,7 @@ import { computeLeadKpis } from "@/lib/lead-stats";
 const COMPANY_PHONE = "(602) 845-9242";
 const COMPANY_PHONE_RAW = "+16028459242";
 const COMPANY_EMAIL = "sales@fullstackservicesllc.net";
-const CALENDLY_LINK = "https://calendly.com/fullstackservicesllc/30min";
+const CALENDLY_LINK = "https://calendly.com/fullstackservicesllc/full-stack-meeting";
 
 const GATEKEEPER_SCRIPTS = [
   {
@@ -1326,7 +1326,7 @@ function BookingsTab({ lead }: { lead: Lead }) {
         ) : (
           <>
             <div className="font-semibold text-yellow-900">Not Booked</div>
-            <a href="https://calendly.com/fullstackservicesllc/30min" target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-2 inline-block">
+            <a href={CALENDLY_LINK} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-2 inline-block">
               Send booking link →
             </a>
           </>
