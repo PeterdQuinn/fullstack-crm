@@ -7,13 +7,16 @@ const supabase = createClient(
 
 // Returns leads that have social profiles to DM, grouped by lead, with the
 // lead's phone + email attached so you can call/email as well as DM.
+
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const { data, error } = await supabase
       .from("lead_socials")
-      .select("id, lead_id, platform, url, username, is_active, leads(business_name, contact_name, phone, email)")
+      .select("id, lead_id, platform, url, username, is_active, leads(business_name, contact_name, phone, email, status)")
       .eq("is_active", true)
-      .limit(200);
+      .limit(400);
 
     if (error) throw error;
 
@@ -21,6 +24,9 @@ export async function GET() {
     for (const s of data || []) {
       const lead = Array.isArray((s as any).leads) ? (s as any).leads[0] : (s as any).leads;
       if (!s.lead_id) continue;
+      // Rotation: drop leads already DM'd (or opted out) so the same ones don't
+      // keep reappearing. Marking "DM Sent" removes them from the queue.
+      if (lead?.status === "DM Sent" || lead?.status === "Do Not Contact") continue;
       if (!byLead.has(s.lead_id)) {
         byLead.set(s.lead_id, {
           id: s.lead_id,

@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     if (city && state) {
       targets = [{ city, state }];
     } else {
-      targets = await getNextMetros(Math.max(3, states * 2));
+      targets = await getNextMetros(Math.max(2, states));
     }
 
     // ── PHASE 1: gather from both sources (HVAC only, in-process) ──
@@ -55,19 +55,21 @@ export async function POST(req: NextRequest) {
     for (const { city: c, state: st } of targets) {
       if (rawGoogle.length + rawOverpass.length >= MAX_RAW) break;
 
-      // Google Places: one request per HVAC search term — nothing else.
+      // Kick off the slow Overpass request first and let it load while the
+      // Google term queries run — overlapping the two cuts per-city latency.
+      queriesSent.push({ source: "overpass", query: buildOverpassQuery(HVAC_OSM_FILTERS, c, PER_CITY) });
+      const overpassPromise = searchOverpass({ osmFilters: HVAC_OSM_FILTERS, niche: HVAC_NICHE, city: c, state: st, limit: PER_CITY });
+
+      // Google Places: one request per HVAC search term — nothing else. Kept
+      // sequential so the weekly-quota counter can't race.
       for (const term of HVAC_SEARCH_TERMS) {
         queriesSent.push({ source: "google_places", query: googleTextQuery(term, c, st) });
         const g = await searchGooglePlaces({ term, niche: HVAC_NICHE, city: c, state: st });
         rawGoogle.push(...g.map((l: DiscoveredLead) => ({ ...l, source: "google_places" })));
       }
 
-      // Overpass: HVAC OSM tags only (no free-text search in Overpass).
-      queriesSent.push({ source: "overpass", query: buildOverpassQuery(HVAC_OSM_FILTERS, c, PER_CITY) });
-      const o = await searchOverpass({ osmFilters: HVAC_OSM_FILTERS, niche: HVAC_NICHE, city: c, state: st, limit: PER_CITY });
+      const o = await overpassPromise;
       rawOverpass.push(...o.map((l: DiscoveredLead) => ({ ...l, source: "overpass" })));
-
-      await new Promise((r) => setTimeout(r, 300)); // be polite to Overpass
     }
 
     const combined = [...rawGoogle, ...rawOverpass];

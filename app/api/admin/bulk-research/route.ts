@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// Enrichment scrapes are slow (Playwright per site), so process a SMALL batch
+// per call and call repeatedly (or from a cron) to work through the backlog.
+export const maxDuration = 60;
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -29,10 +33,22 @@ async function scrapeLeadData(lead: any) {
 
 export async function POST(req: NextRequest) {
   try {
+    const { batchSize = 3 } = await req.json().catch(() => ({}));
+
+    // Reject scraper junk emails (e.g. the DuckDuckGo fallback grabbing
+    // duckduckgo.com's own address) so they never enter the leads table.
+    const JUNK_EMAIL = /duckduckgo|example\.(com|org|net)|error|noreply|no-reply|@sentry\./i;
+
+    // Prioritize leads that have a website to scrape but no email yet — those
+    // are the ones that unblock the email queue once enriched.
     const { data: leads, error } = await supabase
       .from("leads")
       .select("*")
-      .limit(100);
+      .not("website", "is", null)
+      .neq("website", "")
+      .or("email.is.null,email.eq.")
+      .order("created_at", { ascending: false })
+      .limit(Math.min(batchSize, 8));
 
     if (error || !leads) {
       return NextResponse.json({ error: "Failed to fetch leads" }, { status: 500 });
@@ -51,7 +67,7 @@ export async function POST(req: NextRequest) {
           const updates: any = {};
           if (scrapedData.phone && !lead.phone) updates.phone = scrapedData.phone;
           if (scrapedData.owner && !lead.owner_name) updates.owner_name = scrapedData.owner;
-          if (scrapedData.email && !lead.email) updates.email = scrapedData.email;
+          if (scrapedData.email && !lead.email && !JUNK_EMAIL.test(scrapedData.email)) updates.email = scrapedData.email;
           if (scrapedData.current_software && !lead.current_software)
             updates.current_software = scrapedData.current_software;
           if (scrapedData.description && !lead.short_description)

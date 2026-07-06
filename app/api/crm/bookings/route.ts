@@ -15,6 +15,9 @@ const BOOKING_STATUSES = [
   "Booked",
 ];
 
+
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const { data, error } = await supabase

@@ -6,6 +6,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   try {
     const today = new Date().toISOString().split("T")[0];

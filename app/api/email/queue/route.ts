@@ -6,6 +6,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Always run fresh — otherwise Next statically caches this GET and serves
+// stale build-time data.
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const { data, error } = await supabase
@@ -19,6 +23,7 @@ export async function GET() {
       .neq("email", "")
       .lt("email_sent_count", 3)
       .in("status", [
+        "New",
         "Ready for Outreach",
         "Email 1 Sent",
         "Email 2 Sent",

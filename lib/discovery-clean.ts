@@ -110,6 +110,29 @@ export async function cleanAndStructureLeads(raw: RawLead[]): Promise<CleanResul
     return { cleaned: [], dropped: [], merged: [], aiUsed: false };
   }
 
+  // Pre-dedup deterministically so the AI gets a much smaller payload — the four
+  // Google term queries return heavy overlap on the same businesses. This is the
+  // main latency win; the AI still does gap-fill + junk detection on the
+  // collapsed set. Capped at 60 to keep the model call fast.
+  const input: RawLead[] = (() => {
+    const seen = new Map<string, RawLead>();
+    for (const r of raw) {
+      const key =
+        (r.business_name || "").toLowerCase().replace(/[^a-z0-9]/g, "") ||
+        (r.phone || "").replace(/\D/g, "").slice(-10);
+      const ex = seen.get(key);
+      if (ex) {
+        ex.phone = ex.phone || r.phone;
+        ex.website = ex.website || r.website;
+        ex.email = ex.email || r.email;
+        ex.address = ex.address || r.address;
+      } else {
+        seen.set(key, { ...r });
+      }
+    }
+    return [...seen.values()].slice(0, 60);
+  })();
+
   const prompt = `You are cleaning a combined list of business leads gathered from two sources (Google Places and OpenStreetMap Overpass). Some businesses appear in BOTH sources.
 
 Your job:
@@ -124,9 +147,9 @@ Return ONLY a JSON object, no prose, in exactly this shape:
 }
 Use empty string for unknown fields. Do not invent data.
 
-INPUT (${raw.length} raw leads):
+INPUT (${input.length} businesses):
 ${JSON.stringify(
-  raw.map((r) => ({
+  input.map((r) => ({
     business_name: r.business_name,
     phone: r.phone || "",
     website: r.website || "",
@@ -196,7 +219,7 @@ ${JSON.stringify(
   if (aiCleaned) {
     baseCleaned = aiCleaned;
   } else {
-    const det = deterministicMerge(raw);
+    const det = deterministicMerge(input);
     baseCleaned = det.cleaned;
     mergedReport = det.merged;
   }

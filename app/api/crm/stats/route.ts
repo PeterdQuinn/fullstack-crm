@@ -6,6 +6,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     // One leads read → all lead-derived numbers come from the shared
