@@ -329,11 +329,11 @@ export default function LeadsWorkspace() {
           <div className="min-w-0"><h1 className="text-base sm:text-lg font-bold text-gray-900 truncate">Full Stack Services CRM</h1><p className="text-xs text-gray-500 truncate">{COMPANY_EMAIL} · {COMPANY_PHONE}</p></div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={bulkGenerateAI} disabled={generatingAI} className="px-3 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50">🤖 Gen AI</button>
-          <button onClick={deduplicateLeads} className="px-3 py-1.5 bg-yellow-500 text-white text-sm font-medium rounded-lg hover:bg-yellow-600 transition-colors">Remove Duplicates</button>
-          <button onClick={() => setShowDialer(true)} className="px-3 py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">⚡ Dial</button>
-          <button onClick={() => setShowAddLead(true)} className="px-3 py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">+ Add Lead</button>
-          <button onClick={() => setShowImport(true)} className="px-3 py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import CSV</button>
+          <button onClick={bulkGenerateAI} disabled={generatingAI} className="px-3 min-h-[44px] py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50">🤖 Gen AI</button>
+          <button onClick={deduplicateLeads} className="px-3 min-h-[44px] py-1.5 bg-yellow-500 text-white text-sm font-medium rounded-lg hover:bg-yellow-600 transition-colors">Remove Duplicates</button>
+          <button onClick={() => setShowDialer(true)} className="px-3 min-h-[44px] py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">⚡ Dial</button>
+          <button onClick={() => setShowAddLead(true)} className="px-3 min-h-[44px] py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">+ Add Lead</button>
+          <button onClick={() => setShowImport(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import CSV</button>
         </div>
       </header>
 
@@ -342,7 +342,7 @@ export default function LeadsWorkspace() {
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="lg:hidden h-full min-h-0">
           <LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} leadScores={leadScores} />
-          {selected && (<div className="fixed inset-0 z-40 bg-black/40"><div className="absolute inset-x-0 bottom-0 top-0 bg-white flex flex-col animate-slide-in"><div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"><div className="min-w-0"><div className="text-xs uppercase tracking-wide text-gray-400">Lead Details</div><div className="font-semibold text-gray-900 truncate">{selected.business_name}</div></div><button onClick={() => setSelectedId(null)} className="px-3 py-1.5 text-sm rounded-lg bg-gray-100 text-gray-700">Close</button></div><div className="flex-1 min-h-0 overflow-hidden"><LeadDetailPanel lead={selected} callLogs={callLogs} notes={notes} appointments={appointments} tab={tab} setTab={setTab} showScript={showScript} setShowScript={setShowScript} showPositioning={showPositioning} setShowPositioning={setShowPositioning} showTieDowns={showTieDowns} setShowTieDowns={setShowTieDowns} showObjections={showObjections} setShowObjections={setShowObjections} updateLead={updateLead} addCallLog={addCallLog} addNote={addNote} bookMeeting={bookMeeting} deleteLead={deleteLead} onBack={() => setSelectedId(null)} mobile /></div></div></div>)}
+          {selected && (<div className="fixed inset-0 z-40 bg-black/40"><div className="absolute inset-x-0 bottom-0 top-0 bg-white flex flex-col animate-slide-in"><div className="flex items-center justify-between px-4 py-3 border-b flex-shrink-0"><div className="min-w-0"><div className="text-xs uppercase tracking-wide text-gray-400">Lead Details</div><div className="font-semibold text-gray-900 truncate">{selected.business_name}</div></div><button onClick={() => setSelectedId(null)} className="px-3 min-h-[44px] py-1.5 text-sm rounded-lg bg-gray-100 text-gray-700">Close</button></div><div className="flex-1 min-h-0 overflow-hidden"><LeadDetailPanel lead={selected} callLogs={callLogs} notes={notes} appointments={appointments} tab={tab} setTab={setTab} showScript={showScript} setShowScript={setShowScript} showPositioning={showPositioning} setShowPositioning={setShowPositioning} showTieDowns={showTieDowns} setShowTieDowns={setShowTieDowns} showObjections={showObjections} setShowObjections={setShowObjections} updateLead={updateLead} addCallLog={addCallLog} addNote={addNote} bookMeeting={bookMeeting} deleteLead={deleteLead} onBack={() => setSelectedId(null)} mobile /></div></div></div>)}
         </div>
         <div className="hidden lg:flex h-full min-h-0">
           <div className="w-1/2 xl:w-3/5 border-r bg-white min-h-0"><LeadListPanel leads={filtered} allLeads={leads} selectedId={selectedId} setSelectedId={setSelectedId} setTab={setTab} search={search} setSearch={setSearch} statusFilter={statusFilter} setStatusFilter={setStatusFilter} nicheFilter={nicheFilter} setNicheFilter={setNicheFilter} niches={niches} leadScores={leadScores} /></div>
@@ -377,16 +377,16 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
     <div className="h-full min-h-0 flex flex-col bg-white">
       <div className="px-4 pt-3 pb-0 border-b bg-white flex-shrink-0">
         <div className="flex gap-1 mb-3">
-          <button onClick={() => setView("leads")} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${view === "leads" ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>All Leads</button>
-          <button onClick={() => setView("followups")} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${view === "followups" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+          <button onClick={() => setView("leads")} className={`px-4 min-h-[44px] py-1.5 rounded-lg text-sm font-medium transition-colors ${view === "leads" ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>All Leads</button>
+          <button onClick={() => setView("followups")} className={`px-4 min-h-[44px] py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${view === "followups" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
             Follow-Ups {followUps.length > 0 && <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${view === "followups" ? "bg-white text-purple-600" : "bg-purple-600 text-white"}`}>{followUps.length}</span>}
           </button>
         </div>
         {view === "leads" && <div className="flex flex-col md:flex-row gap-2 pb-3">
-          <input type="text" placeholder="Search leads..." value={search} onChange={(e: any) => setSearch(e.target.value)} className="flex-1 min-w-0 px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand/30" />
+          <input type="text" placeholder="Search leads..." value={search} onChange={(e: any) => setSearch(e.target.value)} className="flex-1 min-w-0 px-3 py-2 min-h-[44px] border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand/30" />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 md:flex md:gap-2">
-            <select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Statuses</option>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
-            <select value={nicheFilter} onChange={(e: any) => setNicheFilter(e.target.value)} className="px-3 py-2 border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Niches</option>{niches.map((n: string) => <option key={n} value={n}>{n}</option>)}</select>
+            <select value={statusFilter} onChange={(e: any) => setStatusFilter(e.target.value)} className="px-3 py-2 min-h-[44px] border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Statuses</option>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+            <select value={nicheFilter} onChange={(e: any) => setNicheFilter(e.target.value)} className="px-3 py-2 min-h-[44px] border rounded-lg text-sm bg-white w-full md:w-auto"><option value="all">All Niches</option>{niches.map((n: string) => <option key={n} value={n}>{n}</option>)}</select>
           </div>
         </div>}
         {view === "followups" && <div className="pb-3 text-xs text-gray-400">{followUps.length} overdue follow-up{followUps.length !== 1 ? "s" : ""} — click a row to open the lead</div>}
@@ -406,7 +406,7 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
                     {lead.current_software && <div className="text-xs text-blue-500">Uses {lead.current_software}</div>}
                   </div>
                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${getStatusStyle(lead.status).badge}`}>{lead.status}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusStyle(lead.status).badge}`}>{lead.status}</span>
                     {lead.phone && lead.phone !== "N/A" && (
                       <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="px-3 py-1 bg-brand text-white text-xs font-medium rounded-lg hover:bg-brand-dark transition-colors">📞 Call</a>
                     )}
@@ -422,7 +422,7 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
             <div className="p-3 space-y-3">
               {leads.length === 0 ? <div className="text-center py-12 text-gray-400">No leads found</div> : leads.map((lead: Lead) => (
                 <button key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("details"); }} className={`w-full text-left rounded-xl border p-4 bg-white shadow-sm transition ${selectedId === lead.id ? "border-brand ring-2 ring-brand/20" : "border-gray-200"}`}>
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-gray-900 break-words">{lead.business_name}</div><div className="text-sm text-gray-500 mt-0.5">{lead.owner_name || "—"}</div></div><div className="flex flex-col gap-1 items-end"><span className={`text-[11px] px-2 py-1 rounded-full font-medium whitespace-nowrap ${getStatusStyle(lead.status).badge}`}>{lead.status}</span>{leadScores[lead.id] !== undefined && <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${getScoreBadgeColor(leadScores[lead.id])}`}>{leadScores[lead.id]}</span>}</div></div>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="font-semibold text-gray-900 break-words">{lead.business_name}</div><div className="text-sm text-gray-500 mt-0.5">{lead.owner_name || "—"}</div></div><div className="flex flex-col gap-1 items-end"><span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ${getStatusStyle(lead.status).badge}`}>{lead.status}</span>{leadScores[lead.id] !== undefined && <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${getScoreBadgeColor(leadScores[lead.id])}`}>{leadScores[lead.id]}</span>}</div></div>
                   <div className="mt-3 grid grid-cols-1 gap-1 text-sm"><div className="text-gray-600">{lead.phone || "No phone"}</div><div className="text-gray-500">{lead.city || "—"}</div>{lead.current_software && <div className="text-xs text-gray-400">Uses {lead.current_software}</div>}</div>
                 </button>
               ))}
@@ -513,7 +513,7 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
           {(lead as any).instagram_url && <a href={(lead as any).instagram_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-pink-500 text-white text-sm rounded-lg hover:bg-pink-600 transition-colors">IG</a>}
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <button onClick={findPhone} disabled={scraping} className="px-3 py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors">{scraping ? "Scanning..." : "🔍 Find Phone"}</button>
+          <button onClick={findPhone} disabled={scraping} className="px-3 min-h-[44px] py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors">{scraping ? "Scanning..." : "🔍 Find Phone"}</button>
           {scrapeMsg && <span className={`text-xs font-medium ${scrapeMsg.startsWith("Found") ? "text-green-600" : "text-red-500"}`}>{scrapeMsg}</span>}
         </div>
       </div>
@@ -637,13 +637,13 @@ function AddLeadModal({ onClose, onAdd }: { onClose: () => void; onAdd: (data: P
   const field = (label: string, key: keyof Lead, placeholder?: string, type = "text") => (
     <div key={key}>
       <label className="text-xs text-gray-500 uppercase tracking-wide">{label}</label>
-      <input type={type} value={(form[key] as string) || ""} onChange={(e) => set(key, e.target.value)} placeholder={placeholder} className="block w-full border rounded-lg px-3 py-2 text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-brand/30" />
+      <input type={type} value={(form[key] as string) || ""} onChange={(e) => set(key, e.target.value)} placeholder={placeholder} className="block w-full border rounded-lg px-3 py-2 min-h-[44px] text-sm mt-1 focus:outline-none focus:ring-2 focus:ring-brand/30" />
     </div>
   );
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-2 p-4 sm:p-6 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold">Add Lead</h3><button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
+        <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold">Add Lead</h3><button onClick={onClose} aria-label="Close" className="flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
         <div className="space-y-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 border-b pb-1">Basic Info</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -679,8 +679,8 @@ function AddLeadModal({ onClose, onAdd }: { onClose: () => void; onAdd: (data: P
           </div>
         </div>
         <div className="mt-6 flex gap-3">
-          <button onClick={onClose} className="flex-1 py-2.5 border rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSave} disabled={!form.business_name?.trim()} className="flex-1 py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Add Lead</button>
+          <button onClick={onClose} className="flex-1 py-2.5 min-h-[44px] border rounded-lg text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSave} disabled={!form.business_name?.trim()} className="flex-1 py-2.5 min-h-[44px] bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Add Lead</button>
         </div>
       </div>
     </div>
@@ -824,7 +824,7 @@ function DialerPanel({
             </div>
             <span className="text-xs text-gray-400">{Math.round(((index + 1) / queueIds.length) * 100)}%</span>
           </div>
-          <button onClick={onClose} className="px-3 py-1.5 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">Stop Dialing</button>
+          <button onClick={onClose} className="px-3 min-h-[44px] py-1.5 border border-gray-200 text-gray-600 text-sm rounded-lg hover:bg-gray-50">Stop Dialing</button>
         </div>
       </div>
 
@@ -955,12 +955,12 @@ function DialerPanel({
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">What software are they using? <span className="text-gray-300 font-normal normal-case">(if known)</span></label>
                   <input value={software} onChange={(e) => setSoftware(e.target.value)} placeholder="e.g. Jobber, Housecall Pro, none…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Quick note <span className="text-gray-300 font-normal normal-case">(optional)</span></label>
                   <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. said to call back Thursday…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 min-h-[44px] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
                 </div>
               </div>
             </div>
@@ -1047,13 +1047,13 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (le
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-2 p-4 sm:p-6 max-h-[90dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold">Import Leads</h3><button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
+        <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold">Import Leads</h3><button onClick={onClose} aria-label="Close" className="flex items-center justify-center min-w-[44px] min-h-[44px] -mr-2 text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
         <p className="text-sm text-gray-500 mb-4">Upload Apollo CSV export or any CSV with columns: Company Name, Company Phone, Website, Industry, Company City, etc. All Apollo fields are supported.</p>
         <div className="space-y-3">
-          <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFile} title="Upload CSV file" placeholder="Choose a file" className="block w-full text-sm border rounded-lg px-3 py-2" />
+          <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFile} title="Upload CSV file" placeholder="Choose a file" className="block w-full text-sm border rounded-lg px-3 py-2 min-h-[44px]" />
           <textarea value={csvText} onChange={(e) => setCsvText(e.target.value)} rows={6} placeholder="business_name,owner_name,phone..." className="block w-full border rounded-lg px-3 py-2 text-sm font-mono resize-none" />
           {result && <div className={`text-sm p-3 rounded-lg ${result.includes("Error") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{result}</div>}
-          <button onClick={handleImport} disabled={!csvText.trim()} className="w-full py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Import Leads</button>
+          <button onClick={handleImport} disabled={!csvText.trim()} className="w-full py-2.5 min-h-[44px] bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Import Leads</button>
         </div>
       </div>
     </div>

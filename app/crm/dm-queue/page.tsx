@@ -48,7 +48,7 @@ export default function DMQueuePage() {
     <div style={{ padding: "20px", fontFamily: "system-ui, sans-serif", maxWidth: "1200px", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px" }}>
         <h1 style={{ margin: 0, fontSize: "28px" }}>DM Queue</h1>
-        <button onClick={() => router.back()} style={{ padding: "8px 16px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
+        <button onClick={() => router.back()} style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
       </div>
 
       {loading ? (
@@ -81,13 +81,13 @@ export default function DMQueuePage() {
               <div style={{ display: "grid", gap: "8px" }}>
                 <button
                   onClick={() => window.open(lead.socials[0]?.url)}
-                  style={{ padding: "8px 16px", backgroundColor: "#3b82f6", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500" }}
+                  style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#3b82f6", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500" }}
                 >
                   Open Profile
                 </button>
                 <button
                   onClick={() => markDMSent(lead.id)}
-                  style={{ padding: "8px 16px", backgroundColor: "#10b981", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500" }}
+                  style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#10b981", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500" }}
                 >
                   ✓ DM Sent
                 </button>

@@ -100,7 +100,7 @@ export default function EmailQueuePage() {
         <button
           onClick={handleCancel}
           style={{
-            padding: "8px 16px",
+            padding: "12px 16px", minHeight: "44px",
             backgroundColor: "#6b7280",
             color: "white",
             border: "none",

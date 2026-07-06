@@ -68,7 +68,7 @@ export default function CrmNav() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                className={`flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   active
                     ? "bg-brand-light text-brand"
                     : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
@@ -91,7 +91,7 @@ export default function CrmNav() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium transition-colors ${
+              className={`flex flex-1 flex-col items-center justify-center gap-1 py-2.5 text-xs font-medium transition-colors ${
                 active ? "text-brand" : "text-gray-400"
               }`}
             >

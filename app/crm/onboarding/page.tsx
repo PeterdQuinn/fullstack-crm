@@ -64,7 +64,7 @@ export default function OnboardingPage() {
     <div style={{ padding: "20px", fontFamily: "system-ui, sans-serif", maxWidth: "1200px", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px" }}>
         <h1 style={{ margin: 0, fontSize: "28px" }}>Onboarding</h1>
-        <button onClick={() => router.back()} style={{ padding: "8px 16px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
+        <button onClick={() => router.back()} style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
       </div>
 
       {loading ? (
@@ -88,7 +88,7 @@ export default function OnboardingPage() {
                   <button
                     onClick={() => markOnboardingSent(lead.id)}
                     style={{
-                      padding: "8px 16px",
+                      padding: "12px 16px", minHeight: "44px",
                       backgroundColor: "#3b82f6",
                       color: "white",
                       border: "none",
@@ -105,7 +105,7 @@ export default function OnboardingPage() {
                   <button
                     onClick={() => markOnboardingCompleted(lead.id)}
                     style={{
-                      padding: "8px 16px",
+                      padding: "12px 16px", minHeight: "44px",
                       backgroundColor: "#10b981",
                       color: "white",
                       border: "none",
@@ -119,7 +119,7 @@ export default function OnboardingPage() {
                   </button>
                 )}
                 {lead.onboarding_completed && (
-                  <div style={{ padding: "8px 16px", backgroundColor: "#d1fae5", color: "#065f46", borderRadius: "6px", fontSize: "13px", fontWeight: "500", textAlign: "center" }}>
+                  <div style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#d1fae5", color: "#065f46", borderRadius: "6px", fontSize: "13px", fontWeight: "500", textAlign: "center" }}>
                     ✓ Done
                   </div>
                 )}
