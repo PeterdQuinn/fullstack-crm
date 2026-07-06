@@ -598,6 +598,9 @@ export async function POST(req: NextRequest) {
   const city: string          = raw.city || "";
   const website: string       = (raw.website && raw.website !== "N/A" && raw.website.trim() !== "")
     ? raw.website.trim() : "";
+  // Fast mode (used by the enrichment cron): static-only scrape, skipping the
+  // slow Playwright + directory phases so the request returns in ~10s.
+  const fast: boolean = raw.fast === true;
 
   let data = blankData();
   const debug: any = { phases: [] as any[], final: undefined };
@@ -690,6 +693,19 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       debug.phases.push({ phase: 2, name: "Static Subpages", error: String(e) });
     }
+  }
+
+  // Fast mode: stop after the static phases (+ a cheap linkedom pass). Static
+  // homepage/contact pages usually already carry the email + socials, and this
+  // keeps the request well under cron-job.org's timeout.
+  if (fast) {
+    if ((!data.phone || !data.owner) && homeHtml) {
+      const fb = await linkedomFallback(homeHtml);
+      if (!data.phone && fb.phone) data.phone = fb.phone;
+      if (!data.owner && fb.owner) data.owner = fb.owner;
+    }
+    debug.final = { phone: data.phone, owner: data.owner, email: data.email, confidence: computeScore(data), fast: true };
+    return buildResponse(data, debug);
   }
 
   // Phase 3 — single Playwright browser: website crawl + Google search

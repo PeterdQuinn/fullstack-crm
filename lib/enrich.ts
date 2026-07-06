@@ -25,6 +25,7 @@ async function scrapeLeadData(lead: any) {
           website: lead.website || undefined,
           business_name: lead.business_name,
           city: lead.city || "",
+          fast: true, // static-only scrape — fast enough for the cron timeout
         }),
       }
     );
