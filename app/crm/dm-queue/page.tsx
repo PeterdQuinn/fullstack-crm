@@ -7,6 +7,8 @@ interface Lead {
   id: string;
   business_name: string;
   contact_name?: string;
+  phone?: string | null;
+  email?: string | null;
   socials: Array<{ platform: string; url?: string; username?: string }>;
 }
 
@@ -60,8 +62,25 @@ export default function DMQueuePage() {
           {leads.map((lead) => (
             <div key={lead.id} style={{ padding: "16px", backgroundColor: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: "8px", display: "grid", gridTemplateColumns: "1fr auto", gap: "16px", alignItems: "start" }}>
               <div>
-                <div style={{ fontWeight: "600", fontSize: "16px", marginBottom: "8px" }}>
+                <div style={{ fontWeight: "600", fontSize: "16px", marginBottom: "4px" }}>
                   {lead.business_name}
+                </div>
+                {/* Lead phone + email attached, so you can call/email as well as DM */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "12px", fontSize: "13px", marginBottom: "8px" }}>
+                  {lead.phone ? (
+                    <a href={`tel:${lead.phone.replace(/[^0-9+]/g, "")}`} style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}>
+                      📞 {lead.phone}
+                    </a>
+                  ) : (
+                    <span style={{ color: "#9ca3af" }}>📞 No phone</span>
+                  )}
+                  {lead.email ? (
+                    <a href={`mailto:${lead.email}`} style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}>
+                      ✉️ {lead.email}
+                    </a>
+                  ) : (
+                    <span style={{ color: "#9ca3af" }}>✉️ No email</span>
+                  )}
                 </div>
                 <div style={{ display: "grid", gap: "6px", fontSize: "13px", color: "#6b7280" }}>
                   {lead.socials?.map((social, i) => (

@@ -8,7 +8,6 @@ import {
   HVAC_SEARCH_TERMS,
   HVAC_OSM_FILTERS,
   HVAC_NICHE,
-  MAJOR_CITIES_BY_STATE,
   googleTextQuery,
   buildOverpassQuery,
   searchGooglePlaces,
@@ -16,7 +15,7 @@ import {
 } from "@/lib/discovery-sources";
 import { cleanAndStructureLeads, RawLead } from "@/lib/discovery-clean";
 import { getGoogleQuota } from "@/lib/api-usage";
-import { getNextStates } from "@/lib/state-rotation";
+import { getNextMetros } from "@/lib/state-rotation";
 
 export const maxDuration = 120;
 
@@ -33,16 +32,14 @@ export async function POST(req: NextRequest) {
       importToDb = true,
     } = await req.json().catch(() => ({}));
 
-    // Target locations: explicit city/state overrides state rotation.
+    // Target locations: explicit city/state overrides the metro rotation.
+    // Otherwise rotate through curated high-coverage metros so every run finds
+    // real HVAC businesses (default 3 cities, or `states`×2 if provided larger).
     let targets: { city: string; state: string }[] = [];
     if (city && state) {
       targets = [{ city, state }];
     } else {
-      const statesToSearch = await getNextStates(states);
-      for (const st of statesToSearch) {
-        const cities = (MAJOR_CITIES_BY_STATE[st] || [st]).slice(0, 2);
-        for (const c of cities) targets.push({ city: c, state: st });
-      }
+      targets = await getNextMetros(Math.max(3, states * 2));
     }
 
     // ── PHASE 1: gather from both sources (HVAC only, in-process) ──
@@ -50,8 +47,13 @@ export async function POST(req: NextRequest) {
     const rawOverpass: RawLead[] = [];
     const queriesSent: { source: string; query: string }[] = [];
 
+    // Cap raw volume so the AI-cleanup call stays within its timeout, but search
+    // every rotated metro (don't stop after the first) so a run reliably reaches
+    // fresh cities with new leads.
+    const MAX_RAW = 60;
+    const PER_CITY = 15;
     for (const { city: c, state: st } of targets) {
-      if (rawGoogle.length + rawOverpass.length >= limit * 2) break;
+      if (rawGoogle.length + rawOverpass.length >= MAX_RAW) break;
 
       // Google Places: one request per HVAC search term — nothing else.
       for (const term of HVAC_SEARCH_TERMS) {
@@ -61,8 +63,8 @@ export async function POST(req: NextRequest) {
       }
 
       // Overpass: HVAC OSM tags only (no free-text search in Overpass).
-      queriesSent.push({ source: "overpass", query: buildOverpassQuery(HVAC_OSM_FILTERS, c, 25) });
-      const o = await searchOverpass({ osmFilters: HVAC_OSM_FILTERS, niche: HVAC_NICHE, city: c, state: st, limit: 25 });
+      queriesSent.push({ source: "overpass", query: buildOverpassQuery(HVAC_OSM_FILTERS, c, PER_CITY) });
+      const o = await searchOverpass({ osmFilters: HVAC_OSM_FILTERS, niche: HVAC_NICHE, city: c, state: st, limit: PER_CITY });
       rawOverpass.push(...o.map((l: DiscoveredLead) => ({ ...l, source: "overpass" })));
 
       await new Promise((r) => setTimeout(r, 300)); // be polite to Overpass

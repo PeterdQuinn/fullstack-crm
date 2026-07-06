@@ -7,7 +7,8 @@ interface Booking {
   id: string;
   business_name: string;
   contact?: string;
-  email?: string;
+  phone?: string | null;
+  email?: string | null;
   status: string;
   booked_at?: string;
   no_show: boolean;
@@ -78,7 +79,14 @@ export default function BookingsPage() {
                     <strong>{booking.business_name}</strong>
                   </td>
                   <td style={{ padding: "10px", color: "#6b7280" }}>
-                    {booking.contact || "—"}
+                    {booking.contact && <div>{booking.contact}</div>}
+                    {booking.phone ? (
+                      <a href={`tel:${booking.phone.replace(/[^0-9+]/g, "")}`} style={{ color: "#2563eb", textDecoration: "none" }}>📞 {booking.phone}</a>
+                    ) : null}
+                    {booking.email ? (
+                      <div><a href={`mailto:${booking.email}`} style={{ color: "#2563eb", textDecoration: "none" }}>✉️ {booking.email}</a></div>
+                    ) : null}
+                    {!booking.contact && !booking.phone && !booking.email && "—"}
                   </td>
                   <td style={{ padding: "10px" }}>
                     <span style={{ padding: "4px 8px", backgroundColor: "#dbeafe", color: "#0c4a6e", borderRadius: "4px", fontSize: "12px" }}>
