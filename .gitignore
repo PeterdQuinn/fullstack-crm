@@ -9,3 +9,6 @@ npm-debug.log*
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+
+# Supabase CLI local artifacts
+supabase/.temp/

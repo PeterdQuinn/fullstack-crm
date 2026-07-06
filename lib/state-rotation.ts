@@ -62,3 +62,53 @@ export async function getNextStates(count: number): Promise<string[]> {
 export function getAllStates(): string[] {
   return US_STATES;
 }
+
+// Curated metros with strong OpenStreetMap coverage, so every discovery run
+// lands somewhere that actually has HVAC businesses to find (state rotation
+// alone can hit sparse states and return nothing).
+const METRO_TARGETS: { city: string; state: string }[] = [
+  { city: "Phoenix", state: "AZ" }, { city: "Los Angeles", state: "CA" },
+  { city: "Houston", state: "TX" }, { city: "Chicago", state: "IL" },
+  { city: "Miami", state: "FL" }, { city: "Philadelphia", state: "PA" },
+  { city: "San Diego", state: "CA" }, { city: "Dallas", state: "TX" },
+  { city: "Columbus", state: "OH" }, { city: "Atlanta", state: "GA" },
+  { city: "Charlotte", state: "NC" }, { city: "San Antonio", state: "TX" },
+  { city: "Austin", state: "TX" }, { city: "Tucson", state: "AZ" },
+];
+const METRO_KEY = "discovery_metro_rotation";
+
+// Return the next `count` metros to search, advancing a persisted rotation
+// counter so repeat runs cover new cities (and find new leads).
+export async function getNextMetros(count: number): Promise<{ city: string; state: string }[]> {
+  let idx = 0;
+  try {
+    const { data } = await supabase
+      .from("lead_discovery_config")
+      .select("id, last_state_index")
+      .eq("key", METRO_KEY)
+      .maybeSingle();
+    idx = data?.last_state_index ?? 0;
+
+    const out: { city: string; state: string }[] = [];
+    for (let i = 0; i < count; i++) out.push(METRO_TARGETS[(idx + i) % METRO_TARGETS.length]);
+    const nextIdx = (idx + count) % METRO_TARGETS.length;
+
+    if (data) {
+      await supabase
+        .from("lead_discovery_config")
+        .update({ last_state_index: nextIdx, updated_at: new Date().toISOString() })
+        .eq("id", data.id);
+    } else {
+      await supabase.from("lead_discovery_config").insert({
+        key: METRO_KEY,
+        last_state_index: nextIdx,
+        updated_at: new Date().toISOString(),
+      });
+    }
+    return out;
+  } catch (error) {
+    console.error("Metro rotation error:", error);
+    // Fail safe: always return at least one high-coverage metro.
+    return Array.from({ length: count }, (_, i) => METRO_TARGETS[i % METRO_TARGETS.length]);
+  }
+}

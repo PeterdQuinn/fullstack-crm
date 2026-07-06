@@ -1,132 +1,117 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   DiscoveredLead,
-  deduplicateLeads,
-  normalizeLead,
   filterNewLeads,
-  enrichLeadsEmails,
   importLeads,
 } from "@/lib/lead-discovery";
-import { getNextStates } from "@/lib/state-rotation";
+import {
+  HVAC_SEARCH_TERMS,
+  HVAC_OSM_FILTERS,
+  HVAC_NICHE,
+  googleTextQuery,
+  buildOverpassQuery,
+  searchGooglePlaces,
+  searchOverpass,
+} from "@/lib/discovery-sources";
+import { cleanAndStructureLeads, RawLead } from "@/lib/discovery-clean";
+import { getGoogleQuota } from "@/lib/api-usage";
+import { getNextMetros } from "@/lib/state-rotation";
 
+export const maxDuration = 120;
+
+// Real lead discovery — HVAC ONLY. Google Places (weekly-capped) + OpenStreetMap
+// Overpass (free), combined, AI-cleaned (Ollama), then imported. Everything runs
+// in-process — no self-HTTP calls — so Basic Auth on /api/admin never blocks it.
 export async function POST(req: NextRequest) {
   try {
     const {
       states = 1,
-      limit = 50,
-      enrichEmails = true,
+      limit = 30,
+      city,
+      state,
       importToDb = true,
     } = await req.json().catch(() => ({}));
 
-    console.log(`🚀 Starting lead discovery pipeline: ${states} state(s), max ${limit} per state`);
-
-    const discovered: DiscoveredLead[] = [];
-    const statesToSearch = await getNextStates(states);
-
-    // PHASE 1: Scrape from all sources
-    for (const state of statesToSearch) {
-      console.log(`\n📍 Searching ${state}...`);
-
-      try {
-        // Google Business
-        const googleRes = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/admin/discover-leads/google`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ state, limit: Math.ceil(limit / 3) }),
-          }
-        );
-        const googleData = await googleRes.json();
-        discovered.push(...(googleData.leads || []));
-        console.log(`  ✓ Google: ${googleData.count || 0} leads`);
-      } catch (error) {
-        console.error(`  ✗ Google failed: ${error}`);
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      try {
-        // Yelp
-        const yelpRes = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/admin/discover-leads/yelp`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ state, limit: Math.ceil(limit / 3) }),
-          }
-        );
-        const yelpData = await yelpRes.json();
-        discovered.push(...(yelpData.leads || []));
-        console.log(`  ✓ Yelp: ${yelpData.count || 0} leads`);
-      } catch (error) {
-        console.error(`  ✗ Yelp failed: ${error}`);
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      try {
-        // Directories
-        const dirRes = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/admin/discover-leads/directories`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ state, limit: Math.ceil(limit / 3) }),
-          }
-        );
-        const dirData = await dirRes.json();
-        discovered.push(...(dirData.leads || []));
-        console.log(`  ✓ Directories: ${dirData.count || 0} leads`);
-      } catch (error) {
-        console.error(`  ✗ Directories failed: ${error}`);
-      }
+    // Target locations: explicit city/state overrides the metro rotation.
+    // Otherwise rotate through curated high-coverage metros so every run finds
+    // real HVAC businesses (default 3 cities, or `states`×2 if provided larger).
+    let targets: { city: string; state: string }[] = [];
+    if (city && state) {
+      targets = [{ city, state }];
+    } else {
+      targets = await getNextMetros(Math.max(3, states * 2));
     }
 
-    console.log(`\n📊 PHASE 1: Discovered ${discovered.length} total leads`);
+    // ── PHASE 1: gather from both sources (HVAC only, in-process) ──
+    const rawGoogle: RawLead[] = [];
+    const rawOverpass: RawLead[] = [];
+    const queriesSent: { source: string; query: string }[] = [];
 
-    // PHASE 2: Deduplicate
-    const deduplicated = deduplicateLeads(
-      discovered.map((lead) => normalizeLead(lead))
-    );
-    console.log(`📊 PHASE 2: After dedup: ${deduplicated.length} leads`);
+    // Cap raw volume so the AI-cleanup call stays within its timeout, but search
+    // every rotated metro (don't stop after the first) so a run reliably reaches
+    // fresh cities with new leads.
+    const MAX_RAW = 60;
+    const PER_CITY = 15;
+    for (const { city: c, state: st } of targets) {
+      if (rawGoogle.length + rawOverpass.length >= MAX_RAW) break;
 
-    // PHASE 3: Filter existing leads
-    const newLeads = await filterNewLeads(deduplicated);
-    console.log(`📊 PHASE 3: New to database: ${newLeads.length} leads`);
+      // Google Places: one request per HVAC search term — nothing else.
+      for (const term of HVAC_SEARCH_TERMS) {
+        queriesSent.push({ source: "google_places", query: googleTextQuery(term, c, st) });
+        const g = await searchGooglePlaces({ term, niche: HVAC_NICHE, city: c, state: st });
+        rawGoogle.push(...g.map((l: DiscoveredLead) => ({ ...l, source: "google_places" })));
+      }
 
-    // PHASE 4: Enrich with emails
-    let enrichedLeads = newLeads;
-    if (enrichEmails && newLeads.length > 0) {
-      console.log(`\n📧 PHASE 4: Enriching ${newLeads.length} leads with emails...`);
-      enrichedLeads = await enrichLeadsEmails(newLeads, 2);
+      // Overpass: HVAC OSM tags only (no free-text search in Overpass).
+      queriesSent.push({ source: "overpass", query: buildOverpassQuery(HVAC_OSM_FILTERS, c, PER_CITY) });
+      const o = await searchOverpass({ osmFilters: HVAC_OSM_FILTERS, niche: HVAC_NICHE, city: c, state: st, limit: PER_CITY });
+      rawOverpass.push(...o.map((l: DiscoveredLead) => ({ ...l, source: "overpass" })));
 
-      const withEmail = enrichedLeads.filter((l) => l.email).length;
-      console.log(`✓ Found emails for ${withEmail}/${newLeads.length} leads`);
+      await new Promise((r) => setTimeout(r, 300)); // be polite to Overpass
     }
 
-    // PHASE 5: Import to database
-    let importResult: { imported: number; skipped: number; errors: number; importedIds: string[] } = { imported: 0, skipped: 0, errors: 0, importedIds: [] };
-    if (importToDb && enrichedLeads.length > 0) {
-      console.log(`\n💾 PHASE 5: Importing ${enrichedLeads.length} leads to database...`);
-      importResult = await importLeads(enrichedLeads);
-      console.log(`✓ Imported: ${importResult.imported}, Skipped: ${importResult.skipped}, Errors: ${importResult.errors}`);
+    const combined = [...rawGoogle, ...rawOverpass];
+
+    // ── PHASE 2: AI cleanup (dedupe / gap-fill / discard junk) ──
+    const clean = await cleanAndStructureLeads(combined);
+
+    // ── PHASE 3: drop leads already in the DB ──
+    const newLeads = await filterNewLeads(clean.cleaned);
+
+    // ── PHASE 4: import survivors ──
+    let importResult = { imported: 0, skipped: 0, errors: 0, importedIds: [] as string[] };
+    if (importToDb && newLeads.length > 0) {
+      importResult = await importLeads(newLeads);
     }
 
-    console.log(`\n✅ Discovery pipeline complete!`);
+    const quota = await getGoogleQuota();
 
     return NextResponse.json({
       success: true,
+      niche: HVAC_NICHE,
+      queries: queriesSent,
       pipeline: {
-        discovered: discovered.length,
-        deduplicated: deduplicated.length,
+        discovered: combined.length,
+        cleaned: clean.cleaned.length,
+        dropped: clean.dropped.length,
+        merged: clean.merged.length,
         newLeads: newLeads.length,
-        enriched: enrichedLeads.filter((l) => l.email).length,
         imported: importResult.imported,
       },
-      states: statesToSearch,
+      sources: {
+        google_places: rawGoogle.length,
+        overpass: rawOverpass.length,
+        google_quota: quota,
+      },
+      ai: {
+        used: clean.aiUsed,
+        error: clean.aiError || null,
+        dropped: clean.dropped,
+        merged: clean.merged,
+      },
+      targets,
       importedLeadIds: importResult.importedIds,
-      message: `Discovered ${discovered.length} leads, imported ${importResult.imported} to CRM with emails ready for automation.`,
+      message: `HVAC discovery — ${combined.length} raw (${rawGoogle.length} Google / ${rawOverpass.length} Overpass), cleaned to ${clean.cleaned.length}, imported ${importResult.imported}.`,
     });
   } catch (error) {
     console.error("Discovery pipeline error:", error);

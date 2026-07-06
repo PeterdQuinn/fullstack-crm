@@ -7,7 +7,8 @@ interface Booking {
   id: string;
   business_name: string;
   contact?: string;
-  email?: string;
+  phone?: string | null;
+  email?: string | null;
   status: string;
   booked_at?: string;
   no_show: boolean;
@@ -53,7 +54,7 @@ export default function BookingsPage() {
     <div style={{ padding: "20px", fontFamily: "system-ui, sans-serif", maxWidth: "1200px", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px" }}>
         <h1 style={{ margin: 0, fontSize: "28px" }}>Bookings</h1>
-        <button onClick={() => router.back()} style={{ padding: "8px 16px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
+        <button onClick={() => router.back()} style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
       </div>
 
       {loading ? (
@@ -78,7 +79,14 @@ export default function BookingsPage() {
                     <strong>{booking.business_name}</strong>
                   </td>
                   <td style={{ padding: "10px", color: "#6b7280" }}>
-                    {booking.contact || "—"}
+                    {booking.contact && <div>{booking.contact}</div>}
+                    {booking.phone ? (
+                      <a href={`tel:${booking.phone.replace(/[^0-9+]/g, "")}`} style={{ color: "#2563eb", textDecoration: "none" }}>📞 {booking.phone}</a>
+                    ) : null}
+                    {booking.email ? (
+                      <div><a href={`mailto:${booking.email}`} style={{ color: "#2563eb", textDecoration: "none" }}>✉️ {booking.email}</a></div>
+                    ) : null}
+                    {!booking.contact && !booking.phone && !booking.email && "—"}
                   </td>
                   <td style={{ padding: "10px" }}>
                     <span style={{ padding: "4px 8px", backgroundColor: "#dbeafe", color: "#0c4a6e", borderRadius: "4px", fontSize: "12px" }}>

@@ -58,7 +58,7 @@ export default function RepliesPage() {
     <div style={{ padding: "20px", fontFamily: "system-ui, sans-serif", maxWidth: "1400px", margin: "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px", borderBottom: "2px solid #e5e7eb", paddingBottom: "20px" }}>
         <h1 style={{ margin: 0, fontSize: "28px" }}>Replies</h1>
-        <button onClick={() => router.back()} style={{ padding: "8px 16px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
+        <button onClick={() => router.back()} style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
       </div>
 
       {loading ? (
@@ -87,7 +87,7 @@ export default function RepliesPage() {
                   <button
                     onClick={() => classifyReply(reply.id, reply.message)}
                     style={{
-                      padding: "8px 16px",
+                      padding: "12px 16px", minHeight: "44px",
                       backgroundColor: "#3b82f6",
                       color: "white",
                       border: "none",

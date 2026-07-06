@@ -97,15 +97,8 @@ export const CALL_OUTCOMES: CallOutcome[] = [
   "Callback requested", "Not interested", "Interested", "Booked meeting"
 ];
 
-export const STATUS_COLORS: Record<LeadStatus, string> = {
-  "New": "bg-blue-100 text-blue-800",
-  "Called": "bg-yellow-100 text-yellow-800",
-  "No Answer": "bg-gray-100 text-gray-700",
-  "Follow-Up": "bg-purple-100 text-purple-800",
-  "Interested": "bg-emerald-100 text-emerald-800",
-  "Booked": "bg-green-100 text-green-800",
-  "Dead": "bg-red-100 text-red-700",
-};
+// Status colors now live in lib/status-colors.ts (single source of truth,
+// covers every status in the schema). Use getStatusStyle() there.
 
 export interface LeadAISummary {
   id: string;
