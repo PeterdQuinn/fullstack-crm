@@ -104,8 +104,12 @@ export default function UnifiedDashboard() {
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-gray-900 sm:text-2xl">Today</h1>
-          <p className="text-xs text-gray-400 sm:text-sm">
-            {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+          {/* Rendered only after mount: the local date/locale differs from the
+              server's (UTC), which otherwise causes a hydration mismatch. */}
+          <p className="text-xs text-gray-400 sm:text-sm" suppressHydrationWarning>
+            {loaded
+              ? new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })
+              : " "}
           </p>
         </div>
         <div className="flex items-center gap-2">
