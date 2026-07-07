@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
-import { sendEmail, emailFooter } from "@/lib/resend";
+import { sendEmail } from "@/lib/resend";
+import { renderOutreachEmail } from "@/lib/email-templates";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -73,21 +74,6 @@ async function scrapeLeadData(lead: any) {
     clearTimeout(timer);
   }
 }
-
-const TEMPLATES: Record<number, (company: string, message: string, leadId: string) => { subject: string; html: string }> = {
-  1: (company, message, leadId) => ({
-    subject: `Custom Solution for ${company} - Let's Chat`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>Hi,</h2><p style="color: #666; line-height: 1.6;">${message}</p>${emailFooter(leadId)}</div>`,
-  }),
-  2: (company, message, leadId) => ({
-    subject: `Follow-up: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>Hey,</h2><p style="color: #666; line-height: 1.6;">${message}</p>${emailFooter(leadId)}</div>`,
-  }),
-  3: (company, message, leadId) => ({
-    subject: `Last message: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>One final message,</h2><p style="color: #666; line-height: 1.6;">${message}</p>${emailFooter(leadId)}</div>`,
-  }),
-};
 
 export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
   // PHASE 1: SCRAPE — enrich existing leads missing critical data.
@@ -317,17 +303,14 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         continue;
       }
 
-      const msg =
-        emailNum === 1
-          ? summary?.recommended_first_message ||
-            `Hi ${lead.business_name}, we build custom software for service businesses like yours.`
-          : emailNum === 2
-          ? summary?.recommended_follow_up ||
-            `Following up on our previous message about custom software for ${lead.business_name}.`
-          : `Final follow-up: custom software solution for ${lead.business_name}`;
-
-      const template = TEMPLATES[emailNum as keyof typeof TEMPLATES];
-      const { subject, html } = template(lead.business_name, msg, lead.id);
+      // Shared renderer — identical output to the manual Email Queue view.
+      const rendered = renderOutreachEmail({
+        businessName: lead.business_name,
+        emailSentCount: lead.email_sent_count || 0,
+        firstMessage: summary?.recommended_first_message,
+        followUp: summary?.recommended_follow_up,
+      });
+      const { subject, html, bodyText } = rendered;
 
       try {
         const result = await sendEmail(lead.email, subject, html);
@@ -337,7 +320,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           direction: "outbound",
           message_type: `email_${emailNum}`,
           subject,
-          message_body: msg,
+          message_body: bodyText,
           status: "sent",
           provider: "resend",
           provider_message_id: result.id,

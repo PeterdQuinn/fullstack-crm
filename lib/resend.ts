@@ -2,23 +2,8 @@ import { Resend } from "resend";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// CAN-SPAM-compliant footer appended to every outbound prospecting email:
-// a working one-click unsubscribe link + a physical mailing address.
-// Both requirements are legally mandatory for commercial email.
-//   - Unsubscribe writes opt_out=true via /api/email/unsubscribe (no auth).
-//   - Address is pulled from COMPANY_MAILING_ADDRESS (env).
-export function emailFooter(leadId?: string): string {
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/$/, "");
-  const address =
-    process.env.COMPANY_MAILING_ADDRESS || "Full Stack Services LLC";
-  const unsubUrl = leadId && appUrl ? `${appUrl}/api/email/unsubscribe?lead=${encodeURIComponent(leadId)}` : null;
-
-  return `<hr style="border:none;border-top:1px solid #eee;margin:28px 0 12px;">
-<p style="color:#999;font-size:12px;line-height:1.5;margin:0;">
-${address}
-${unsubUrl ? `<br><a href="${unsubUrl}" style="color:#999;">Unsubscribe</a> from these emails.` : ""}
-</p>`;
-}
+// Email body/footer rendering lives in lib/email-templates.ts (shared by the
+// cron send phase and the manual copy-paste Email Queue).
 
 export async function sendEmail(
   email: string,

@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
-import { sendEmail, emailFooter } from "@/lib/resend";
+import { sendEmail } from "@/lib/resend";
+import { footerHtml } from "@/lib/email-templates";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +24,7 @@ export function bucketForCategory(category: string): ReplyBucket {
   return "unclear"; // Too Busy, Question, or anything unrecognized
 }
 
-function bookingEmail(company?: string | null, leadId?: string) {
+function bookingEmail(company?: string | null) {
   const name = company?.trim() ? ` at ${company.trim()}` : "";
   return {
     subject: "Great — let's find a time to talk",
@@ -35,7 +36,7 @@ function bookingEmail(company?: string | null, leadId?: string) {
   </p>
   <p style="color:#666; line-height:1.6; font-size:14px;">Or copy this link into your browser: <a href="${CALENDLY_LINK}">${CALENDLY_LINK}</a></p>
   <p style="color:#333; line-height:1.6;">Looking forward to it.</p>
-  ${emailFooter(leadId)}
+  ${footerHtml()}
 </div>`,
   };
 }
@@ -91,7 +92,7 @@ export async function actOnReplyClassification(
       };
     }
 
-    const { subject, html } = bookingEmail(lead.business_name, lead.id);
+    const { subject, html } = bookingEmail(lead.business_name);
     const sendResult = await sendEmail(lead.email, subject, html);
 
     await supabase

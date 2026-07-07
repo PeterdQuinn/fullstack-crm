@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
+import { renderOutreachEmail } from "@/lib/email-templates";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,22 +22,6 @@ export async function GET() {
     cron_secret_configured: Boolean(process.env.CRON_SECRET),
   });
 }
-
-// Same template logic as app/api/email/send-daily/route.ts
-const EMAIL_TEMPLATES: Record<number, (company: string, message: string) => { subject: string; html: string }> = {
-  1: (company, message) => ({
-    subject: `Custom Solution for ${company} - Let's Chat`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2 style="color: #333;">Hi there,</h2><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
-  }),
-  2: (company, message) => ({
-    subject: `Quick follow-up: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2 style="color: #333;">Hey,</h2><p style="color: #666; line-height: 1.6;">Just following up.</p><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
-  }),
-  3: (company, message) => ({
-    subject: `Last chance: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2 style="color: #333;">Hi,</h2><p style="color: #666; line-height: 1.6;">Final message: ${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
-  }),
-};
 
 export async function POST(req: NextRequest) {
   // Verify cron secret (required for security)
@@ -163,16 +148,13 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // c. Build the message (same logic as send-daily/route.ts)
-        let message = summary?.recommended_first_message || "";
-        if (emailNum === 2) {
-          message = summary?.recommended_follow_up || "";
-        } else if (emailNum === 3) {
-          message = summary?.recommended_follow_up || "";
-        }
-
-        const template = EMAIL_TEMPLATES[emailNum as keyof typeof EMAIL_TEMPLATES] || EMAIL_TEMPLATES[1];
-        const { subject, html } = template(lead.business_name, message);
+        // c. Build the email via the shared renderer (subject + body + footer)
+        const { subject, html, bodyText } = renderOutreachEmail({
+          businessName: lead.business_name,
+          emailSentCount: lead.email_sent_count || 0,
+          firstMessage: summary?.recommended_first_message,
+          followUp: summary?.recommended_follow_up,
+        });
 
         console.log(`Sending follow-up email ${emailNum} to ${lead.business_name}...`);
         const sendResult = await sendEmail(lead.email, subject, html);
@@ -184,7 +166,7 @@ export async function POST(req: NextRequest) {
           direction: "outbound",
           message_type: `email_${emailNum}`,
           subject,
-          message_body: message,
+          message_body: bodyText,
           status: "sent",
           provider: "resend",
           provider_message_id: sendResult.id,

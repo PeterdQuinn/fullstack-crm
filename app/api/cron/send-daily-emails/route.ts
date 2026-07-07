@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
+import { renderOutreachEmail } from "@/lib/email-templates";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,21 +9,6 @@ const supabase = createClient(
 );
 
 export const maxDuration = 120;
-
-const TEMPLATES = {
-  1: (company: string, message: string) => ({
-    subject: `Custom Solution for ${company} - Let's Chat`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2 style="color: #333;">Hi,</h2><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
-  }),
-  2: (company: string, message: string) => ({
-    subject: `Follow-up: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2 style="color: #333;">Hey,</h2><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
-  }),
-  3: (company: string, message: string) => ({
-    subject: `Last message: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2 style="color: #333;">One final message,</h2><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
-  }),
-};
 
 export async function GET(req: NextRequest) {
   // Verify cron secret (required for security)
@@ -102,15 +88,12 @@ export async function GET(req: NextRequest) {
         const emailNum = (lead.email_sent_count || 0) + 1;
         if (emailNum > 3) continue;
 
-        const msg =
-          emailNum === 1
-            ? summary?.recommended_first_message || `Hi ${lead.business_name}, we build custom software for service businesses like yours.`
-            : emailNum === 2
-            ? summary?.recommended_follow_up || `Following up on our previous message about custom software for ${lead.business_name}.`
-            : `Final follow-up: custom software solution for ${lead.business_name}`;
-
-        const template = TEMPLATES[emailNum as keyof typeof TEMPLATES];
-        const { subject, html } = template(lead.business_name, msg);
+        const { subject, html, bodyText } = renderOutreachEmail({
+          businessName: lead.business_name,
+          emailSentCount: lead.email_sent_count || 0,
+          firstMessage: summary?.recommended_first_message,
+          followUp: summary?.recommended_follow_up,
+        });
 
         console.log(`Sending email ${emailNum} to ${lead.business_name}...`);
         const result = await sendEmail(lead.email, subject, html);
@@ -122,7 +105,7 @@ export async function GET(req: NextRequest) {
           direction: "outbound",
           message_type: `email_${emailNum}`,
           subject,
-          message_body: msg,
+          message_body: bodyText,
           status: "sent",
           provider: "resend",
           provider_message_id: result.id,
