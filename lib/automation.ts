@@ -127,14 +127,25 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
 
   // PHASE 2: SCORE — enforce data completeness, then AI-score.
   if (phase === "score") {
-    // Over-fetch candidates; we process at most SCORE_BATCH *unscored* leads per
-    // run (already-scored leads are skipped) to stay inside the 60s limit.
-    const { data: candidates } = await supabase
+    // Target UNSCORED leads directly. Pull the set of already-scored lead ids
+    // first, then over-fetch the oldest leads and filter those out. Without this
+    // anti-join, an unordered page can come back all-scored and the phase
+    // no-ops forever, never reaching the unscored backlog.
+    const { data: scoredRows } = await supabase
+      .from("lead_ai_summaries")
+      .select("lead_id");
+    const scoredIds = new Set((scoredRows || []).map((r) => r.lead_id));
+
+    const { data: pool } = await supabase
       .from("leads")
       .select(
-        "id, business_name, email, phone, city, state, website, owner_name, short_description, industry, current_software, technologies"
+        "id, business_name, email, phone, city, state, website, owner_name, short_description, industry, current_software, technologies, created_at"
       )
-      .limit(SCORE_BATCH * 5);
+      .order("created_at", { ascending: true })
+      .limit(SCORE_BATCH * 40);
+    const candidates = (pool || [])
+      .filter((l) => !scoredIds.has(l.id))
+      .slice(0, SCORE_BATCH * 5);
 
     let considered = 0;
     let scored = 0;
