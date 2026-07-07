@@ -1,13 +1,23 @@
 import { createClient } from "@supabase/supabase-js";
 
+// force-dynamic alone is NOT enough: Next.js also caches the fetch() that
+// supabase-js makes to PostgREST, so the route would keep serving a stale
+// snapshot (missing the newest leads) even though the route itself is dynamic.
+// fetchCache + a no-store fetch on the client guarantee every export hits the DB.
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    global: {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        fetch(input, { ...init, cache: "no-store" }),
+    },
+  }
 );
-
-// Always pull live data — never a statically cached snapshot. This is a
-// download endpoint, so the response is also marked no-store.
-export const dynamic = "force-dynamic";
 
 // RFC-4180 CSV cell escaping: wrap in quotes and double any embedded quote when
 // the value contains a comma, quote, or newline.
