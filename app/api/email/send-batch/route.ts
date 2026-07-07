@@ -47,16 +47,23 @@ export async function POST(req: NextRequest) {
 
     console.log(`📧 Email quota: ${emailsSentToday}/25 sent today, ${remaining} remaining`);
 
-    // Get leads with score > 50, email exists, not sent 3 times yet
+    // Get leads that ACTUALLY qualify: a real AI score > 50, email present, not
+    // opted out / bounced / complained, under the 3-email cap. The score filter
+    // and ordering run in the query (inner join on lead_ai_summaries), so
+    // `.limit(remaining)` keeps the highest-scoring qualifiers instead of an
+    // arbitrary unordered page that could be all low/unscored leads (the bug
+    // that made the button send 0 even when qualifying leads existed).
     const { data: leads, error } = await supabase
       .from("leads")
-      .select("id, business_name, email, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
+      .select("id, business_name, email, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
       .eq("opt_out", false)
       .eq("bounced", false)
       .eq("complained", false)
       .not("email", "is", null)
       .neq("email", "")
       .lt("email_sent_count", 3)
+      .gt("lead_ai_summaries.lead_score", 50)
+      .order("lead_score", { referencedTable: "lead_ai_summaries", ascending: false })
       .limit(remaining);
 
     if (error) {
