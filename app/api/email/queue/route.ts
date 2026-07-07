@@ -1,14 +1,23 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
+// force-dynamic alone isn't enough — Next also caches the fetch() supabase-js
+// makes to PostgREST, so the queue would serve a stale snapshot (e.g. 0 ready
+// even after leads were scored). no-store fetch + fetchCache guarantee live data.
+export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    global: {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        fetch(input, { ...init, cache: "no-store" }),
+    },
+  }
 );
-
-// Always run fresh — otherwise Next statically caches this GET and serves
-// stale build-time data.
-export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
