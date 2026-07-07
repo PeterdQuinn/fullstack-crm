@@ -16,6 +16,7 @@ import {
   UserPlus,
   Sparkles,
   CheckCircle2,
+  Download,
   type LucideIcon,
 } from "lucide-react";
 
@@ -107,14 +108,24 @@ export default function UnifiedDashboard() {
             {new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
           </p>
         </div>
-        <Link
-          href="/crm/discovery"
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 sm:text-sm"
-        >
-          <Sparkles size={15} className="text-gold" />
-          <span className="hidden sm:inline">Discover leads</span>
-          <span className="sm:hidden">Discover</span>
-        </Link>
+        <div className="flex items-center gap-2">
+          <a
+            href="/api/crm/export-leads"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 sm:text-sm"
+          >
+            <Download size={15} className="text-gray-500" />
+            <span className="hidden sm:inline">Export CSV</span>
+            <span className="sm:hidden">Export</span>
+          </a>
+          <Link
+            href="/crm/discovery"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 sm:text-sm"
+          >
+            <Sparkles size={15} className="text-gold" />
+            <span className="hidden sm:inline">Discover leads</span>
+            <span className="sm:hidden">Discover</span>
+          </Link>
+        </div>
       </div>
 
       {/* ── 1. THE THREE KEY NUMBERS ──────────────────────────────────────── */}

@@ -334,6 +334,7 @@ export default function LeadsWorkspace() {
           <button onClick={() => setShowDialer(true)} className="px-3 min-h-[44px] py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">⚡ Dial</button>
           <button onClick={() => setShowAddLead(true)} className="px-3 min-h-[44px] py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">+ Add Lead</button>
           <button onClick={() => setShowImport(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import CSV</button>
+          <a href="/api/crm/export-leads" className="px-3 min-h-[44px] py-1.5 bg-slate-700 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors inline-flex items-center">⬇ Export CSV</a>
         </div>
       </header>
 
