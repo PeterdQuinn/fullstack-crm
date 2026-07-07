@@ -18,9 +18,10 @@ const supabase = createClient(
 // SCRAPE_TIMEOUT_MS. The 107-lead backlog is worked down over daily runs.
 const SCRAPE_BATCH = 3;
 const SCRAPE_TIMEOUT_MS = 9000;
-// Leads scored per run — bounded so scrape+score+send fit the ~60s function
-// limit (each scored lead is an AI call, plus a possible enrichment scrape).
-const SCORE_BATCH = 10;
+// Leads scored per run — kept small (2–3) so a full batch (each an AI call plus
+// a possible enrichment scrape) finishes well inside the ~60s function limit.
+// Batches of 10 reliably 504'd; 3 completes with headroom.
+const SCORE_BATCH = 3;
 // Max emails per run. Sends fewer if fewer qualify — never forces a number.
 const SEND_CAP_PER_RUN = 100;
 // A lead must have all of these (non-null, non-empty) to be scored. City/state
@@ -138,10 +139,16 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     let considered = 0;
     let scored = 0;
     let kept = 0;
-    let deleted = 0;
     let fallback = 0;
-    let incompleteDeleted = 0;
     let enriched = 0;
+
+    // Deletions are DEFERRED: nothing is deleted inside the scoring loop. We
+    // collect ids here and delete only after the loop finishes cleanly. If the
+    // function times out (or throws) mid-batch, execution never reaches the
+    // deletion block, so a failed/partial run deletes nothing — a pure no-op,
+    // the same protection principle as the fallback-score guard below.
+    const incompleteToDelete: string[] = []; // failed the completeness gate (never scored)
+    const belowThresholdToDelete: string[] = []; // real provider scored them under the bar
 
     const isBlank = (v: any) => v === null || v === undefined || String(v).trim() === "";
 
@@ -159,7 +166,8 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
 
         // --- Data-completeness gate (item 5) ---
         // Required fields must all be present. Missing ones get ONE targeted,
-        // cheap enrichment attempt; if still missing, the lead is deleted.
+        // cheap enrichment attempt; if still missing, the lead is queued for
+        // deletion AFTER the batch completes (never mid-loop).
         let missing = REQUIRED_FIELDS.filter((f) => isBlank((lead as any)[f]));
         if (missing.length > 0) {
           // The only cheap scraper path (scrape-phone) can fill email/phone and
@@ -180,8 +188,9 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
 
           if (missing.length > 0) {
             // Still missing a required field after the enrichment attempt.
-            await supabase.from("leads").delete().eq("id", lead.id);
-            incompleteDeleted++;
+            // Defer the delete — a timeout must never orphan-delete a lead
+            // that was never actually scored.
+            incompleteToDelete.push(lead.id);
             continue;
           }
         }
@@ -232,13 +241,28 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
             await supabase.from("leads").update({ status: "Ready for Outreach" }).eq("id", lead.id);
           }
         } else {
-          // Only delete when a REAL provider judged this lead below the bar (item 4).
-          await supabase.from("leads").delete().eq("id", lead.id);
-          deleted++;
+          // A REAL provider judged this lead below the bar (item 4). Defer the
+          // delete to the post-loop block so a later timeout can't leave the
+          // run half-deleted.
+          belowThresholdToDelete.push(lead.id);
         }
       } catch (error) {
         console.error(`Error scoring ${lead.business_name}:`, error);
       }
+    }
+
+    // --- Deletion block: reached ONLY if the scoring loop completed. ---
+    // A timeout/crash during the loop skips all of this, guaranteeing that a
+    // failed run performs zero deletions.
+    let incompleteDeleted = 0;
+    let deleted = 0;
+    for (const id of incompleteToDelete) {
+      await supabase.from("leads").delete().eq("id", id);
+      incompleteDeleted++;
+    }
+    for (const id of belowThresholdToDelete) {
+      await supabase.from("leads").delete().eq("id", id);
+      deleted++;
     }
 
     return { phase: "score", considered, scored, kept, deleted, fallback, incompleteDeleted, enriched };
