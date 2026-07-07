@@ -35,6 +35,14 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Public by design: the one-click unsubscribe link is clicked from a
+  // recipient's inbox, so it cannot sit behind the CRM's Basic Auth. It is
+  // safe: it only ever sets opt_out=true for a single lead id (never reads out
+  // data), which is the CAN-SPAM-required behavior.
+  if (pathname === "/api/email/unsubscribe") {
+    return NextResponse.next();
+  }
+
   const expectedUser = process.env.APP_USERNAME;
   const expectedPass = process.env.APP_PASSWORD;
 

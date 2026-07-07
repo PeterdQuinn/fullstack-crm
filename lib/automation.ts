@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
-import { sendEmail } from "@/lib/resend";
+import { sendEmail, emailFooter } from "@/lib/resend";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -74,18 +74,18 @@ async function scrapeLeadData(lead: any) {
   }
 }
 
-const TEMPLATES: Record<number, (company: string, message: string) => { subject: string; html: string }> = {
-  1: (company, message) => ({
+const TEMPLATES: Record<number, (company: string, message: string, leadId: string) => { subject: string; html: string }> = {
+  1: (company, message, leadId) => ({
     subject: `Custom Solution for ${company} - Let's Chat`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>Hi,</h2><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
+    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>Hi,</h2><p style="color: #666; line-height: 1.6;">${message}</p>${emailFooter(leadId)}</div>`,
   }),
-  2: (company, message) => ({
+  2: (company, message, leadId) => ({
     subject: `Follow-up: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>Hey,</h2><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
+    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>Hey,</h2><p style="color: #666; line-height: 1.6;">${message}</p>${emailFooter(leadId)}</div>`,
   }),
-  3: (company, message) => ({
+  3: (company, message, leadId) => ({
     subject: `Last message: ${company}`,
-    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>One final message,</h2><p style="color: #666; line-height: 1.6;">${message}</p><p style="color: #999; font-size: 12px; margin-top: 30px;">Full Stack Services LLC</p></div>`,
+    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>One final message,</h2><p style="color: #666; line-height: 1.6;">${message}</p>${emailFooter(leadId)}</div>`,
   }),
 };
 
@@ -327,7 +327,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           : `Final follow-up: custom software solution for ${lead.business_name}`;
 
       const template = TEMPLATES[emailNum as keyof typeof TEMPLATES];
-      const { subject, html } = template(lead.business_name, msg);
+      const { subject, html } = template(lead.business_name, msg, lead.id);
 
       try {
         const result = await sendEmail(lead.email, subject, html);

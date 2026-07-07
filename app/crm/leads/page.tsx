@@ -253,12 +253,20 @@ export default function LeadsWorkspace() {
   }
 
   async function deleteLead(id: string) {
+    // Hard delete: permanently removes the lead and everything tied to it. This
+    // is deliberately separate from "Do Not Contact" (which keeps the row).
+    const lead = leads.find((l) => l.id === id);
+    if (!confirm(
+      `Permanently delete ${lead?.business_name || "this lead"} and ALL of its data ` +
+      `(call logs, notes, appointments, outreach history)?\n\nThis cannot be undone.`
+    )) return;
     setLeads((prev) => prev.filter((l) => l.id !== id));
     setSelectedId(null);
     if (dbMode === "supabase") {
       await supabase.from("call_logs").delete().eq("lead_id", id);
       await supabase.from("lead_notes").delete().eq("lead_id", id);
       await supabase.from("appointments").delete().eq("lead_id", id);
+      await supabase.from("outreach_log").delete().eq("lead_id", id);
       await supabase.from("leads").delete().eq("id", id);
     }
   }
@@ -309,6 +317,12 @@ export default function LeadsWorkspace() {
 
   return (
     <div className="h-[calc(100dvh-4rem)] md:h-[100dvh] min-h-0 flex flex-col overflow-hidden bg-gray-50">
+      {dbMode === "local" && (
+        <div className="flex-shrink-0 bg-amber-100 border-b border-amber-300 px-4 sm:px-6 py-2 text-sm font-medium text-amber-900 flex items-center gap-2">
+          <span aria-hidden>⚠️</span>
+          <span>Warning: Supabase not connected. Showing fallback data. Changes will not be saved.</span>
+        </div>
+      )}
       <header className="bg-white border-b px-4 sm:px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center flex-shrink-0"><span className="text-white text-sm font-bold">FS</span></div>
@@ -489,7 +503,7 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
           <div className="min-w-0">{mobile && onBack && <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-brand font-medium">← Back</button>}<h2 className="text-lg font-bold text-gray-900 break-words">{lead.business_name}</h2><p className="text-sm text-gray-500">{lead.owner_name || "No owner"}</p></div>
           <div className="flex items-center gap-2">
             <select value={lead.status} onChange={(e) => updateLead(lead.id, { status: e.target.value as LeadStatus })} className={`text-xs px-2 py-1 rounded-full font-medium border-0 max-w-[140px] ${getStatusStyle(lead.status).badge}`}>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
-            <button onClick={() => deleteLead(lead.id)} className="text-xs px-2 py-1 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors font-medium">Delete</button>
+            <button onClick={() => deleteLead(lead.id)} title="Permanently delete this lead and all its data" className="text-xs px-2 py-1 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors font-medium">Delete lead data</button>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">

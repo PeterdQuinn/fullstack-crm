@@ -200,6 +200,10 @@ export async function importLeads(leads: DiscoveredLead[]): Promise<{
           opt_out: false,
           bounced: false,
           complained: false,
+          // Consent / legal basis, logged at first capture (Discovery is the
+          // only entry point that sources leads from public listings).
+          contact_basis: process.env.LEAD_CONTACT_BASIS || "public business listing, B2B outreach",
+          contact_basis_logged_at: new Date().toISOString(),
           email_sent_count: 0,
         })
         .select("id");

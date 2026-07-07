@@ -52,6 +52,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ received: true }, { status: 200 });
     }
 
+    // For suppression events (bounce/complaint) we snapshot the lead's current
+    // pipeline status before overwriting it, so the Suppressed view can show
+    // where the lead was. Only captured the first time (not already suppressed).
+    async function captureStatusBeforeSuppression(): Promise<string | undefined> {
+      const { data: leadRow } = await supabase
+        .from("leads")
+        .select("status, status_before_suppression, opt_out, bounced, complained")
+        .eq("id", log!.lead_id)
+        .single();
+      if (!leadRow) return undefined;
+      const alreadySuppressed = leadRow.opt_out || leadRow.bounced || leadRow.complained;
+      if (leadRow.status_before_suppression || alreadySuppressed) return undefined;
+      return leadRow.status || undefined;
+    }
+
     switch (event.type) {
       case "email.delivered":
         await supabase
@@ -74,7 +89,8 @@ export async function POST(req: NextRequest) {
           .eq("id", log.id);
         break;
 
-      case "email.bounced":
+      case "email.bounced": {
+        const before = await captureStatusBeforeSuppression();
         await supabase
           .from("outreach_log")
           .update({
@@ -88,11 +104,14 @@ export async function POST(req: NextRequest) {
           .update({
             bounced: true,
             status: "Bad Email",
+            ...(before ? { status_before_suppression: before } : {}),
           })
           .eq("id", log.lead_id);
         break;
+      }
 
-      case "email.complained":
+      case "email.complained": {
+        const before = await captureStatusBeforeSuppression();
         await supabase
           .from("outreach_log")
           .update({
@@ -106,9 +125,11 @@ export async function POST(req: NextRequest) {
             complained: true,
             opt_out: true,
             status: "Do Not Contact",
+            ...(before ? { status_before_suppression: before } : {}),
           })
           .eq("id", log.lead_id);
         break;
+      }
 
       default:
         break;

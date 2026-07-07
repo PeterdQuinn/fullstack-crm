@@ -240,6 +240,48 @@ export async function scoreLead(lead: LeadData): Promise<number> {
   return Math.min(score, 100);
 }
 
+// Every provider we know how to call for reply classification. Add new ones
+// here; the active cascade is chosen by REPLY_CLASSIFIER_PROVIDERS (below).
+const CLASSIFIER_PROVIDER_REGISTRY: Record<string, (p: string) => Promise<string>> = {
+  Gemini: callGemini,
+  Ollama: callOllama,
+  Together: callTogether,
+  Grok: callGrok,
+  Anthropic: callAnthropic,
+};
+
+// Default cascade. Grok and Anthropic are intentionally OFF until their billing
+// is active — re-enable them WITHOUT a code change by setting, e.g.:
+//   REPLY_CLASSIFIER_PROVIDERS="Gemini,Ollama,Grok,Anthropic,Together"
+const DEFAULT_CLASSIFIER_PROVIDERS = ["Gemini", "Ollama", "Together"] as const;
+
+// Resolve the active provider cascade from the env flag, falling back to the
+// default order. Unknown names are ignored; an empty/all-invalid list falls
+// back to the default so classification never silently loses every provider.
+function getClassifierProviders(): Array<[string, (p: string) => Promise<string>]> {
+  const configured = (process.env.REPLY_CLASSIFIER_PROVIDERS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const names = configured.length > 0 ? configured : [...DEFAULT_CLASSIFIER_PROVIDERS];
+
+  const resolved = names
+    .filter((name) => {
+      const known = name in CLASSIFIER_PROVIDER_REGISTRY;
+      if (!known) console.warn(`Unknown reply classifier provider ignored: "${name}"`);
+      return known;
+    })
+    .map((name) => [name, CLASSIFIER_PROVIDER_REGISTRY[name]] as [string, (p: string) => Promise<string>]);
+
+  if (resolved.length === 0) {
+    return DEFAULT_CLASSIFIER_PROVIDERS.map(
+      (name) => [name, CLASSIFIER_PROVIDER_REGISTRY[name]] as [string, (p: string) => Promise<string>]
+    );
+  }
+  return resolved;
+}
+
 export async function classifyReply(
   replyText: string
 ): Promise<{
@@ -264,15 +306,7 @@ Respond ONLY with valid JSON (no markdown):
   "recommended_action": "What to do next"
 }`;
 
-  // Provider order mirrors lib/ai-scoring.ts: free Ollama cloud first, then the
-  // paid fallbacks (Grok/Anthropic are used only if funded; Together if keyed).
-  const providers: Array<[string, (p: string) => Promise<string>]> = [
-    ["Gemini", callGemini],
-    ["Ollama", callOllama],
-    ["Grok", callGrok],
-    ["Anthropic", callAnthropic],
-    ["Together", callTogether],
-  ];
+  const providers = getClassifierProviders();
 
   let response: string | null = null;
   for (const [name, fn] of providers) {

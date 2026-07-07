@@ -38,6 +38,12 @@ create table if not exists leads (
   opt_out boolean default false,
   bounced boolean default false,
   complained boolean default false,
+  -- Pipeline status captured at the moment the lead was suppressed
+  -- (bounced/complained/opt_out), so the Suppressed view can show it.
+  status_before_suppression text,
+  -- Consent / legal basis for outreach, set when a lead is added via Discovery.
+  contact_basis text,
+  contact_basis_logged_at timestamptz,
   email_sent_count integer default 0,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -234,3 +240,16 @@ create table if not exists lead_discovery_config (
 
 create policy "Allow all on lead_discovery_config" on lead_discovery_config for all using (true) with check (true);
 alter table lead_discovery_config enable row level security;
+
+-- CRON FAILURES TABLE (automation phase failure log)
+create table if not exists cron_failures (
+  id uuid default gen_random_uuid() primary key,
+  phase text not null,
+  error_message text,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_cron_failures_created_at on cron_failures(created_at);
+
+alter table cron_failures enable row level security;
+create policy "Allow all on cron_failures" on cron_failures for all using (true) with check (true);

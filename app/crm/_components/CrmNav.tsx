@@ -11,6 +11,8 @@ import {
   Send,
   GraduationCap,
   Users,
+  Ban,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,6 +36,8 @@ const SECONDARY: NavItem[] = [
   { label: "DM Queue", href: "/crm/dm-queue", icon: Send },
   { label: "Onboarding", href: "/crm/onboarding", icon: GraduationCap },
   { label: "All Leads", href: "/crm/leads", icon: Users },
+  { label: "Suppressed", href: "/crm/suppressed", icon: Ban },
+  { label: "Reports", href: "/crm/reports", icon: BarChart3 },
 ];
 
 function isActive(pathname: string, href: string) {

@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { sendEmail } from "@/lib/resend";
+import { sendEmail, emailFooter } from "@/lib/resend";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,7 +23,7 @@ export function bucketForCategory(category: string): ReplyBucket {
   return "unclear"; // Too Busy, Question, or anything unrecognized
 }
 
-function bookingEmail(company?: string | null) {
+function bookingEmail(company?: string | null, leadId?: string) {
   const name = company?.trim() ? ` at ${company.trim()}` : "";
   return {
     subject: "Great — let's find a time to talk",
@@ -35,7 +35,7 @@ function bookingEmail(company?: string | null) {
   </p>
   <p style="color:#666; line-height:1.6; font-size:14px;">Or copy this link into your browser: <a href="${CALENDLY_LINK}">${CALENDLY_LINK}</a></p>
   <p style="color:#333; line-height:1.6;">Looking forward to it.</p>
-  <p style="color:#999; font-size:12px; margin-top:30px;">Full Stack Services LLC</p>
+  ${emailFooter(leadId)}
 </div>`,
   };
 }
@@ -91,7 +91,7 @@ export async function actOnReplyClassification(
       };
     }
 
-    const { subject, html } = bookingEmail(lead.business_name);
+    const { subject, html } = bookingEmail(lead.business_name, lead.id);
     const sendResult = await sendEmail(lead.email, subject, html);
 
     await supabase
@@ -130,7 +130,13 @@ export async function actOnReplyClassification(
   if (bucket === "not_interested") {
     await supabase
       .from("leads")
-      .update({ status: "Do Not Contact", opt_out: true, updated_at: now })
+      .update({
+        status: "Do Not Contact",
+        opt_out: true,
+        // Preserve where the lead was before we suppressed it (first time only).
+        ...(lead.opt_out ? {} : { status_before_suppression: lead.status || null }),
+        updated_at: now,
+      })
       .eq("id", leadId);
     return {
       bucket,
