@@ -9,7 +9,15 @@ interface Lead {
   contact_name?: string;
   phone?: string | null;
   email?: string | null;
+  website?: string | null;
   socials: Array<{ platform: string; url?: string; username?: string }>;
+}
+
+function normalizeUrl(u?: string) {
+  if (!u) return null;
+  const t = u.trim();
+  if (!t) return null;
+  return /^https?:\/\//i.test(t) ? t : `https://${t}`;
 }
 
 export default function DMQueuePage() {
@@ -81,6 +89,13 @@ export default function DMQueuePage() {
                   ) : (
                     <span style={{ color: "#9ca3af" }}>✉️ No email</span>
                   )}
+                  {lead.website ? (
+                    <a href={normalizeUrl(lead.website) || "#"} target="_blank" rel="noopener noreferrer" style={{ color: "#2563eb", textDecoration: "none", fontWeight: 500 }}>
+                      🌐 {lead.website.replace(/^https?:\/\//i, "").replace(/\/$/, "")}
+                    </a>
+                  ) : (
+                    <span style={{ color: "#9ca3af" }}>🌐 No website</span>
+                  )}
                 </div>
                 <div style={{ display: "grid", gap: "6px", fontSize: "13px", color: "#6b7280" }}>
                   {lead.socials?.map((social, i) => (
@@ -98,12 +113,19 @@ export default function DMQueuePage() {
                 </div>
               </div>
               <div style={{ display: "grid", gap: "8px" }}>
-                <button
-                  onClick={() => window.open(lead.socials[0]?.url)}
-                  style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#3b82f6", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500" }}
-                >
-                  Open Profile
-                </button>
+                {(() => {
+                  const firstUrl = normalizeUrl(lead.socials.find((s) => s.url)?.url || undefined);
+                  return firstUrl ? (
+                    <a
+                      href={firstUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#3b82f6", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500", textAlign: "center", textDecoration: "none", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >
+                      Open Profile
+                    </a>
+                  ) : null;
+                })()}
                 <button
                   onClick={() => markDMSent(lead.id)}
                   style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#10b981", color: "white", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "13px", fontWeight: "500" }}
