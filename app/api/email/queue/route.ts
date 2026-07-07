@@ -12,9 +12,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    // Only list leads that SEND ALL NOW will actually send: same gate as
+    // send-batch — a real AI score > 50 (inner join), has email, not suppressed,
+    // under the 3-email cap. Without the score filter the queue showed unscored
+    // leads as "ready" and then sent 0.
     const { data, error } = await supabase
       .from("leads")
-      .select("id, business_name, contact_name, email, status, email_sent_count")
+      .select("id, business_name, contact_name, email, status, email_sent_count, lead_ai_summaries!inner(lead_score)")
       .eq("opt_out", false)
       .eq("bounced", false)
       .neq("status", "Do Not Contact")
@@ -22,6 +26,7 @@ export async function GET() {
       .not("email", "is", null)
       .neq("email", "")
       .lt("email_sent_count", 3)
+      .gt("lead_ai_summaries.lead_score", 50)
       .in("status", [
         "New",
         "Ready for Outreach",
