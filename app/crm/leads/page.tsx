@@ -149,28 +149,14 @@ export default function LeadsWorkspace() {
     async function init() {
       if (isSupabaseConfigured()) {
         setDbMode("supabase");
+        // Show exactly what's in the database. Previously this re-inserted
+        // hardcoded PRELOADED_LEADS (including Landscaping) on every load —
+        // which resurrected purged non-HVAC leads — and filtered the display to
+        // niche === "Landscaping" || "HVAC", which hid real HVAC leads whose
+        // niche was "hvac", "General", "Plumbing", etc. Neither is wanted now
+        // that discovery is HVAC-only and the DB is curated.
         const { data } = await supabase.from("leads").select("*").order("created_at", { ascending: false });
-        const existing = (data || []) as Lead[];
-
-        // Sync any PRELOADED_LEADS not yet in Supabase
-        const existingKeys = new Set(existing.map(dedupKey));
-        const missing = PRELOADED_LEADS
-          .filter(l => l.niche === "Landscaping" || l.niche === "HVAC")
-          .map((l) => ({ ...l, id: uid(), created_at: now(), updated_at: now() } as Lead))
-          .filter((l) => !existingKeys.has(dedupKey(l)));
-        if (missing.length > 0) {
-          await supabase.from("leads").insert(missing);
-        }
-
-        // Auto-dedup on load
-        const allLeads = [...missing, ...existing].filter(l => l.niche === "Landscaping" || l.niche === "HVAC");
-        const seenKeys = new Set<string>();
-        const dupeIds: string[] = [];
-        for (const l of [...allLeads].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())) {
-          const k = dedupKey(l); if (seenKeys.has(k)) dupeIds.push(l.id); else seenKeys.add(k);
-        }
-        if (dupeIds.length > 0) await Promise.all(dupeIds.map((id) => supabase.from("leads").delete().eq("id", id)));
-        setLeads(allLeads.filter((l) => !dupeIds.includes(l.id)));
+        setLeads((data || []) as Lead[]);
       } else {
         setLeads(PRELOADED_LEADS
           .filter(l => l.niche === "Landscaping" || l.niche === "HVAC")

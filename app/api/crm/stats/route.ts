@@ -3,11 +3,16 @@ import { computeLeadDashboardStats } from "@/lib/lead-stats";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, cache: "no-store" }) } }
 );
 
 
+// no-store fetch (above) + these keep the counts live, not served from Next's
+// fetch cache after leads change.
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
 
 export async function GET() {
   try {
