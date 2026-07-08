@@ -92,8 +92,8 @@ export async function scoreLead(lead: LeadData): Promise<number> {
 }
 
 // Reply classification (fast, high-volume, simple categorization):
-// Groq first (fastest + free), fallback Ollama, fallback Cerebras.
-const CLASSIFIER_DEFAULT = ["Groq", "Ollama", "Cerebras"];
+// Groq first (fastest + free), then Ollama, Cerebras, and Cohere as fallbacks.
+const CLASSIFIER_DEFAULT = ["Groq", "Ollama", "Cerebras", "Cohere"];
 
 type ReplyCategory =
   | "Interested"

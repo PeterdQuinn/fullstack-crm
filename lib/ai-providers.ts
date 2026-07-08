@@ -25,6 +25,7 @@ export interface Provider {
 const groqKey = () => process.env.Groq_API_KEY || process.env.GROQ_API_KEY;
 const cerebrasKey = () => process.env.Cerebras_API_KEY || process.env.CEREBRAS_API_KEY;
 const mistralKey = () => process.env.Mistral_API_KEY || process.env.MISTRAL_API_KEY;
+const cohereKey = () => process.env.Cohere_API_KEY || process.env.COHERE_API_KEY;
 const geminiKey = () => process.env.GEMINI_API_KEY;
 const ollamaKey = () => process.env.OLLAMA_API_KEY;
 
@@ -94,6 +95,31 @@ async function callMistral(prompt: string): Promise<string> {
   );
 }
 
+// Cohere — v2 chat API. Response text lives in message.content[].text.
+async function callCohere(prompt: string): Promise<string> {
+  const key = cohereKey();
+  if (!key) throw new Error("Cohere_API_KEY not set");
+  const res = await fetch("https://api.cohere.com/v2/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      model: process.env.COHERE_MODEL || "command-r-08-2024",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.3,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Cohere ${res.status} ${res.statusText} ${detail}`.trim());
+  }
+  const data = await res.json();
+  const content = data?.message?.content;
+  if (Array.isArray(content)) {
+    return content.map((c: { text?: string }) => c.text || "").join("");
+  }
+  return "";
+}
+
 // Google Gemini — forced JSON output (responseMimeType) so callers can parse
 // directly. Key auths via ?key= query param, NOT a Bearer header.
 async function callGemini(prompt: string): Promise<string> {
@@ -158,6 +184,7 @@ export const PROVIDERS: Record<string, Provider> = {
   Groq: { name: "Groq", hasKey: () => !!groqKey(), call: callGroq },
   Cerebras: { name: "Cerebras", hasKey: () => !!cerebrasKey(), call: callCerebras },
   Mistral: { name: "Mistral", hasKey: () => !!mistralKey(), call: callMistral },
+  Cohere: { name: "Cohere", hasKey: () => !!cohereKey(), call: callCohere },
   Gemini: { name: "Gemini", hasKey: () => !!geminiKey(), call: callGemini },
   Ollama: { name: "Ollama", hasKey: () => !!ollamaKey(), call: callOllama },
 };
