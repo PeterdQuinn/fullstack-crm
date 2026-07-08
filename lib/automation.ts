@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail } from "@/lib/email-templates";
+import { logStatusChange } from "@/lib/audit";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -236,6 +237,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
             .single();
           if (leadData && (!leadData.status || leadData.status === "New")) {
             await supabase.from("leads").update({ status: "Ready for Outreach" }).eq("id", lead.id);
+            await logStatusChange({ leadId: lead.id, from: leadData.status ?? null, to: "Ready for Outreach", source: "automation" });
           }
         } else {
           // A REAL provider judged this lead below the bar (item 4). Defer the
@@ -272,7 +274,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     const { data: leads } = await supabase
       .from("leads")
       .select(
-        "id, business_name, email, city, state, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
+        "id, business_name, email, city, state, status, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
       )
       .eq("opt_out", false)
       .eq("bounced", false)
@@ -330,6 +332,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           .from("leads")
           .update({ email_sent_count: emailNum, status: `Email ${emailNum} Sent` })
           .eq("id", lead.id);
+        await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: `Email ${emailNum} Sent`, source: "automation" });
         sent++;
         // item 6: record exactly who was emailed and where.
         emailed.push({

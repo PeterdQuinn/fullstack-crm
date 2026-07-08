@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail } from "@/lib/email-templates";
+import { logStatusChange } from "@/lib/audit";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -87,6 +88,8 @@ export async function POST(req: NextRequest) {
             status: newStatus,
           })
           .eq("id", lead.id);
+
+        await logStatusChange({ leadId: lead.id, from: lead.status ?? null, to: newStatus, source: "automation" });
 
         // Auto-schedule next email
         if (emailNum < 3) {

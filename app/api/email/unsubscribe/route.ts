@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { logStatusChange } from "@/lib/audit";
 
 // Public, unauthenticated endpoint (see middleware.ts). Clicking the
 // unsubscribe link in an outbound email lands here and writes opt_out=true
@@ -55,6 +56,7 @@ async function unsubscribe(leadId: string | null) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", leadId);
+    await logStatusChange({ leadId, from: lead.status ?? null, to: "Do Not Contact", source: "automation" });
   }
 
   return page(

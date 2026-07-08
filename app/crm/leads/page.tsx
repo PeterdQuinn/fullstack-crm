@@ -191,8 +191,20 @@ export default function LeadsWorkspace() {
   const selected = leads.find((l) => l.id === selectedId) || null;
 
   async function updateLead(id: string, updates: Partial<Lead>) {
+    const prevStatus = leads.find((l) => l.id === id)?.status;
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates, updated_at: now() } : l)));
-    if (dbMode === "supabase") { await supabase.from("leads").update({ ...updates, updated_at: now() }).eq("id", id); }
+    if (dbMode === "supabase") {
+      await supabase.from("leads").update({ ...updates, updated_at: now() }).eq("id", id);
+      // Audit any status change made through the UI (source: owner). The browser
+      // (anon) client can't write status_audit_log under RLS, so log via the API.
+      if (updates.status && updates.status !== prevStatus) {
+        fetch("/api/crm/log-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leadId: id, from: prevStatus ?? null, to: updates.status, field: "status" }),
+        }).catch((e) => console.error("audit log failed:", e));
+      }
+    }
   }
 
   async function addCallLog(log: Omit<CallLog, "id" | "created_at">) {

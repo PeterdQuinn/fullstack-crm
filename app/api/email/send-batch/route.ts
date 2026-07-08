@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail } from "@/lib/email-templates";
+import { logStatusChange } from "@/lib/audit";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     // that made the button send 0 even when qualifying leads existed).
     const { data: leads, error } = await supabase
       .from("leads")
-      .select("id, business_name, email, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
+      .select("id, business_name, email, status, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
       .eq("opt_out", false)
       .eq("bounced", false)
       .eq("complained", false)
@@ -111,6 +112,8 @@ export async function POST(req: NextRequest) {
             status: `Email ${emailNum} Sent`,
           })
           .eq("id", lead.id);
+
+        await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: `Email ${emailNum} Sent`, source: "automation" });
 
         results.sent.push({
           leadId: lead.id,

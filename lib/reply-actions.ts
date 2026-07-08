@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { footerHtml } from "@/lib/email-templates";
+import { logStatusChange } from "@/lib/audit";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -83,6 +84,7 @@ export async function actOnReplyClassification(
         .from("leads")
         .update({ status: "Booking Link Sent", updated_at: now })
         .eq("id", leadId);
+      await logStatusChange({ leadId, from: lead.status, to: "Booking Link Sent", source: "automation" });
       return {
         bucket,
         category,
@@ -117,6 +119,8 @@ export async function actOnReplyClassification(
       sent_at: now,
     });
 
+    await logStatusChange({ leadId, from: lead.status, to: "Booking Link Sent", source: "automation" });
+
     return {
       bucket,
       category,
@@ -139,6 +143,7 @@ export async function actOnReplyClassification(
         updated_at: now,
       })
       .eq("id", leadId);
+    await logStatusChange({ leadId, from: lead.status, to: "Do Not Contact", source: "automation" });
     return {
       bucket,
       category,
@@ -154,6 +159,7 @@ export async function actOnReplyClassification(
     .from("leads")
     .update({ status: "Needs Follow-Up", next_follow_up_at: dueAt, updated_at: now })
     .eq("id", leadId);
+  await logStatusChange({ leadId, from: lead.status, to: "Needs Follow-Up", source: "automation" });
 
   const { error: taskError } = await supabase.from("follow_up_tasks").insert({
     lead_id: leadId,

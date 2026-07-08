@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Webhook } from "svix";
+import { logStatusChange } from "@/lib/audit";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest) {
             ...(before ? { status_before_suppression: before } : {}),
           })
           .eq("id", log.lead_id);
+        await logStatusChange({ leadId: log.lead_id, from: before ?? null, to: "Bad Email", source: "automation" });
         break;
       }
 
@@ -128,6 +130,7 @@ export async function POST(req: NextRequest) {
             ...(before ? { status_before_suppression: before } : {}),
           })
           .eq("id", log.lead_id);
+        await logStatusChange({ leadId: log.lead_id, from: before ?? null, to: "Do Not Contact", source: "automation" });
         break;
       }
 
