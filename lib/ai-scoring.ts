@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { resolveChain, runChain } from "@/lib/ai-providers";
 
 interface ScoringResult {
   lead_score: number;
@@ -11,140 +11,14 @@ interface ScoringResult {
   provider?: string;
 }
 
-// Primary provider. Uses the official Anthropic SDK (api.anthropic.com).
-// Tags results as "claude" so the automation pipeline treats them as a real
-// score (not the never-delete fallback path).
-async function scoreWithClaude(prompt: string): Promise<ScoringResult | null> {
-  try {
-    if (!process.env.ANTHROPIC_API_KEY) return null;
-
-    const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
-
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const text = response.content
-      .map((block) => (block.type === "text" ? block.text : ""))
-      .join("");
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
-    const result = JSON.parse(jsonMatch[0]);
-    return { ...result, provider: "claude" };
-  } catch (error) {
-    console.error("Claude scoring failed:", error);
-    return null;
-  }
-}
-
-async function scoreWithHuggingFace(prompt: string): Promise<ScoringResult | null> {
-  try {
-    if (!process.env.HF_API_KEY) return null;
-
-    const response = await fetch("https://api-inference.huggingface.co/models/meta-llama/Llama-2-7b-chat-hf", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.HF_API_KEY}`,
-      },
-      body: JSON.stringify({ inputs: prompt }),
-    });
-
-    if (!response.ok) {
-      console.warn(`HuggingFace error: ${response.statusText}`);
-      return null;
-    }
-
-    const data = await response.json();
-    const text = Array.isArray(data) ? data[0]?.generated_text || "" : "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) return null;
-
-    const result = JSON.parse(jsonMatch[0]);
-    return { ...result, provider: "HuggingFace" };
-  } catch (error) {
-    console.error("HuggingFace scoring failed:", error);
-    return null;
-  }
-}
-
-async function scoreWithTogether(prompt: string): Promise<ScoringResult | null> {
-  try {
-    if (!process.env.TOGETHER_API_KEY) return null;
-
-    const response = await fetch("https://api.together.xyz/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.TOGETHER_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "meta-llama/Llama-2-7b-chat-hf",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 500,
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn(`Together API error: ${response.statusText}`);
-      return null;
-    }
-
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content || "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) return null;
-
-    const result = JSON.parse(jsonMatch[0]);
-    return { ...result, provider: "Together" };
-  } catch (error) {
-    console.error("Together scoring failed:", error);
-    return null;
-  }
-}
-
-async function scoreWithOllama(prompt: string): Promise<ScoringResult | null> {
-  try {
-    if (!process.env.OLLAMA_API_KEY || !process.env.OLLAMA_BASE_URL) return null;
-
-    const response = await fetch(`${process.env.OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        // Ollama's cloud API only serves "-cloud" models; a plain local name
-        // like "neural-chat" 404s even with a valid key.
-        model: "gpt-oss:120b-cloud",
-        prompt,
-        stream: false,
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn(`Ollama error: ${response.statusText}`);
-      return null;
-    }
-
-    const data = await response.json();
-    const text = data.response || "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-
-    if (!jsonMatch) return null;
-
-    const result = JSON.parse(jsonMatch[0]);
-    return { ...result, provider: "Ollama" };
-  } catch (error) {
-    console.error("Ollama scoring failed:", error);
-    return null;
-  }
-}
+// Lead scoring (needs more reasoning, lower volume): Gemini first, then any
+// fallbacks listed in SCORING_PROVIDERS. Cohere is the intended fallback but
+// has no key yet, so it's not wired.
+//
+// NOTE: the automation pipeline (lib/automation.ts) treats provider === "fallback"
+// as "not a real judgment — never delete this lead". So a genuine model score is
+// tagged with its provider name; only the hardcoded default below is "fallback".
+const SCORING_DEFAULT = ["Gemini"];
 
 export async function scoreLead(leadData: {
   business_name: string;
@@ -175,24 +49,24 @@ Return ONLY valid JSON with these fields:
 
   console.log(`Scoring ${leadData.business_name} with available providers...`);
 
-  // Try providers in order of preference: Ollama first, then Claude, then the
-  // remaining fallbacks. Each returns null if unconfigured or on failure.
-  const providers = [
-    () => scoreWithOllama(prompt),
-    () => scoreWithClaude(prompt),
-    () => scoreWithTogether(prompt),
-    () => scoreWithHuggingFace(prompt),
-  ];
+  const chain = resolveChain(process.env.SCORING_PROVIDERS, SCORING_DEFAULT);
+  const res = await runChain(chain, prompt);
 
-  for (const provider of providers) {
-    const result = await provider();
-    if (result) {
-      console.log(`✅ Scored with ${result.provider}`);
-      return result;
+  if (res) {
+    const jsonMatch = res.text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        console.log(`✅ Scored with ${res.provider}`);
+        return { ...parsed, provider: res.provider };
+      } catch (error) {
+        console.warn("Scoring JSON parse failed:", error);
+      }
     }
   }
 
-  // Fallback if all fail
+  // Fallback if all providers fail — tagged "fallback" so automation never
+  // deletes a lead on an uncertain (non-model) score.
   console.warn("All AI providers failed, using default score");
   return {
     lead_score: 50,

@@ -1,3 +1,5 @@
+import { resolveChain, runChain } from "@/lib/ai-providers";
+
 interface GrokSummary {
   main_pain_point: string;
   pain_reason: string;
@@ -19,169 +21,13 @@ interface LeadData {
   technologies?: string;
 }
 
-async function callHuggingFace(prompt: string): Promise<string> {
-  const response = await fetch("https://api-inference.huggingface.co/models/meta-llama/Llama-2-7b-chat-hf", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.HF_API_KEY}`,
-    },
-    body: JSON.stringify({
-      inputs: prompt,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HF error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  if (Array.isArray(data)) {
-    return data[0]?.generated_text || JSON.stringify(data[0]);
-  }
-  return JSON.stringify(data);
-}
-
-async function callTogether(prompt: string): Promise<string> {
-  const response = await fetch("https://api.together.xyz/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.TOGETHER_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "mistralai/Mistral-7B-Instruct-v0.1",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-      max_tokens: 500,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Together error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0].message.content;
-}
-
-async function callOllama(prompt: string): Promise<string> {
-  const baseUrl = process.env.OLLAMA_BASE_URL || "https://ollama.com";
-  const response = await fetch(`${baseUrl}/api/generate`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
-    },
-    body: JSON.stringify({
-      // Ollama's cloud API only serves "-cloud" models, and some (e.g.
-      // kimi-k2.5:cloud) are subscription-gated and return 403. gpt-oss:120b-cloud
-      // is the free tier model that lib/ai-scoring.ts already uses successfully.
-      model: "gpt-oss:120b-cloud",
-      prompt,
-      stream: false,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Ollama error: ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  return data.response;
-}
-
-// Google Gemini — uses forced JSON output (responseMimeType) so the caller can
-// JSON.parse the result directly. Key auths via ?key= query param.
-async function callGemini(prompt: string): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY not set");
-  }
-  const model = process.env.GEMINI_MODEL || "gemini-flash-latest";
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 1024,
-          responseMimeType: "application/json",
-        },
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Gemini error: ${response.status} ${response.statusText} ${detail}`.trim());
-  }
-
-  const data = await response.json();
-  const text: string =
-    data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || "").join("") ?? "";
-  if (!text) {
-    throw new Error("Gemini returned no text");
-  }
-  return text;
-}
-
-// xAI Grok — OpenAI-compatible chat completions endpoint.
-async function callGrok(prompt: string): Promise<string> {
-  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GROK_API_KEY not set");
-  }
-  const response = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: process.env.GROK_MODEL || process.env.XAI_MODEL || "grok-3",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.2,
-      max_tokens: 300,
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Grok error: ${response.status} ${response.statusText} ${detail}`.trim());
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content ?? "";
-}
-
-// Reliable classifier path: Anthropic (key is always configured in prod).
-// Uses a small, fast model since reply classification is a short task.
-async function callAnthropic(prompt: string): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY not set");
-  }
-  const { default: Anthropic } = await import("@anthropic-ai/sdk");
-  const client = new Anthropic({ apiKey });
-  const msg = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 300,
-    messages: [{ role: "user", content: prompt }],
-  });
-  return msg.content
-    .map((b) => (b.type === "text" ? b.text : ""))
-    .join("");
-}
+// Email drafting / summaries (moderate reasoning, low volume):
+// Mistral first, then any fallbacks listed in DRAFT_PROVIDERS. Together would
+// be the intended fallback but has no key yet, so it's not wired.
+const DRAFT_DEFAULT = ["Mistral"];
 
 export async function generateLeadSummary(lead: LeadData): Promise<GrokSummary> {
-  let response: string;
-
-  try {
-    const prompt = `Analyze this business and generate a cold email sales summary.
+  const prompt = `Analyze this business and generate a cold email sales summary.
 
 Business: ${lead.business_name}
 Owner: ${lead.owner_name || "Unknown"}
@@ -203,28 +49,33 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
   "missing_data_needed": ["list", "of", "missing", "info"]
 }`;
 
-    try {
-      response = await callHuggingFace(prompt);
-    } catch (error) {
-      console.warn("HF failed, trying Together:", error);
-      response = await callTogether(prompt);
-    }
+  const chain = resolveChain(process.env.DRAFT_PROVIDERS, DRAFT_DEFAULT);
+  const res = await runChain(chain, prompt);
 
-    return JSON.parse(response);
-  } catch (error) {
-    console.warn("AI APIs failed, using rule-based fallback");
-    const score = await scoreLead(lead);
-    return {
-      main_pain_point: `Using ${lead.current_software || "software"} without customization`,
-      pain_reason: `Off-the-shelf software doesn't fit their exact workflow`,
-      best_attack_angle: `Custom software built for their specific business`,
-      recommended_first_message: `Hi ${lead.owner_name || "there"},\n\nI noticed ${lead.business_name} is using ${lead.current_software || "software"}. Most ${lead.industry || "businesses"} are paying $300-700/month on software they don't fully own.\n\nWe build custom solutions that save owners like you thousands per year.\n\nWorth a quick conversation?`,
-      recommended_follow_up: `Just following up on my last message about custom software for ${lead.business_name}.\n\nMany businesses like yours have cut software costs in half by switching to owned solutions.\n\nLet me know if you're open to exploring it.`,
-      lead_score: score,
-      confidence_level: score > 70 ? "high" : score > 50 ? "medium" : "low",
-      missing_data_needed: []
-    };
+  if (res) {
+    const jsonMatch = res.text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (error) {
+        console.warn("Draft summary JSON parse failed:", error);
+      }
+    }
   }
+
+  // Rule-based fallback if the draft providers are down / return junk.
+  console.warn("Draft providers unavailable, using rule-based fallback");
+  const score = await scoreLead(lead);
+  return {
+    main_pain_point: `Using ${lead.current_software || "software"} without customization`,
+    pain_reason: `Off-the-shelf software doesn't fit their exact workflow`,
+    best_attack_angle: `Custom software built for their specific business`,
+    recommended_first_message: `Hi ${lead.owner_name || "there"},\n\nI noticed ${lead.business_name} is using ${lead.current_software || "software"}. Most ${lead.industry || "businesses"} are paying $300-700/month on software they don't fully own.\n\nWe build custom solutions that save owners like you thousands per year.\n\nWorth a quick conversation?`,
+    recommended_follow_up: `Just following up on my last message about custom software for ${lead.business_name}.\n\nMany businesses like yours have cut software costs in half by switching to owned solutions.\n\nLet me know if you're open to exploring it.`,
+    lead_score: score,
+    confidence_level: score > 70 ? "high" : score > 50 ? "medium" : "low",
+    missing_data_needed: [],
+  };
 }
 
 export async function scoreLead(lead: LeadData): Promise<number> {
@@ -240,46 +91,41 @@ export async function scoreLead(lead: LeadData): Promise<number> {
   return Math.min(score, 100);
 }
 
-// Every provider we know how to call for reply classification. Add new ones
-// here; the active cascade is chosen by REPLY_CLASSIFIER_PROVIDERS (below).
-const CLASSIFIER_PROVIDER_REGISTRY: Record<string, (p: string) => Promise<string>> = {
-  Gemini: callGemini,
-  Ollama: callOllama,
-  Together: callTogether,
-  Grok: callGrok,
-  Anthropic: callAnthropic,
-};
+// Reply classification (fast, high-volume, simple categorization):
+// Groq first (fastest + free), fallback Ollama, fallback Cerebras.
+const CLASSIFIER_DEFAULT = ["Groq", "Ollama", "Cerebras"];
 
-// Default cascade. Grok and Anthropic are intentionally OFF until their billing
-// is active — re-enable them WITHOUT a code change by setting, e.g.:
-//   REPLY_CLASSIFIER_PROVIDERS="Gemini,Ollama,Grok,Anthropic,Together"
-const DEFAULT_CLASSIFIER_PROVIDERS = ["Gemini", "Ollama", "Together"] as const;
+type ReplyCategory =
+  | "Interested"
+  | "Asked Price"
+  | "Send Info"
+  | "Too Busy"
+  | "Not Interested"
+  | "Wrong Person"
+  | "Stop"
+  | "Question";
 
-// Resolve the active provider cascade from the env flag, falling back to the
-// default order. Unknown names are ignored; an empty/all-invalid list falls
-// back to the default so classification never silently loses every provider.
-function getClassifierProviders(): Array<[string, (p: string) => Promise<string>]> {
-  const configured = (process.env.REPLY_CLASSIFIER_PROVIDERS || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+// Small/fast models occasionally echo the enum (e.g. "Interested|Asked Price")
+// instead of a single value. Coerce whatever the model returns to exactly one
+// known category. Checked most-specific first so "Not Interested" wins over the
+// substring "Interested". Falls back to "Question" (→ manual review).
+const CATEGORY_PRIORITY: ReplyCategory[] = [
+  "Not Interested",
+  "Wrong Person",
+  "Asked Price",
+  "Send Info",
+  "Too Busy",
+  "Interested",
+  "Stop",
+  "Question",
+];
 
-  const names = configured.length > 0 ? configured : [...DEFAULT_CLASSIFIER_PROVIDERS];
-
-  const resolved = names
-    .filter((name) => {
-      const known = name in CLASSIFIER_PROVIDER_REGISTRY;
-      if (!known) console.warn(`Unknown reply classifier provider ignored: "${name}"`);
-      return known;
-    })
-    .map((name) => [name, CLASSIFIER_PROVIDER_REGISTRY[name]] as [string, (p: string) => Promise<string>]);
-
-  if (resolved.length === 0) {
-    return DEFAULT_CLASSIFIER_PROVIDERS.map(
-      (name) => [name, CLASSIFIER_PROVIDER_REGISTRY[name]] as [string, (p: string) => Promise<string>]
-    );
+function normalizeCategory(raw: unknown): ReplyCategory {
+  const s = String(raw || "").toLowerCase();
+  for (const cat of CATEGORY_PRIORITY) {
+    if (s.includes(cat.toLowerCase())) return cat;
   }
-  return resolved;
+  return "Question";
 }
 
 export async function classifyReply(
@@ -296,42 +142,42 @@ export async function classifyReply(
     | "Question";
   recommended_action: string;
 }> {
-  const prompt = `Classify this email reply from a prospect.
+  const prompt = `Classify this email reply from a prospect into exactly ONE category.
 
 Reply: "${replyText}"
 
-Respond ONLY with valid JSON (no markdown):
+Choose exactly one category from this list:
+Interested, Asked Price, Send Info, Too Busy, Not Interested, Wrong Person, Stop, Question
+
+Respond ONLY with valid JSON (no markdown), the category being a single value:
 {
-  "category": "Interested|Asked Price|Send Info|Too Busy|Not Interested|Wrong Person|Stop|Question",
+  "category": "Interested",
   "recommended_action": "What to do next"
 }`;
 
-  const providers = getClassifierProviders();
+  // CLASSIFIER_PROVIDERS drives the order; REPLY_CLASSIFIER_PROVIDERS is kept as
+  // a backward-compatible alias for anything already set in the environment.
+  const chain = resolveChain(
+    process.env.CLASSIFIER_PROVIDERS || process.env.REPLY_CLASSIFIER_PROVIDERS,
+    CLASSIFIER_DEFAULT
+  );
+  const res = await runChain(chain, prompt);
 
-  let response: string | null = null;
-  for (const [name, fn] of providers) {
-    try {
-      response = await fn(prompt);
-      break;
-    } catch (err) {
-      console.warn(`${name} classify failed:`, err instanceof Error ? err.message : err);
-    }
-  }
-
-  if (response === null) {
-    console.error("All classify providers failed");
+  if (!res) {
+    console.error("All classify providers failed/unavailable");
     return { category: "Question", recommended_action: "Review manually" };
   }
 
   // Models sometimes wrap JSON in ```json fences — strip them before parsing.
-  const cleaned = response.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+  const cleaned = res.text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
   try {
-    return JSON.parse(cleaned);
-  } catch (error) {
-    console.error("Failed to parse reply classification:", response);
+    const parsed = JSON.parse(cleaned);
     return {
-      category: "Question",
-      recommended_action: "Review manually",
+      category: normalizeCategory(parsed.category),
+      recommended_action: parsed.recommended_action || "Review manually",
     };
+  } catch (error) {
+    console.error("Failed to parse reply classification:", res.text);
+    return { category: "Question", recommended_action: "Review manually" };
   }
 }
