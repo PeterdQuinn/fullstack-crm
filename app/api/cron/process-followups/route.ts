@@ -17,24 +17,20 @@ export const maxDuration = 120;
 // This column is the TASK's state, not the lead's pipeline status; skipping a
 // task deliberately leaves `leads.status` alone so the lead stays in the queue.
 
-// Health check — lets you open the URL in a browser and see JSON instead of a 405.
-// This does NOT run the job or send any emails; the actual work is POST-only below.
-// GET is what Vercel Cron sends. An UNAUTHENTICATED GET returns the browser
-// health check; an AUTHENTICATED GET runs the job. The old GET was
-// health-check-only, so a Vercel Cron aimed here would have returned 200 and
-// sent no follow-ups at all — a green check with nothing behind it.
+// GET is what Vercel Cron sends. A bad or missing secret returns 401 — never a
+// 200.
+//
+// There used to be an unauthenticated "health check" 200 here. It actively hid
+// a real outage: the cron-job.org schedule pointed here held a stale secret and
+// received a cheerful 200 body while sending zero follow-ups, so the job read
+// green for as long as it was broken. A wrong secret must fail loudly.
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  const authed = !!cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`;
-
-  if (!authed) {
-    return NextResponse.json({
-      status: "ok",
-      route: "/api/cron/process-followups",
-      methods: "GET or POST with Authorization: Bearer <CRON_SECRET> runs the job",
-      note: "Unauthenticated GET is this health check and does NOT send anything.",
-      cron_secret_configured: Boolean(cronSecret),
-    });
+  if (!cronSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
+  }
+  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return POST(req);
 }

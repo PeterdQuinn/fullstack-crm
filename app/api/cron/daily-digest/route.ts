@@ -15,21 +15,19 @@ function countHead(query: any): Promise<number> {
   return query.then((r: any) => r.count || 0);
 }
 
-// Vercel Cron sends GET. Unauthenticated GET is a health check; authenticated
-// GET runs the digest and sends it via Resend.
+// Vercel Cron sends GET. A bad or missing secret returns 401 — never a 200.
+//
+// There used to be an unauthenticated "health check" 200 here. It actively hid
+// a real outage: a scheduler with a stale secret got a cheerful 200 and sent no
+// digest, so a broken job was indistinguishable from a working one. A wrong
+// secret must fail loudly.
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  const authed = !!cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`;
-
-  if (!authed) {
-    return NextResponse.json({
-      status: "ok",
-      route: "/api/cron/daily-digest",
-      methods: "GET or POST with Authorization: Bearer <CRON_SECRET> sends the digest",
-      note: "Unauthenticated GET is this health check and sends no email.",
-      cron_secret_configured: Boolean(cronSecret),
-      delivers_to: DIGEST_TO,
-    });
+  if (!cronSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
+  }
+  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return POST(req);
 }

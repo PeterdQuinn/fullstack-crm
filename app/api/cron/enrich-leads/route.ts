@@ -4,26 +4,21 @@ import { enrichLeadsBatch } from "@/lib/enrich";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// GET is what Vercel Cron sends. An UNAUTHENTICATED GET returns the browser
-// health check; an AUTHENTICATED GET runs the job.
+// GET is what Vercel Cron sends. A bad or missing secret returns 401 — never a
+// 200.
 //
-// This split matters: the previous GET was health-check-only, so a Vercel Cron
-// pointed here would have received a cheerful 200 and enriched nothing —
-// a green check with no work behind it, which is worse than a hard failure.
+// There used to be an unauthenticated "health check" 200 here. It actively hid
+// a real outage: a scheduler holding the wrong secret got a cheerful 200 body
+// and enriched nothing, so every job looked green while `outreach_log` sat at
+// zero. A wrong secret must fail loudly.
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
-  const authed = !!cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`;
-
-  if (!authed) {
-    return NextResponse.json({
-      status: "ok",
-      route: "/api/cron/enrich-leads",
-      methods: "GET or POST with Authorization: Bearer <CRON_SECRET> runs the job",
-      note: "Unauthenticated GET is this health check and does NOT run the job.",
-      cron_secret_configured: Boolean(cronSecret),
-    });
+  if (!cronSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
   }
-
+  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   return runEnrich(req);
 }
 
