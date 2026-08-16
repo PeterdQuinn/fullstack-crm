@@ -1,4 +1,4 @@
-import { resolveChain, runChain } from "@/lib/ai-providers";
+import { getChain, runChainJson } from "@/lib/ai-providers";
 
 interface ScoringResult {
   lead_score: number;
@@ -11,14 +11,13 @@ interface ScoringResult {
   provider?: string;
 }
 
-// Lead scoring (needs more reasoning, lower volume): Gemini first, then any
-// fallbacks listed in SCORING_PROVIDERS. Cohere is the intended fallback but
-// has no key yet, so it's not wired.
+// Chain order for scoring lives in CHAINS.scoring (lib/ai-providers.ts).
 //
 // NOTE: the automation pipeline (lib/automation.ts) treats provider === "fallback"
 // as "not a real judgment — never delete this lead". So a genuine model score is
 // tagged with its provider name; only the hardcoded default below is "fallback".
-const SCORING_DEFAULT = ["Gemini"];
+// The longer chain makes that safety net fire less often — a lead now only
+// escapes scoring when EVERY provider is down, not just Gemini.
 
 export async function scoreLead(leadData: {
   business_name: string;
@@ -49,24 +48,19 @@ Return ONLY valid JSON with these fields:
 
   console.log(`Scoring ${leadData.business_name} with available providers...`);
 
-  const chain = resolveChain(process.env.SCORING_PROVIDERS, SCORING_DEFAULT);
-  const res = await runChain(chain, prompt);
+  const res = await runChainJson<ScoringResult>(getChain("scoring"), prompt, {
+    label: "scoring",
+    validate: (p) => !!p && typeof p === "object" && p.lead_score !== undefined,
+  });
 
   if (res) {
-    const jsonMatch = res.text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        console.log(`✅ Scored with ${res.provider}`);
-        return { ...parsed, provider: res.provider };
-      } catch (error) {
-        console.warn("Scoring JSON parse failed:", error);
-      }
-    }
+    console.log(`✅ Scored with ${res.provider}`);
+    return { ...res.data, provider: res.provider };
   }
 
-  // Fallback if all providers fail — tagged "fallback" so automation never
-  // deletes a lead on an uncertain (non-model) score.
+  // Safe default when every provider failed — tagged "fallback" so automation
+  // never deletes a lead on an uncertain (non-model) score. runChainJson has
+  // already logged one error line naming every provider and its reason.
   console.warn("All AI providers failed, using default score");
   return {
     lead_score: 50,

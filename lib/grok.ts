@@ -1,4 +1,4 @@
-import { resolveChain, runChain } from "@/lib/ai-providers";
+import { getChain, runChainJson } from "@/lib/ai-providers";
 
 interface GrokSummary {
   main_pain_point: string;
@@ -21,10 +21,7 @@ interface LeadData {
   technologies?: string;
 }
 
-// Email drafting / summaries (moderate reasoning, low volume):
-// Mistral first, then any fallbacks listed in DRAFT_PROVIDERS. Together would
-// be the intended fallback but has no key yet, so it's not wired.
-const DRAFT_DEFAULT = ["Mistral"];
+// Chain order for drafting lives in CHAINS.drafting (lib/ai-providers.ts).
 
 export async function generateLeadSummary(lead: LeadData): Promise<GrokSummary> {
   const prompt = `Analyze this business and generate a cold email sales summary.
@@ -49,21 +46,16 @@ Respond ONLY with valid JSON (no markdown, no code blocks):
   "missing_data_needed": ["list", "of", "missing", "info"]
 }`;
 
-  const chain = resolveChain(process.env.DRAFT_PROVIDERS, DRAFT_DEFAULT);
-  const res = await runChain(chain, prompt);
+  const res = await runChainJson<GrokSummary>(getChain("drafting"), prompt, {
+    label: "drafting",
+    validate: (p) => !!p && typeof p === "object" && typeof p.recommended_first_message === "string",
+  });
 
-  if (res) {
-    const jsonMatch = res.text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[0]);
-      } catch (error) {
-        console.warn("Draft summary JSON parse failed:", error);
-      }
-    }
-  }
+  if (res) return res.data;
 
   // Rule-based fallback if the draft providers are down / return junk.
+  // runChainJson has already logged one error line naming every provider and
+  // its reason, so this is the safe default, not a silent swallow.
   console.warn("Draft providers unavailable, using rule-based fallback");
   const score = await scoreLead(lead);
   return {
@@ -91,9 +83,9 @@ export async function scoreLead(lead: LeadData): Promise<number> {
   return Math.min(score, 100);
 }
 
-// Reply classification (fast, high-volume, simple categorization):
-// Groq first (fastest + free), then Ollama, Cerebras, and Cohere as fallbacks.
-const CLASSIFIER_DEFAULT = ["Groq", "Ollama", "Cerebras", "Cohere"];
+// Chain order for classification lives in CHAINS.classification
+// (lib/ai-providers.ts). It drives the autonomous booking path, so it is the
+// chain that most needs the paid backstop rather than a "Question" default.
 
 type ReplyCategory =
   | "Interested"
@@ -155,29 +147,29 @@ Respond ONLY with valid JSON (no markdown), the category being a single value:
   "recommended_action": "What to do next"
 }`;
 
-  // CLASSIFIER_PROVIDERS drives the order; REPLY_CLASSIFIER_PROVIDERS is kept as
-  // a backward-compatible alias for anything already set in the environment.
-  const chain = resolveChain(
-    process.env.CLASSIFIER_PROVIDERS || process.env.REPLY_CLASSIFIER_PROVIDERS,
-    CLASSIFIER_DEFAULT
+  // Order comes from CHAINS.classification (CLASSIFIER_PROVIDERS, with the
+  // legacy REPLY_CLASSIFIER_PROVIDERS alias honored inside getChain).
+  const res = await runChainJson<{ category?: unknown; recommended_action?: unknown }>(
+    getChain("classification"),
+    prompt,
+    {
+      label: "classification",
+      validate: (p) => !!p && typeof p === "object" && p.category !== undefined,
+    }
   );
-  const res = await runChain(chain, prompt);
 
+  // Safe default: "Question" routes to manual review rather than triggering the
+  // wrong automation (a bad "Interested" sends a booking link; a bad
+  // "Not Interested" marks the lead Do Not Contact permanently).
   if (!res) {
-    console.error("All classify providers failed/unavailable");
     return { category: "Question", recommended_action: "Review manually" };
   }
 
-  // Models sometimes wrap JSON in ```json fences — strip them before parsing.
-  const cleaned = res.text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-  try {
-    const parsed = JSON.parse(cleaned);
-    return {
-      category: normalizeCategory(parsed.category),
-      recommended_action: parsed.recommended_action || "Review manually",
-    };
-  } catch (error) {
-    console.error("Failed to parse reply classification:", res.text);
-    return { category: "Question", recommended_action: "Review manually" };
-  }
+  return {
+    category: normalizeCategory(res.data.category),
+    recommended_action:
+      typeof res.data.recommended_action === "string" && res.data.recommended_action.trim()
+        ? res.data.recommended_action
+        : "Review manually",
+  };
 }

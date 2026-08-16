@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "ai:health": "node scripts/ai-health-check.mjs",
+    "ai:health:json": "node scripts/ai-health-check.mjs --json",
+    "ai:normalize-test": "node scripts/ai-normalization-test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

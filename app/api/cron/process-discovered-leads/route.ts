@@ -45,13 +45,40 @@ export async function GET(req: NextRequest) {
   try {
     console.log("🔄 Starting discovered leads processor...");
 
-    // Get new leads that haven't been processed
-    const { data: newLeads } = await supabase
+    // Get new leads that haven't been scored yet.
+    //
+    // `lead_ai_summaries` is a separate TABLE, not a column on `leads`, so the
+    // previous `.is("lead_ai_summaries", null)` filter was invalid — PostgREST
+    // errored, the ignored error left `newLeads` undefined, and this route
+    // silently reported "No new leads to process" on every single run.
+    //
+    // Same anti-join pattern as the scoring phase in lib/automation.ts: pull the
+    // already-scored lead ids first, then over-fetch and filter in JS. Fetching
+    // a plain page and filtering would risk a page that is entirely scored,
+    // which would no-op forever without ever reaching the unscored backlog.
+    const BATCH = 10;
+
+    const { data: scoredRows, error: scoredError } = await supabase
+      .from("lead_ai_summaries")
+      .select("lead_id");
+    if (scoredError) {
+      console.error("Failed to load scored lead ids:", scoredError);
+      throw scoredError;
+    }
+    const scoredIds = new Set((scoredRows || []).map((r) => r.lead_id));
+
+    const { data: pool, error: poolError } = await supabase
       .from("leads")
       .select("*")
       .eq("status", "New")
-      .is("lead_ai_summaries", null)
-      .limit(10);
+      .order("created_at", { ascending: true })
+      .limit(BATCH * 40);
+    if (poolError) {
+      console.error("Failed to load candidate leads:", poolError);
+      throw poolError;
+    }
+
+    const newLeads = (pool || []).filter((l) => !scoredIds.has(l.id)).slice(0, BATCH);
 
     if (!newLeads || newLeads.length === 0) {
       console.log("No new leads to process");

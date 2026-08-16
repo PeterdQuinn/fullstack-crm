@@ -7,16 +7,19 @@ interface Reply {
   id: string;
   lead_id: string;
   company: string;
-  contact?: string;
+  contact?: string | null;
   message: string;
   classification?: string;
-  status: string;
+  status: string | null;
+  replied_at?: string | null;
+  error?: string | null;
 }
 
 export default function RepliesPage() {
   const router = useRouter();
   const [replies, setReplies] = useState<Reply[]>([]);
   const [loading, setLoading] = useState(true);
+  const [classifying, setClassifying] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetchReplies();
@@ -34,23 +37,54 @@ export default function RepliesPage() {
     }
   }
 
-  async function classifyReply(replyId: string, message: string) {
+  // Classify a reply and run the follow-on automation (booking link / DNC /
+  // follow-up task). The live route is /api/ai/classify-reply and it expects
+  // { replyText, leadId } — it returns { category, recommended_action, automation }
+  // where automation.leadStatus is the status the lead was moved to.
+  async function classifyReply(replyId: string, leadId: string, message: string) {
+    setClassifying((prev) => ({ ...prev, [replyId]: true }));
     try {
-      const response = await fetch("/api/crm/classify-reply", {
+      const response = await fetch("/api/ai/classify-reply", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ replyId, message }),
+        body: JSON.stringify({ replyText: message, leadId }),
       });
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data?.error || `Classify failed (${response.status})`);
+      }
+
+      // The route returns 200 even when the post-classification automation
+      // fails, so surface that separately instead of showing a false success.
+      const automationError =
+        data.automation && typeof data.automation === "object" && "error" in data.automation
+          ? String(data.automation.error)
+          : null;
+
       setReplies((prev) =>
         prev.map((r) =>
           r.id === replyId
-            ? { ...r, classification: data.category, status: data.status }
+            ? {
+                ...r,
+                classification: data.category,
+                status: data.automation?.leadStatus ?? r.status,
+                error: automationError,
+              }
             : r
         )
       );
     } catch (error) {
       console.error("Classification error:", error);
+      setReplies((prev) =>
+        prev.map((r) =>
+          r.id === replyId
+            ? { ...r, error: error instanceof Error ? error.message : "Classification failed" }
+            : r
+        )
+      );
+    } finally {
+      setClassifying((prev) => ({ ...prev, [replyId]: false }));
     }
   }
 
@@ -79,26 +113,33 @@ export default function RepliesPage() {
                   </div>
                   {reply.classification && (
                     <div style={{ padding: "8px 12px", backgroundColor: "#dbeafe", borderRadius: "4px", fontSize: "13px", color: "#0c4a6e", fontWeight: "500" }}>
-                      ✓ {reply.classification} — Status: {reply.status}
+                      ✓ {reply.classification}
+                      {reply.status && ` — Status: ${reply.status}`}
+                    </div>
+                  )}
+                  {reply.error && (
+                    <div style={{ padding: "8px 12px", backgroundColor: "#fee2e2", borderRadius: "4px", fontSize: "13px", color: "#991b1b", fontWeight: "500", marginTop: "8px" }}>
+                      ⚠ {reply.error}
                     </div>
                   )}
                 </div>
                 {!reply.classification && (
                   <button
-                    onClick={() => classifyReply(reply.id, reply.message)}
+                    onClick={() => classifyReply(reply.id, reply.lead_id, reply.message)}
+                    disabled={!!classifying[reply.id]}
                     style={{
                       padding: "12px 16px", minHeight: "44px",
-                      backgroundColor: "#3b82f6",
+                      backgroundColor: classifying[reply.id] ? "#93c5fd" : "#3b82f6",
                       color: "white",
                       border: "none",
                       borderRadius: "6px",
-                      cursor: "pointer",
+                      cursor: classifying[reply.id] ? "not-allowed" : "pointer",
                       height: "fit-content",
                       fontSize: "13px",
                       fontWeight: "500",
                     }}
                   >
-                    Classify
+                    {classifying[reply.id] ? "Classifying…" : "Classify"}
                   </button>
                 )}
               </div>

@@ -30,7 +30,10 @@ create table if not exists leads (
   apollo_account_id text,
   current_software text,
   monthly_spend_estimate text,
-  status text default 'New' check (status in ('New','Called','No Answer','Follow-Up','Interested','Booked','Dead','Needs Data','Ready for AI Summary','Ready for Outreach','Email 1 Sent','Email 2 Sent','Email 3 Sent','DM Needed','DM Sent','Call Needed','Called','Follow-Up Scheduled','Replied','Interested','Booking Link Sent','Booked','Onboarding Sent','Onboarding Completed','Won','Lost','No Response','Do Not Contact','Bad Data','Bad Email')),
+  -- Must stay in sync with migrations/003_leads_status_constraint.sql and with
+  -- every status literal written in app/ and lib/. 'Needs Follow-Up' (unclear
+  -- reply branch) and 'Scored' (below-threshold scoring) were missing here.
+  status text default 'New' check (status in ('New','Needs Data','Bad Data','Ready for AI Summary','Scored','Ready for Outreach','Email 1 Sent','Email 2 Sent','Email 3 Sent','Bad Email','DM Needed','DM Sent','Call Needed','Called','No Answer','Follow-Up','Follow-Up Scheduled','Needs Follow-Up','Replied','Interested','Booking Link Sent','Booked','Onboarding Sent','Onboarding Completed','Won','Lost','Dead','No Response','Do Not Contact')),
   last_called_at timestamptz,
   next_follow_up_at timestamptz,
   meeting_booked boolean default false,

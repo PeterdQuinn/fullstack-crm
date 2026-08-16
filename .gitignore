@@ -12,3 +12,6 @@ next-env.d.ts
 
 # Supabase CLI local artifacts
 supabase/.temp/
+
+# Temp output from scripts/ai-health-check.mjs + ai-normalization-test.mjs
+.ai-healthcheck-build/

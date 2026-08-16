@@ -1,4 +1,10 @@
 import { DiscoveredLead } from "@/lib/lead-discovery";
+import { getChain, runChainJson } from "@/lib/ai-providers";
+
+// Chain order for discovery cleanup lives in CHAINS.cleanup
+// (lib/ai-providers.ts). This call used to bypass the provider layer entirely
+// with a hardcoded fetch to Ollama, so an Ollama outage meant no AI cleanup at
+// all; it now falls through the chain like every other task.
 
 // A raw lead as gathered from a source, tagged with where it came from.
 export type RawLead = DiscoveredLead & { source: string };
@@ -8,6 +14,8 @@ export type CleanResult = {
   dropped: { business_name: string; reason: string }[];
   merged: { business_name: string; sources: string[] }[];
   aiUsed: boolean;
+  /** Which provider in the cleanup chain actually produced the result. */
+  aiProvider?: string;
   aiError?: string;
 };
 
@@ -49,17 +57,9 @@ function applyGuard(
   return { kept, dropped };
 }
 
-function extractJson(text: string): any | null {
-  // Grab the outermost {...} block and parse it defensively.
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(text.slice(start, end + 1));
-  } catch {
-    return null;
-  }
-}
+// (JSON extraction now lives in lib/ai-providers.ts → extractJsonText, shared
+// by all four chains. The local indexOf/lastIndexOf version was one of four
+// divergent extractors and could not survive a brace inside a string value.)
 
 // Deterministic fallback used if the AI is unavailable or returns unusable
 // output: dedupe by normalized name (and shared phone/website), merging fields.
@@ -165,32 +165,28 @@ ${JSON.stringify(
 )}`;
 
   let aiUsed = false;
+  let aiProvider: string | undefined;
   let aiError: string | undefined;
   let aiCleaned: DiscoveredLead[] | null = null;
   let aiDropped: { business_name: string; reason: string }[] = [];
 
   try {
-    if (!process.env.OLLAMA_API_KEY || !process.env.OLLAMA_BASE_URL) {
-      throw new Error("OLLAMA_API_KEY / OLLAMA_BASE_URL not configured");
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 110000);
-    const res = await fetch(`${process.env.OLLAMA_BASE_URL}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OLLAMA_API_KEY}`,
-      },
-      body: JSON.stringify({ model: "gpt-oss:120b-cloud", prompt, stream: false }),
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timer));
+    // Shape validation runs INSIDE the chain: a provider that returns valid
+    // JSON without a `cleaned` array is treated as a failed provider, so the
+    // chain advances instead of dropping straight to the deterministic merge.
+    const res = await runChainJson<{ cleaned: any[]; dropped?: any[] }>(
+      getChain("cleanup"),
+      prompt,
+      {
+        label: "cleanup",
+        validate: (p) => !!p && typeof p === "object" && Array.isArray(p.cleaned),
+      }
+    );
+    if (!res) throw new Error("no cleanup provider returned usable JSON (see chain errors above)");
 
-    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
-    const data = await res.json();
-    const parsed = extractJson(data.response || "");
-    if (!parsed || !Array.isArray(parsed.cleaned)) throw new Error("AI returned unparseable JSON");
-
+    const parsed = res.data;
     aiUsed = true;
+    aiProvider = res.provider;
     aiCleaned = parsed.cleaned.map((c: any): DiscoveredLead => ({
       business_name: (c.business_name || "").trim(),
       phone: c.phone?.trim() || undefined,
@@ -230,6 +226,7 @@ ${JSON.stringify(
     dropped: [...aiDropped, ...guarded.dropped],
     merged: mergedReport,
     aiUsed,
+    aiProvider,
     aiError,
   };
 }
