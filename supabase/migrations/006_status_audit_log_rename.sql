@@ -49,6 +49,13 @@ begin
   alter table public.status_audit_log add column if not exists field_changed text not null default 'status';
 end $$;
 
+-- The live table already HAD field_changed (not null, no default), so the
+-- `add column if not exists` above was a no-op there and never applied the
+-- default. lib/audit.ts always sends the column explicitly, so nothing is
+-- broken today — but any insert that omits it fails with 23502 instead of
+-- defaulting to 'status'. Set it unconditionally so live matches 002.
+alter table public.status_audit_log alter column field_changed set default 'status';
+
 -- The old table's CHECK was named after the old column; re-point it so
 -- 'owner'/'automation' stays enforced under the new name.
 alter table public.status_audit_log drop constraint if exists status_audit_log_source_check;
