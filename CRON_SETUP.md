@@ -10,8 +10,9 @@ This guide explains how to set up automated cron jobs for the CRM system.
 **What it does:**
 - Takes new leads (status="New") that haven't been scored
 - Scrapes their websites for missing emails, phones, and owner names
-- Scores each lead using AI (HuggingFace)
-- Updates lead status to "Ready for Outreach" if score > 60
+- Scores each lead through the AI provider chain
+  (Ollama → Groq → Gemini → Anthropic → Kablewy, see `lib/ai-providers.ts`)
+- Updates lead status to "Ready for Outreach" if score ≥ 50, otherwise "Scored"
 
 **Recommended frequency**: Every 2-3 hours
 **Timeout**: 5 minutes (300 seconds)
@@ -45,19 +46,22 @@ curl -X GET "https://yourapp.com/api/cron/send-daily-emails" \
 
 ### Option 1: Using Vercel Cron (Recommended for Vercel deployments)
 
-Create `.vercel/crons.json`:
+Crons are declared in `vercel.json` at the repo root (NOT `.vercel/crons.json`):
+
 ```json
-[
-  {
-    "path": "/api/cron/process-discovered-leads",
-    "schedule": "0 */2 * * *"
-  },
-  {
-    "path": "/api/cron/send-daily-emails",
-    "schedule": "0 9 * * *"
-  }
-]
+{
+  "crons": [
+    { "path": "/api/cron/automation", "schedule": "0 9 * * *" }
+  ]
+}
 ```
+
+**Vercel Cron sends GET requests.** Any route it targets must export a `GET`
+handler — a POST-only route returns 405 on every scheduled run and the job
+silently never executes. `/api/cron/automation` now exports both.
+
+Vercel also injects `Authorization: Bearer $CRON_SECRET` automatically when
+`CRON_SECRET` is set on the project.
 
 ### Option 2: Using EasyCron.com (Free)
 
@@ -142,9 +146,13 @@ curl -X GET "http://localhost:3000/api/cron/send-daily-emails"
 - Check email_sent_count hasn't exceeded 3
 
 **Problem**: Leads not being scored
-- Verify HF_API_KEY is set
-- Check HuggingFace API status
-- Verify leads have a website URL
+- Run `npm run ai:health` — it fires one real call per provider per chain
+- Verify at least one provider key is set: `OLLAMA_API_KEY`, `Groq_API_KEY`,
+  `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `KABLEWY_API`
+- A chain whose providers all lack keys logs
+  "AI chain is empty — no configured provider has an API key set"
+- Scores of exactly 50 tagged `provider: "fallback"` mean EVERY provider failed;
+  such leads are never deleted, and are re-scored on the next run
 
 **Problem**: Scraping failing
 - Check website URLs are valid
@@ -153,10 +161,11 @@ curl -X GET "http://localhost:3000/api/cron/send-daily-emails"
 
 ## Daily Workflow
 
-1. **8:00 AM**: Send daily emails (25 max)
-2. **10:00 AM**: Process discovered leads (scrape + score)
-3. **12:00 PM**: Process discovered leads
-4. **2:00 PM**: Process discovered leads
-5. **4:00 PM**: Process discovered leads
+1. **9:00 AM** (Vercel): `/api/cron/automation` — scrape → score → send, daily
+2. **Every 2-3 hours** (external): `/api/cron/enrich-leads` — fills email/socials
+3. **Daily** (external): `/api/cron/process-followups` — sends touches 2 and 3
+4. **Daily** (external): `/api/cron/daily-digest` — owner summary email
 
-This ensures continuous processing of new leads while respecting email sending limits.
+The automation cron's send phase only emails leads at `Ready for Outreach` or
+`Follow-Up Scheduled`, and hands touches 2/3 to `process-followups` by queuing a
+`follow_up_tasks` row. That is what stops a booked lead receiving a cold email.

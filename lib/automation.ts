@@ -30,7 +30,16 @@ const SEND_CAP_PER_RUN = 100;
 // and other fields (socials, employees, founded_year, ...) may stay null.
 const REQUIRED_FIELDS = ["business_name", "email", "phone"] as const;
 // Real (non-fallback) scores strictly below this are deleted.
-const SCORE_KEEP_THRESHOLD = 80;
+// Lowered 80 -> 50: with the old prompt every real score landed in the 10-35
+// band, so an 80 bar deleted essentially every lead the moment the phase ran.
+// 50 keeps the pipeline flowing and matches the score > 50 gate that every
+// send path already uses, so a kept lead is by definition a sendable one.
+const SCORE_KEEP_THRESHOLD = 50;
+
+// Only these statuses are eligible for an automated outreach email. A lead that
+// has replied, been sent a booking link, booked, or reached a terminal state
+// must never receive another cold touch from the send phase.
+const SENDABLE_STATUSES = ["Ready for Outreach", "Follow-Up Scheduled"] as const;
 
 type EmailedLead = { business_name: string; email: string; city: string | null; state: string | null };
 
@@ -45,8 +54,43 @@ export type PhaseResult =
       fallback: number;
       incompleteDeleted: number;
       enriched: number;
+      /** "archive" (default, reversible) or "delete" (ALLOW_LEAD_DELETION=true). */
+      retirementMode: "archive" | "delete";
     }
   | { phase: "send"; eligible: number; sent: number; skipped: number; emailed: EmailedLead[] };
+
+// Hard deletion is opt-in and OFF unless ALLOW_LEAD_DELETION is exactly "true".
+// Anything else — unset, "false", "1", "yes" — archives. Fail-safe by design:
+// a typo in the env var must never escalate to destroying rows.
+const hardDeleteEnabled = () => process.env.ALLOW_LEAD_DELETION === "true";
+
+/**
+ * Retire a lead from the pipeline.
+ *
+ * Archives by default (reversible, keeps the audit trail); hard-deletes only
+ * when ALLOW_LEAD_DELETION=true. Errors are logged, never thrown — retiring one
+ * lead must not abort the rest of the batch.
+ */
+async function retireLead(id: string, reason: string): Promise<void> {
+  if (hardDeleteEnabled()) {
+    const { error } = await supabase.from("leads").delete().eq("id", id);
+    if (error) console.error(`Hard delete failed for lead ${id}: ${error.message}`);
+    else console.warn(`Lead ${id} HARD DELETED (ALLOW_LEAD_DELETION=true) — ${reason}`);
+    return;
+  }
+
+  const { error } = await supabase
+    .from("leads")
+    .update({
+      archived_at: new Date().toISOString(),
+      archive_reason: reason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) console.error(`Archive failed for lead ${id}: ${error.message}`);
+  else console.log(`Lead ${id} archived — ${reason}`);
+}
 
 async function scrapeLeadData(lead: any) {
   // Bound every scrape so a single slow/hanging browser launch can't consume
@@ -83,6 +127,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       .from("leads")
       .select("*")
       .or("email.is.null,phone.is.null,owner_name.is.null")
+      .is("archived_at", null)
       .limit(SCRAPE_BATCH);
 
     let enriched = 0;
@@ -128,6 +173,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       .select(
         "id, business_name, email, phone, city, state, website, owner_name, short_description, industry, current_software, technologies, created_at"
       )
+      .is("archived_at", null)
       .order("created_at", { ascending: true })
       .limit(SCORE_BATCH * 40);
     const candidates = (pool || [])
@@ -194,7 +240,11 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         }
 
         // --- Scoring ---
+        // Pass the id so scoreLead re-reads the full row (phone, website,
+        // ratings, socials, ...) instead of scoring the six fields we happen
+        // to have selected above.
         const summary = await scoreLead({
+          id: lead.id,
           business_name: lead.business_name,
           owner_name: lead.owner_name,
           industry: lead.industry,
@@ -250,21 +300,42 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       }
     }
 
-    // --- Deletion block: reached ONLY if the scoring loop completed. ---
+    // --- Retirement block: reached ONLY if the scoring loop completed. ---
     // A timeout/crash during the loop skips all of this, guaranteeing that a
-    // failed run performs zero deletions.
+    // failed run retires nothing.
+    //
+    // DEFAULT IS ARCHIVE, NOT DELETE. `delete` on leads cascades to call_logs,
+    // lead_notes, appointments, outreach_log, lead_ai_summaries, lead_socials
+    // and status_audit_log — so a hard delete also destroys the audit trail
+    // that would explain it, with no undo. Archived rows are stamped and
+    // filtered out of every candidate query instead, which is operationally
+    // identical for the pipeline and fully reversible.
     let incompleteDeleted = 0;
     let deleted = 0;
     for (const id of incompleteToDelete) {
-      await supabase.from("leads").delete().eq("id", id);
+      await retireLead(id, "incomplete: missing a required field after enrichment");
       incompleteDeleted++;
     }
     for (const id of belowThresholdToDelete) {
-      await supabase.from("leads").delete().eq("id", id);
+      await retireLead(id, `below threshold: real score < ${SCORE_KEEP_THRESHOLD}`);
       deleted++;
     }
 
-    return { phase: "score", considered, scored, kept, deleted, fallback, incompleteDeleted, enriched };
+    return {
+      phase: "score",
+      considered,
+      scored,
+      kept,
+      // `deleted` / `incompleteDeleted` are RETIREMENT counts. Under the default
+      // archive mode nothing is destroyed — the names are kept so existing
+      // consumers of this payload keep working; retirementMode says which
+      // actually happened.
+      deleted,
+      fallback,
+      incompleteDeleted,
+      enriched,
+      retirementMode: hardDeleteEnabled() ? "delete" : "archive",
+    };
   }
 
   // PHASE 3: SEND — email high-score leads, up to SEND_CAP_PER_RUN per run.
@@ -282,6 +353,11 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       .not("email", "is", null)
       .neq("email", "")
       .lt("email_sent_count", 3)
+      // Status gate: without this, a lead sitting at "Booking Link Sent" or
+      // "Booked" with email_sent_count < 3 would be handed another COLD email,
+      // directly contradicting the reply automation that just moved it there.
+      .in("status", SENDABLE_STATUSES as unknown as string[])
+      .is("archived_at", null)
       .limit(SEND_CAP_PER_RUN);
 
     let sent = 0;
@@ -307,6 +383,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
 
       // Shared renderer — identical output to the manual Email Queue view.
       const rendered = renderOutreachEmail({
+        leadId: lead.id,
         businessName: lead.business_name,
         emailSentCount: lead.email_sent_count || 0,
         firstMessage: summary?.recommended_first_message,
@@ -333,6 +410,28 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           .update({ email_sent_count: emailNum, status: `Email ${emailNum} Sent` })
           .eq("id", lead.id);
         await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: `Email ${emailNum} Sent`, source: "automation" });
+
+        // Sending moves the lead to "Email N Sent", which is deliberately NOT
+        // in SENDABLE_STATUSES — so this phase will not touch it again. Touches
+        // 2 and 3 are handed to the follow-up processor instead
+        // (app/api/cron/process-followups), which is the path that knows how to
+        // stop on a reply. Without this hand-off the status gate above would
+        // silently truncate the sequence to a single email.
+        if (emailNum < 3) {
+          const dueDate = new Date();
+          dueDate.setDate(dueDate.getDate() + 3);
+          dueDate.setHours(9, 0, 0, 0);
+          const { error: taskError } = await supabase.from("follow_up_tasks").insert({
+            lead_id: lead.id,
+            task_type: `send_email_${emailNum + 1}`,
+            due_at: dueDate.toISOString(),
+            status: "pending",
+          });
+          if (taskError) {
+            console.warn(`follow_up_tasks insert failed for ${lead.business_name} (non-fatal):`, taskError.message);
+          }
+        }
+
         sent++;
         // item 6: record exactly who was emailed and where.
         emailed.push({

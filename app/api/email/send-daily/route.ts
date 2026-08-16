@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
         if (emailNum > 3) continue;
 
         const { subject, html, bodyText } = renderOutreachEmail({
+          leadId: lead.id,
           businessName: lead.business_name,
           emailSentCount: lead.email_sent_count || 0,
           firstMessage: summary?.recommended_first_message,

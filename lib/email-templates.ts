@@ -3,27 +3,47 @@
 // (lib/automation.ts) and the manual copy-paste Email Queue
 // (app/api/email/queue) so the two never drift.
 //
-// Manual-send mode: the footer carries the physical mailing address (CAN-SPAM)
-// and a "Reply STOP" opt-out instruction instead of a click-through unsubscribe
-// link — opt-outs are handled by hand (see the banner on /crm/email-queue and
-// the daily "mark Do Not Contact" step in /crm/leads).
+// The footer carries the physical mailing address (CAN-SPAM) plus a real
+// one-click unsubscribe URL. /api/email/unsubscribe is exempted from the CRM's
+// Basic Auth precisely so a recipient can click it from their inbox; it was
+// fully built but nothing ever linked to it, leaving "Reply STOP" (a manual
+// process) as the only opt-out path. The link is now emitted whenever we know
+// the lead's id, and the STOP line remains as the fallback when we don't.
 
 export const COMPANY_NAME = "Full Stack Services LLC";
 export const COMPANY_MAILING_ADDRESS =
   process.env.COMPANY_MAILING_ADDRESS || "535 E Southern Ave Ste 6, Mesa, AZ 85204";
 export const UNSUBSCRIBE_LINE = "Reply STOP to unsubscribe from future emails.";
 
+/**
+ * Absolute unsubscribe URL for a lead, or null when the id or the app URL is
+ * unknown (a relative link is useless inside an email client).
+ *
+ * The query param is `lead_id`; the route also accepts the legacy `lead` name.
+ */
+export function unsubscribeUrl(leadId?: string | null): string | null {
+  const base = (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
+  if (!leadId || !base) return null;
+  return `${base}/api/email/unsubscribe?lead_id=${encodeURIComponent(leadId)}`;
+}
+
 // HTML footer appended to every outbound email body.
-export function footerHtml(): string {
+export function footerHtml(leadId?: string | null): string {
+  const url = unsubscribeUrl(leadId);
+  const optOut = url
+    ? `<a href="${url}" style="color:#999;">Unsubscribe</a> from future emails.`
+    : UNSUBSCRIBE_LINE;
   return `<hr style="border:none;border-top:1px solid #eee;margin:28px 0 12px;">
 <p style="color:#999;font-size:12px;line-height:1.5;margin:0;">
-${COMPANY_NAME}<br>${COMPANY_MAILING_ADDRESS}<br>${UNSUBSCRIBE_LINE}
+${COMPANY_NAME}<br>${COMPANY_MAILING_ADDRESS}<br>${optOut}
 </p>`;
 }
 
 // Plain-text footer for the copy-paste view.
-export function footerText(): string {
-  return `${COMPANY_NAME}\n${COMPANY_MAILING_ADDRESS}\n${UNSUBSCRIBE_LINE}`;
+export function footerText(leadId?: string | null): string {
+  const url = unsubscribeUrl(leadId);
+  const optOut = url ? `Unsubscribe: ${url}` : UNSUBSCRIBE_LINE;
+  return `${COMPANY_NAME}\n${COMPANY_MAILING_ADDRESS}\n${optOut}`;
 }
 
 export interface RenderedOutreachEmail {
@@ -54,6 +74,8 @@ export function renderOutreachEmail(opts: {
   emailSentCount: number;
   firstMessage?: string | null;
   followUp?: string | null;
+  /** Lead id — required for the footer's one-click unsubscribe link. */
+  leadId?: string | null;
 }): RenderedOutreachEmail {
   const company = opts.businessName;
   const emailNum = Math.min((opts.emailSentCount || 0) + 1, 3);
@@ -70,9 +92,9 @@ export function renderOutreachEmail(opts: {
   const subject = SUBJECTS[emailNum](company);
   const heading = HEADINGS[emailNum];
 
-  const html = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>${heading}</h2><p style="color: #666; line-height: 1.6;">${message}</p>${footerHtml()}</div>`;
+  const html = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>${heading}</h2><p style="color: #666; line-height: 1.6;">${message}</p>${footerHtml(opts.leadId)}</div>`;
 
-  const bodyText = `${message}\n\n${footerText()}`;
+  const bodyText = `${message}\n\n${footerText(opts.leadId)}`;
   const copyText = `Subject: ${subject}\n\n${bodyText}`;
 
   return { emailNum, subject, html, bodyText, copyText };

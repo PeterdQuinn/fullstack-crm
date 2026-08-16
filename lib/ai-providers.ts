@@ -186,6 +186,7 @@ const groqKey = () => process.env.Groq_API_KEY || process.env.GROQ_API_KEY;
 const geminiKey = () => process.env.GEMINI_API_KEY;
 const ollamaKey = () => process.env.OLLAMA_API_KEY;
 const anthropicKey = () => process.env.ANTHROPIC_API_KEY;
+const kablewyKey = () => process.env.KABLEWY_API;
 
 // ── Raw callers. Each returns the model's text output or throws. ────────────
 
@@ -235,17 +236,41 @@ async function callGroq(prompt: string): Promise<string> {
 }
 
 // Google Gemini — forced JSON output (responseMimeType) so callers can parse
-// directly. Key auths via ?key= query param, NOT a Bearer header.
+// directly.
+//
+// AUTH: Google issues two DIFFERENT credential shapes for this endpoint and
+// they are NOT interchangeable:
+//
+//   AI Studio API key   "AIza..."  (39 chars)  -> ?key=<value> query param
+//   OAuth access token  "AQ.Ab8..." / "ya29." -> Authorization: Bearer <value>
+//
+// The configured GEMINI_API_KEY in this project is the OAuth shape, so the
+// original ?key=-only caller could never authenticate (401/403 on every call).
+// We now detect the shape and use the matching scheme, which is what lets the
+// existing credential work without swapping it out.
+const AI_STUDIO_KEY_RE = /^AIza[0-9A-Za-z_-]{20,}$/;
+
+export function geminiAuth(apiKey: string): { queryKey?: string; bearer?: string } {
+  return AI_STUDIO_KEY_RE.test(apiKey) ? { queryKey: apiKey } : { bearer: apiKey };
+}
+
 async function callGemini(prompt: string): Promise<string> {
   const apiKey = geminiKey();
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
   const model = process.env.GEMINI_MODEL || "gemini-flash-latest";
+  const auth = geminiAuth(apiKey);
+  const url =
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
+    (auth.queryKey ? `?key=${auth.queryKey}` : "");
   return withRetry("Gemini", async () => {
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      url,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(auth.bearer ? { Authorization: `Bearer ${auth.bearer}` } : {}),
+        },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
@@ -314,6 +339,29 @@ async function callOllama(prompt: string): Promise<string> {
   });
 }
 
+// Kablewy — OpenAI-compatible chat-completions provider, configured entirely
+// from the environment so the host can be corrected without a code change.
+//
+// VERIFIED 2026-08-15: the documented default host `api.kablewy.com` does NOT
+// resolve (NXDOMAIN). `kablewy.com` 301s to `kablewy.ai`, which serves SPA HTML
+// for every /api/v1/* path rather than a JSON API. So this provider is expected
+// to fail until KABLEWY_BASE_URL points at a real OpenAI-compatible endpoint.
+// That is deliberately harmless: Kablewy sits LAST in every chain (after the
+// always-available paid Anthropic link), so it is only ever reached when every
+// provider ahead of it has already failed.
+async function callKablewy(prompt: string): Promise<string> {
+  const key = kablewyKey();
+  if (!key) throw new Error("KABLEWY_API not set");
+  const baseUrl = (process.env.KABLEWY_BASE_URL || "https://api.kablewy.com/v1").replace(/\/+$/, "");
+  return openAICompatible(
+    "Kablewy",
+    `${baseUrl}/chat/completions`,
+    key,
+    process.env.KABLEWY_MODEL || "kablewy-claude",
+    prompt
+  );
+}
+
 // Anthropic — the paid last-resort link in every chain. Uses the official SDK
 // (@anthropic-ai/sdk), which handles its own retry/backoff on 429s and 5xx, so
 // this caller is NOT wrapped in withRetry (that would multiply the attempts).
@@ -373,11 +421,10 @@ async function callAnthropic(prompt: string): Promise<string> {
 // ── Registry: only providers that have a key wired in this batch. ───────────
 export const PROVIDERS: Record<string, Provider> = {
   Groq: { name: "Groq", hasKey: () => !!groqKey(), call: callGroq },
-  // Gemini is no longer in any chain (see CHAINS below) but stays registered so
-  // it can be re-enabled via a *_PROVIDERS env var without a code change.
   Gemini: { name: "Gemini", hasKey: () => !!geminiKey(), call: callGemini },
   Ollama: { name: "Ollama", hasKey: () => !!ollamaKey(), call: callOllama },
   Anthropic: { name: "Anthropic", hasKey: () => !!anthropicKey(), call: callAnthropic },
+  Kablewy: { name: "Kablewy", hasKey: () => !!kablewyKey(), call: callKablewy },
 };
 
 // ── Chain configuration: THE single source of truth ─────────────────────────
@@ -385,32 +432,39 @@ export const PROVIDERS: Record<string, Provider> = {
 // task name (getChain("classification")) rather than passing their own defaults
 // array, so the order cannot drift between this file and the call sites.
 //
-// Ordering rule, applied uniformly: free/capable first, Anthropic last.
-// Anthropic is the only paid, always-available provider — it exists to catch
-// what the free tiers drop, not to serve steady-state traffic.
+// Ordering rule, applied uniformly: free/capable first, then the paid
+// always-available link, then the experimental one.
 //
-// The roster is deliberately three deep and IDENTICAL across all four chains,
-// so there is one order to reason about rather than four:
+// The roster is IDENTICAL across all four chains, so there is one order to
+// reason about rather than four:
 //
 //   CHAIN            ENV VAR                ORDER
-//   ---------------  ---------------------  ---------------------------
-//   classification   CLASSIFIER_PROVIDERS   Ollama → Groq → Anthropic
-//   scoring          SCORING_PROVIDERS      Ollama → Groq → Anthropic
-//   drafting         DRAFT_PROVIDERS        Ollama → Groq → Anthropic
-//   cleanup          CLEANUP_PROVIDERS      Ollama → Groq → Anthropic
+//   ---------------  ---------------------  ------------------------------------------
+//   classification   CLASSIFIER_PROVIDERS   Ollama → Groq → Gemini → Anthropic → Kablewy
+//   scoring          SCORING_PROVIDERS      Ollama → Groq → Gemini → Anthropic → Kablewy
+//   drafting         DRAFT_PROVIDERS        Ollama → Groq → Gemini → Anthropic → Kablewy
+//   cleanup          CLEANUP_PROVIDERS      Ollama → Groq → Gemini → Anthropic → Kablewy
+//
+// Gemini sits ahead of Anthropic (free tier before paid) and is back in every
+// chain now that the caller auto-detects OAuth-vs-API-key auth. Kablewy is the
+// tail: unverified host (see callKablewy), so it must never be reached unless
+// everything ahead of it — including paid Anthropic — has already failed.
 //
 // Per-provider model + tuning env vars (all optional):
 //   GROQ_MODEL           default llama-3.1-8b-instant
-//   GEMINI_MODEL         default gemini-flash-latest  (registered, not in any chain)
+//   GEMINI_MODEL         default gemini-flash-latest
 //   OLLAMA_MODEL         default gpt-oss:120b-cloud
 //   OLLAMA_BASE_URL      default https://ollama.com
 //   OLLAMA_TIMEOUT_MS    default 110000
 //   ANTHROPIC_MODEL      default claude-opus-5
 //   ANTHROPIC_MAX_TOKENS default 4096  (must leave room for thinking + answer)
+//   KABLEWY_BASE_URL     default https://api.kablewy.com/v1  (does NOT resolve today)
+//   KABLEWY_MODEL        default kablewy-claude
 //
 // API keys (a chain entry with no key is skipped, not an error):
-//   Groq_API_KEY | GROQ_API_KEY, GEMINI_API_KEY, OLLAMA_API_KEY, ANTHROPIC_API_KEY
-const ROSTER = ["Ollama", "Groq", "Anthropic"];
+//   Groq_API_KEY | GROQ_API_KEY, GEMINI_API_KEY, OLLAMA_API_KEY,
+//   ANTHROPIC_API_KEY, KABLEWY_API
+const ROSTER = ["Ollama", "Groq", "Gemini", "Anthropic", "Kablewy"];
 
 export const CHAINS = {
   classification: {

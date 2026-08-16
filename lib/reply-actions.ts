@@ -25,7 +25,7 @@ export function bucketForCategory(category: string): ReplyBucket {
   return "unclear"; // Too Busy, Question, or anything unrecognized
 }
 
-function bookingEmail(company?: string | null) {
+function bookingEmail(company?: string | null, leadId?: string | null) {
   const name = company?.trim() ? ` at ${company.trim()}` : "";
   return {
     subject: "Great — let's find a time to talk",
@@ -37,7 +37,7 @@ function bookingEmail(company?: string | null) {
   </p>
   <p style="color:#666; line-height:1.6; font-size:14px;">Or copy this link into your browser: <a href="${CALENDLY_LINK}">${CALENDLY_LINK}</a></p>
   <p style="color:#333; line-height:1.6;">Looking forward to it.</p>
-  ${footerHtml()}
+  ${footerHtml(leadId)}
 </div>`,
   };
 }
@@ -56,7 +56,7 @@ export interface ReplyActionResult {
  * Acts on a classified reply:
  *   interested     → send the Calendly booking-link email + status "Booking Link Sent"
  *   not_interested → status "Do Not Contact" + opt_out
- *   unclear        → status "Needs Follow-Up" + schedule a follow-up task
+ *   unclear        → status "Follow-Up Scheduled" + schedule a follow-up task
  *
  * Operates on the `leads` table (the booking pipeline and email queues read from
  * there; the `booking_tracker` table is empty/unused per app/api/crm/bookings).
@@ -94,7 +94,7 @@ export async function actOnReplyClassification(
       };
     }
 
-    const { subject, html } = bookingEmail(lead.business_name);
+    const { subject, html } = bookingEmail(lead.business_name, leadId);
     const sendResult = await sendEmail(lead.email, subject, html);
 
     await supabase
@@ -157,9 +157,9 @@ export async function actOnReplyClassification(
   const dueAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
   await supabase
     .from("leads")
-    .update({ status: "Needs Follow-Up", next_follow_up_at: dueAt, updated_at: now })
+    .update({ status: "Follow-Up Scheduled", next_follow_up_at: dueAt, updated_at: now })
     .eq("id", leadId);
-  await logStatusChange({ leadId, from: lead.status, to: "Needs Follow-Up", source: "automation" });
+  await logStatusChange({ leadId, from: lead.status, to: "Follow-Up Scheduled", source: "automation" });
 
   const { error: taskError } = await supabase.from("follow_up_tasks").insert({
     lead_id: leadId,
@@ -177,6 +177,6 @@ export async function actOnReplyClassification(
     category,
     action: "follow_up_scheduled",
     emailSent: false,
-    leadStatus: "Needs Follow-Up",
+    leadStatus: "Follow-Up Scheduled",
   };
 }

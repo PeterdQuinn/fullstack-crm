@@ -45,7 +45,7 @@ async function reportPhaseFailure(phase: string, error: unknown) {
   }
 }
 
-export async function POST(req: NextRequest) {
+async function runAutomation(req: NextRequest) {
   // Require a valid CRON_SECRET (same pattern as the other cron routes).
   // Vercel Cron automatically sends `Authorization: Bearer ${CRON_SECRET}`
   // when CRON_SECRET is configured on the project.
@@ -97,4 +97,17 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Vercel Cron invokes scheduled paths with a **GET**. This route previously
+// exported POST only, so every scheduled run since the cron was added returned
+// 405 Method Not Allowed and the automation never actually executed — which is
+// why cron_failures is empty rather than healthy. Both verbs now run the same
+// handler; POST is kept for manual curl / external schedulers.
+export async function GET(req: NextRequest) {
+  return runAutomation(req);
+}
+
+export async function POST(req: NextRequest) {
+  return runAutomation(req);
 }

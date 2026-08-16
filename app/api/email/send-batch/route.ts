@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
       .not("email", "is", null)
       .neq("email", "")
       .lt("email_sent_count", 3)
+      .is("archived_at", null)
       .gt("lead_ai_summaries.lead_score", 50)
       .order("lead_score", { referencedTable: "lead_ai_summaries", ascending: false })
       .limit(remaining);
@@ -81,6 +82,7 @@ export async function POST(req: NextRequest) {
       if (emailNum > 3) continue;
 
       const { subject, html, bodyText } = renderOutreachEmail({
+        leadId: lead.id,
         businessName: lead.business_name,
         emailSentCount: lead.email_sent_count || 0,
         firstMessage: summary?.recommended_first_message,

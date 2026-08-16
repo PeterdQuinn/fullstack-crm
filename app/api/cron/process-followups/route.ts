@@ -11,6 +11,12 @@ const supabase = createClient(
 
 export const maxDuration = 120;
 
+// Task lifecycle values below ('pending' | 'completed' | 'skipped' | 'cancelled')
+// are constrained by follow_up_tasks_status_check — see
+// supabase/migrations/007_follow_up_tasks_skipped.sql, which adds 'skipped'.
+// This column is the TASK's state, not the lead's pipeline status; skipping a
+// task deliberately leaves `leads.status` alone so the lead stays in the queue.
+
 // Health check — lets you open the URL in a browser and see JSON instead of a 405.
 // This does NOT run the job or send any emails; the actual work is POST-only below.
 export async function GET() {
@@ -100,7 +106,7 @@ export async function POST(req: NextRequest) {
           await supabase
             .from("follow_up_tasks")
             .update({
-              status: "cancelled", // NOTE: schema CHECK has no 'skipped' value — see route header note
+              status: "skipped",
               notes: `Skipped: lead is ${lead.opt_out ? "opted out" : "Do Not Contact"}`,
               completed_at: new Date().toISOString(),
             })
@@ -116,7 +122,7 @@ export async function POST(req: NextRequest) {
           await supabase
             .from("follow_up_tasks")
             .update({
-              status: "cancelled",
+              status: "skipped",
               notes: "Skipped: lead has no email address",
               completed_at: new Date().toISOString(),
             })
@@ -138,7 +144,7 @@ export async function POST(req: NextRequest) {
           await supabase
             .from("follow_up_tasks")
             .update({
-              status: "cancelled",
+              status: "skipped",
               notes: "Skipped: max emails (3) already sent",
               completed_at: new Date().toISOString(),
             })
@@ -151,6 +157,7 @@ export async function POST(req: NextRequest) {
 
         // c. Build the email via the shared renderer (subject + body + footer)
         const { subject, html, bodyText } = renderOutreachEmail({
+          leadId: lead.id,
           businessName: lead.business_name,
           emailSentCount: lead.email_sent_count || 0,
           firstMessage: summary?.recommended_first_message,

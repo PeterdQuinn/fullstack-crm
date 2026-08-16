@@ -25,6 +25,14 @@ function page(title: string, body: string, status = 200) {
   );
 }
 
+// Accept both param names: the email footer emits `lead_id`, while older links
+// already in recipients' inboxes use `lead`. Both must keep working forever —
+// an unsubscribe link that 400s is a compliance problem, not a cosmetic one.
+function leadIdFrom(req: NextRequest): string | null {
+  const q = req.nextUrl.searchParams;
+  return q.get("lead_id") || q.get("lead");
+}
+
 async function unsubscribe(leadId: string | null) {
   if (!leadId) {
     return page("Invalid link", "This unsubscribe link is missing its identifier.", 400);
@@ -67,10 +75,10 @@ async function unsubscribe(leadId: string | null) {
 
 // Most email clients follow the link with a GET.
 export async function GET(req: NextRequest) {
-  return unsubscribe(req.nextUrl.searchParams.get("lead"));
+  return unsubscribe(leadIdFrom(req));
 }
 
 // List-Unsubscribe-Post / one-click unsubscribers use POST.
 export async function POST(req: NextRequest) {
-  return unsubscribe(req.nextUrl.searchParams.get("lead"));
+  return unsubscribe(leadIdFrom(req));
 }

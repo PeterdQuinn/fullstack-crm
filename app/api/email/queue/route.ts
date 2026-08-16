@@ -38,6 +38,7 @@ export async function GET() {
       .not("email", "is", null)
       .neq("email", "")
       .lt("email_sent_count", 3)
+      .is("archived_at", null)
       .gt("lead_ai_summaries.lead_score", 50)
       .in("status", [
         "New",
@@ -58,6 +59,7 @@ export async function GET() {
         ? lead.lead_ai_summaries[0]
         : lead.lead_ai_summaries;
       const email = renderOutreachEmail({
+        leadId: lead.id,
         businessName: lead.business_name,
         emailSentCount: lead.email_sent_count || 0,
         firstMessage: summary?.recommended_first_message,

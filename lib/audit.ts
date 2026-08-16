@@ -23,19 +23,24 @@ export async function logStatusChange(opts: {
   to?: string | null;
   source: AuditSource;
   field?: string; // defaults to "status"
+  reason?: string | null; // optional free-text explanation
 }): Promise<void> {
-  const { leadId, from = null, to = null, source, field = "status" } = opts;
+  const { leadId, from = null, to = null, source, field = "status", reason = null } = opts;
 
   // Nothing actually changed — don't record a no-op row.
   if (from === to) return;
 
   try {
+    // Column names match migrations/002_status_audit_log.sql. Databases created
+    // before that file was canonicalized need 006_status_audit_log_rename.sql,
+    // otherwise these inserts fail (silently — see the catch below).
     const { error } = await supabase.from("status_audit_log").insert({
       lead_id: leadId,
-      source,
+      changed_by: source,
       field_changed: field,
-      old_value: from === undefined ? null : from,
-      new_value: to === undefined ? null : to,
+      old_status: from === undefined ? null : from,
+      new_status: to === undefined ? null : to,
+      reason,
     });
     if (error) console.warn("status_audit_log insert failed (non-fatal):", error.message);
   } catch (err) {

@@ -71,6 +71,7 @@ export async function GET(req: NextRequest) {
       .from("leads")
       .select("*")
       .eq("status", "New")
+      .is("archived_at", null)
       .order("created_at", { ascending: true })
       .limit(BATCH * 40);
     if (poolError) {
@@ -116,6 +117,7 @@ export async function GET(req: NextRequest) {
         // Step 2: Score with AI
         console.log(`Scoring ${lead.business_name}...`);
         const score = await scoreLead({
+          id: lead.id,
           business_name: lead.business_name,
           owner_name: lead.owner_name,
           industry: lead.industry,
@@ -140,9 +142,15 @@ export async function GET(req: NextRequest) {
           scored++;
         }
 
-        // Step 3: Update lead status based on score
+        // Step 3: Update lead status based on score.
+        // Threshold aligned to 50 — the same bar as SCORE_KEEP_THRESHOLD in
+        // lib/automation.ts and the `score > 50` gate on every send path. At
+        // the old >60 a lead could be kept by the automation phase yet never
+        // promoted to "Ready for Outreach" here, so it sat unsendable forever.
+        // Both statuses below are permitted by leads_status_check (see
+        // migrations/003_leads_status_constraint.sql).
         const leadScore = score?.lead_score || 50;
-        const newStatus = leadScore > 60 ? "Ready for Outreach" : "Scored";
+        const newStatus = leadScore >= 50 ? "Ready for Outreach" : "Scored";
         await supabase.from("leads").update({ status: newStatus }).eq("id", lead.id);
       } catch (error) {
         console.error(`Failed to process ${lead.business_name}:`, error);

@@ -59,6 +59,7 @@ export async function GET(req: NextRequest) {
       .not("email", "is", null)
       .neq("email", "")
       .lt("email_sent_count", 3)
+      .is("archived_at", null)
       .in("status", ["Ready for Outreach", "Email 1 Sent", "Email 2 Sent"])
       .limit(remaining);
 
@@ -90,6 +91,7 @@ export async function GET(req: NextRequest) {
         if (emailNum > 3) continue;
 
         const { subject, html, bodyText } = renderOutreachEmail({
+          leadId: lead.id,
           businessName: lead.business_name,
           emailSentCount: lead.email_sent_count || 0,
           firstMessage: summary?.recommended_first_message,

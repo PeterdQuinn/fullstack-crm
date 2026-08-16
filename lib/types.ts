@@ -39,14 +39,50 @@ export interface Lead {
   updated_at: string;
 }
 
+// MUST stay in sync with the leads_status_check CHECK constraint in
+// supabase/schema.sql and migrations/003_leads_status_constraint.sql.
+// This union previously listed 7 of the 29 permitted values, so most statuses
+// the app actually writes ("Ready for Outreach", "Email 1 Sent",
+// "Booking Link Sent", "Do Not Contact", ...) were type errors waiting to
+// happen and every consumer had to cast around it.
 export type LeadStatus =
+  // Pre-outreach / discovery
   | "New"
+  | "Needs Data"
+  | "Bad Data"
+  | "Ready for AI Summary"
+  | "Scored"
+  | "Ready for Outreach"
+  // Email sequence
+  | "Email 1 Sent"
+  | "Email 2 Sent"
+  | "Email 3 Sent"
+  | "Bad Email"
+  // DM sequence
+  | "DM Needed"
+  | "DM Sent"
+  // Calling
+  | "Call Needed"
   | "Called"
   | "No Answer"
+  // Follow-up
   | "Follow-Up"
+  | "Follow-Up Scheduled"
+  | "Needs Follow-Up"
+  // Reply handling / booking
+  | "Replied"
   | "Interested"
+  | "Booking Link Sent"
   | "Booked"
-  | "Dead";
+  // Post-booking
+  | "Onboarding Sent"
+  | "Onboarding Completed"
+  // Terminal
+  | "Won"
+  | "Lost"
+  | "Dead"
+  | "No Response"
+  | "Do Not Contact";
 
 export type CallOutcome =
   | "No answer"
@@ -88,8 +124,16 @@ export interface Appointment {
   created_at: string;
 }
 
+// Every value the DB permits, in pipeline order. Drives the status dropdowns.
 export const LEAD_STATUSES: LeadStatus[] = [
-  "New", "Called", "No Answer", "Follow-Up", "Interested", "Booked", "Dead"
+  "New", "Needs Data", "Bad Data", "Ready for AI Summary", "Scored", "Ready for Outreach",
+  "Email 1 Sent", "Email 2 Sent", "Email 3 Sent", "Bad Email",
+  "DM Needed", "DM Sent",
+  "Call Needed", "Called", "No Answer",
+  "Follow-Up", "Follow-Up Scheduled", "Needs Follow-Up",
+  "Replied", "Interested", "Booking Link Sent", "Booked",
+  "Onboarding Sent", "Onboarding Completed",
+  "Won", "Lost", "Dead", "No Response", "Do Not Contact",
 ];
 
 export const CALL_OUTCOMES: CallOutcome[] = [

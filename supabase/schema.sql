@@ -48,6 +48,24 @@ create table if not exists leads (
   contact_basis text,
   contact_basis_logged_at timestamptz,
   email_sent_count integer default 0,
+  -- ── Columns that existed in the LIVE database but were never in this file ──
+  -- Verified against the running project 2026-08-15. Deploying schema.sql alone
+  -- produced a `leads` table missing all 12, so e.g. lib/reply-actions.ts
+  -- (which writes calendly_link_sent) worked in prod and broke on a fresh
+  -- install. See migrations/005_leads_missing_columns.sql, which adds them to
+  -- any database created before this was reconciled.
+  calendly_link_sent boolean default false,  -- set when the Calendly link email goes out
+  assigned_to text,                          -- rep/owner the lead is assigned to
+  priority text,                             -- manual triage priority
+  source text,                               -- where the lead came from (google_places, overpass, csv, ...)
+  tags text[],                               -- free-form operator tags
+  transcript text,                           -- call transcript / long-form notes
+  zip text,                                  -- separate from postal_code (legacy import field)
+  pain_point text,                           -- confirmed pain point (call-derived, not AI-guessed)
+  google_rating numeric,                     -- Google Places star rating
+  google_review_count integer,               -- Google Places review count
+  employee_count integer,                    -- numeric form of `employees`
+  how_they_get_clients text,                 -- discovery answer: current acquisition channel
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

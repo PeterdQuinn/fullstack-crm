@@ -1,8 +1,8 @@
 # Full Stack Services LLC — Internal Sales CRM
 
-Single-page internal outbound sales CRM dashboard. One link. One rep. Upload leads, call owners, follow a guided script, log everything, book meetings to Google Calendar.
+Internal outbound sales CRM. One link, one rep. Leads are **discovered automatically** (HVAC only) from Google Places + OpenStreetMap, AI-scored, emailed, and booked — with a manual call/DM workflow on top.
 
-**37 leads pre-loaded and ready to call.**
+**Leads come from the Discovery pipeline, not a pre-loaded file.**
 
 ---
 
@@ -14,7 +14,7 @@ npm run dev
 open http://localhost:3000
 ```
 
-Works immediately in **Local Mode** — no database needed to start. All 37 leads are pre-loaded.
+Supabase is required — lead discovery, scoring and outreach all read and write the database.
 
 ---
 
@@ -30,26 +30,27 @@ NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 ```
 
-5. Restart `npm run dev` — the dashboard will auto-seed all 37 leads into Supabase
+5. Also run every file in `supabase/migrations/` in order (001 → 007)
+6. Restart `npm run dev` and open **/crm/discovery** to pull your first HVAC leads
 
 ---
 
-## Connect Google Calendar (Meeting Booking)
+## Meeting Booking (Calendly)
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a project → Enable **Google Calendar API**
-3. Create **OAuth 2.0 credentials** (Desktop app)
-4. Use the [Google OAuth Playground](https://developers.google.com/oauthplayground/) to get a refresh token with `calendar.events` scope
-5. Add to `.env.local`:
+Booking runs through a single Calendly link — no Google Calendar OAuth, no
+refresh tokens, no custom free/busy code. Calendly is already connected to the
+owner's calendar, so it creates the event on both sides itself.
 
-```
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_REFRESH_TOKEN=your-refresh-token
-GOOGLE_CALENDAR_ID=primary
+The link lives in `lib/reply-actions.ts`:
+
+```ts
+export const CALENDLY_LINK =
+  "https://calendly.com/fullstackservicesllc/full-stack-meeting";
 ```
 
-6. Now when the rep books a meeting, it appears on Peter Quinn's Google Calendar
+When a reply is classified **Interested**, the CRM automatically emails that
+link and moves the lead to `Booking Link Sent`. To change the link, edit that
+constant.
 
 ---
 
@@ -79,15 +80,22 @@ Then go to [vercel.com/new](https://vercel.com/new), import the repo, add your e
 
 ### Lead Statuses
 
+29 statuses are permitted — see the `leads_status_check` constraint in
+`supabase/schema.sql` and the `LeadStatus` union in `lib/types.ts` (they must
+stay in sync). The main path:
+
 | Status | Meaning |
 |--------|---------|
-| New | Not yet contacted |
-| Called | Spoke with someone |
-| No Answer | No pickup |
-| Follow-Up | Scheduled callback |
-| Interested | Warm lead |
-| Booked | Meeting scheduled |
-| Dead | Not interested |
+| New | Discovered, not yet scored |
+| Scored | Scored below the outreach bar (50) |
+| Ready for Outreach | Scored ≥ 50 — eligible for automated email |
+| Email 1/2/3 Sent | Position in the 3-touch sequence |
+| Replied | Reply received, awaiting classification |
+| Booking Link Sent | Classified Interested — Calendly link emailed |
+| Booked | Meeting on the calendar |
+| Follow-Up Scheduled | Unclear reply — follow-up task queued |
+| Do Not Contact | Opted out, complained, or classified Not Interested |
+| Bad Email | Hard bounce |
 
 ### KPI Bar
 
@@ -95,9 +103,16 @@ Tracks total leads, new leads, called today, follow-ups due, booked meetings, an
 
 ---
 
-## Import More Leads
+## Getting Leads
 
-Click **Import Leads** in the header. Upload any CSV with columns like `business_name`, `owner_name`, `phone`, `website`, `address`, `niche`. Duplicates are automatically skipped.
+**Discovery (primary).** `/crm/discovery` runs the HVAC pipeline: Google Places
+(hard-capped at 20 requests/week, enforced in the database) + OpenStreetMap
+Overpass (free), AI-deduplicated, then imported. Search terms and target metros
+live in `lib/discovery-sources.ts`.
+
+**CSV import (secondary).** Click **Import Leads** in the header. Any CSV with
+`business_name`, `owner_name`, `phone`, `website`, `address`, `niche`.
+Duplicates are skipped.
 
 ---
 
@@ -105,17 +120,25 @@ Click **Import Leads** in the header. Upload any CSV with columns like `business
 
 - **Next.js 14** — App Router
 - **Supabase** — Postgres database
-- **Google Calendar API** — Meeting booking
+- **Calendly** — Meeting booking
+- **Resend** — Outbound email + delivery/bounce webhooks
+- **Google Places + OSM Overpass** — Lead discovery
 - **Tailwind CSS** — Styling
 - **TypeScript** — Type safety
 - **Vercel** — Deployment
 
 ---
 
-## Pre-loaded Leads
+## AI Providers
 
-**20 local Mesa/Gilbert/Tempe landscaping companies** with verified phone numbers.
+Every AI task (reply classification, lead scoring, email drafting, discovery
+cleanup) runs through one ordered fallback chain defined in
+`lib/ai-providers.ts`:
 
-**17 national landscaping companies** with known software (Jobber, Housecall Pro, Service Autopilot, LMN, Aspire, SingleOps, GorillaDesk, Real Green).
+**Ollama → Groq → Gemini → Anthropic → Kablewy**
 
-Total: **37 leads ready to call.**
+A provider with no API key is skipped rather than failing the chain. Order is
+overridable per task via `CLASSIFIER_PROVIDERS`, `SCORING_PROVIDERS`,
+`DRAFT_PROVIDERS`, `CLEANUP_PROVIDERS`.
+
+Check them with `npm run ai:health`.
