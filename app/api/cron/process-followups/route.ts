@@ -19,15 +19,24 @@ export const maxDuration = 120;
 
 // Health check — lets you open the URL in a browser and see JSON instead of a 405.
 // This does NOT run the job or send any emails; the actual work is POST-only below.
-export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    route: "/api/cron/process-followups",
-    method: "POST",
-    auth: "Authorization: Bearer <CRON_SECRET>",
-    note: "This endpoint runs on POST only. Trigger it from cron-job.org or curl, not a browser.",
-    cron_secret_configured: Boolean(process.env.CRON_SECRET),
-  });
+// GET is what Vercel Cron sends. An UNAUTHENTICATED GET returns the browser
+// health check; an AUTHENTICATED GET runs the job. The old GET was
+// health-check-only, so a Vercel Cron aimed here would have returned 200 and
+// sent no follow-ups at all — a green check with nothing behind it.
+export async function GET(req: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET;
+  const authed = !!cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`;
+
+  if (!authed) {
+    return NextResponse.json({
+      status: "ok",
+      route: "/api/cron/process-followups",
+      methods: "GET or POST with Authorization: Bearer <CRON_SECRET> runs the job",
+      note: "Unauthenticated GET is this health check and does NOT send anything.",
+      cron_secret_configured: Boolean(cronSecret),
+    });
+  }
+  return POST(req);
 }
 
 export async function POST(req: NextRequest) {

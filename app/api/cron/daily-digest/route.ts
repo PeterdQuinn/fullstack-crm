@@ -15,6 +15,25 @@ function countHead(query: any): Promise<number> {
   return query.then((r: any) => r.count || 0);
 }
 
+// Vercel Cron sends GET. Unauthenticated GET is a health check; authenticated
+// GET runs the digest and sends it via Resend.
+export async function GET(req: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET;
+  const authed = !!cronSecret && req.headers.get("authorization") === `Bearer ${cronSecret}`;
+
+  if (!authed) {
+    return NextResponse.json({
+      status: "ok",
+      route: "/api/cron/daily-digest",
+      methods: "GET or POST with Authorization: Bearer <CRON_SECRET> sends the digest",
+      note: "Unauthenticated GET is this health check and sends no email.",
+      cron_secret_configured: Boolean(cronSecret),
+      delivers_to: DIGEST_TO,
+    });
+  }
+  return POST(req);
+}
+
 export async function POST(req: NextRequest) {
   // Same auth as process-followups.
   const cronSecret = process.env.CRON_SECRET;

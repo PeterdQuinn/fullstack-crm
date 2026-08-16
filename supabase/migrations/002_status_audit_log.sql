@@ -42,8 +42,9 @@ create index if not exists idx_status_audit_log_lead_id on status_audit_log(lead
 create index if not exists idx_status_audit_log_changed_at on status_audit_log(changed_at desc);
 create index if not exists idx_status_audit_log_lead_changed
   on status_audit_log(lead_id, changed_at desc);
--- Supports the "what did automation do vs. the owner" split in reporting.
-create index if not exists idx_status_audit_log_changed_by on status_audit_log(changed_by);
+-- NOTE: no index on changed_by here. Against the live database this file is a
+-- no-op `create table if not exists` and the column is still named `source`, so
+-- indexing changed_by would fail with 42703. 006 renames it and creates it.
 
 alter table status_audit_log enable row level security;
 

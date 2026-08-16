@@ -1,0 +1,87 @@
+name: CRM Pipeline
+
+# External scheduler for the CRM's cron routes.
+#
+# WHY THIS EXISTS: Vercel's built-in cron is capped at 2 jobs, once-daily, on the
+# Hobby plan — which processes 3 leads/day and would take ~114 days to clear the
+# backlog. These routes are plain HTTP endpoints guarded by CRON_SECRET, so any
+# scheduler can drive them. Firing small batches frequently also sidesteps the
+# 60s serverless function limit entirely.
+#
+# SETUP (one time):
+#   1. Repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+#        CRON_SECRET  = the value from the Vercel project's env vars
+#        APP_URL      = https://fullstack-crm-nine.vercel.app
+#   2. Commit this file. Actions runs it automatically.
+#   3. Actions tab -> "CRM Pipeline" -> "Run workflow" to trigger manually.
+#
+# NOTE: GitHub disables scheduled workflows after 60 days of repo inactivity,
+# and scheduled runs can be delayed by several minutes under platform load.
+# Neither matters for this pipeline, but don't treat the timing as exact.
+
+on:
+  schedule:
+    # Order matters: enrich fills in missing emails BEFORE scoring runs, so a
+    # lead is not archived by the completeness gate for a field enrichment was
+    # about to supply.
+    - cron: "5,25,45 * * * *"   # enrich-leads       — every 20 min, offset :05
+    - cron: "15,45 * * * *"     # process-discovered — every 30 min
+    - cron: "0,30 * * * *"      # automation         — every 30 min (scrape+score+send)
+    - cron: "10 * * * *"        # process-followups  — hourly
+    - cron: "0 14 * * *"        # daily-digest       — 14:00 UTC (07:00 PT)
+  workflow_dispatch:
+    inputs:
+      route:
+        description: "Run a single route now"
+        required: true
+        default: automation
+        type: choice
+        options: [automation, enrich-leads, process-discovered-leads, process-followups, daily-digest]
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Select routes for this trigger
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "routes=${{ inputs.route }}" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ github.event.schedule }}" in
+              "5,25,45 * * * *") echo "routes=enrich-leads" >> "$GITHUB_OUTPUT" ;;
+              "15,45 * * * *")   echo "routes=process-discovered-leads" >> "$GITHUB_OUTPUT" ;;
+              "0,30 * * * *")    echo "routes=automation" >> "$GITHUB_OUTPUT" ;;
+              "10 * * * *")      echo "routes=process-followups" >> "$GITHUB_OUTPUT" ;;
+              "0 14 * * *")      echo "routes=daily-digest" >> "$GITHUB_OUTPUT" ;;
+              *)                 echo "routes=" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Trigger route
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          ROUTE="${{ steps.pick.outputs.routes }}"
+          [ -n "$ROUTE" ] || { echo "No route mapped to this trigger"; exit 0; }
+
+          echo "→ GET $APP_URL/api/cron/$ROUTE"
+          CODE=$(curl -sS -o body.json -w '%{http_code}' --max-time 300 \
+                   -H "Authorization: Bearer $CRON_SECRET" \
+                   "$APP_URL/api/cron/$ROUTE")
+
+          echo "HTTP $CODE"
+          cat body.json; echo
+
+          # A 200 alone is NOT success: the unauthenticated health check on some
+          # routes also returns 200. Treat a health-check shape as a failure so a
+          # broken secret can never look like a working job.
+          if [ "$CODE" != "200" ]; then
+            echo "::error::$ROUTE returned HTTP $CODE"; exit 1
+          fi
+          if grep -q '"note".*health check' body.json; then
+            echo "::error::$ROUTE returned the health check — CRON_SECRET is wrong or missing"; exit 1
+          fi
+          echo "✓ $ROUTE completed"
