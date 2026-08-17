@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { looksLikeRealEmail } from "@/lib/email-validation";
 
 // Shared lead-enrichment batch logic, callable in-process from the admin route
 // (manual) or the cron route (automated). Scrapes each lead's website via the
@@ -71,7 +72,7 @@ export async function enrichLeadsBatch(batchSize = 3): Promise<EnrichResult> {
       const s = await scrapeLeadData(lead);
 
       const updates: any = {};
-      if (s.email && !lead.email && !JUNK_EMAIL.test(s.email)) { updates.email = s.email; result.emailsFound++; }
+      if (s.email && !lead.email && !JUNK_EMAIL.test(s.email) && looksLikeRealEmail(s.email)) { updates.email = s.email; result.emailsFound++; }
       if (s.phone && !lead.phone) updates.phone = s.phone;
       if (s.owner && !lead.owner_name) updates.owner_name = s.owner;
       if (s.current_software && !lead.current_software) updates.current_software = s.current_software;

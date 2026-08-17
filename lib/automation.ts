@@ -4,6 +4,7 @@ import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
+import { rejectionReason } from "@/lib/email-validation";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -444,6 +445,21 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       const score = summary?.lead_score || 0;
 
       if (score < SCORE_SEND_THRESHOLD || !lead.email) {
+        skipped++;
+        continue;
+      }
+
+      // Never mail an address the scraper invented. A 20% bounce rate on the
+      // first live batch traced entirely to fabricated addresses (`@2x.png`
+      // image refs, Sentry hosts, percent-encoded fragments). Mark them so the
+      // lead is excluded permanently rather than retried next run.
+      const badAddress = await rejectionReason(lead.email);
+      if (badAddress) {
+        console.warn(`Skipping ${lead.business_name}: ${lead.email} — ${badAddress}`);
+        await supabase.from("leads")
+          .update({ status: "Bad Email", updated_at: new Date().toISOString() })
+          .eq("id", lead.id);
+        await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: "Bad Email", source: "automation", reason: badAddress });
         skipped++;
         continue;
       }
