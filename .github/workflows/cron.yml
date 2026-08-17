@@ -26,9 +26,13 @@ on:
     # about to supply.
     - cron: "5,25,45 * * * *"   # enrich-leads       — every 20 min, offset :05
     - cron: "15,45 * * * *"     # process-discovered — every 30 min
-    - cron: "0,30 * * * *"      # automation         — every 30 min (scrape+score+send)
-    - cron: "10 * * * *"        # process-followups  — hourly
-    - cron: "0 14 * * *"        # daily-digest       — 14:00 UTC (07:00 PT)
+    - cron: "0 14 * * *"        # daily-digest       — 14:00 UTC (07:00 PT), owner-only email
+    #
+    # PAUSED — these two send mail to LEADS, and the schedule only started
+    # working in c5be015. Un-comment to arm outreach; both remain available via
+    # workflow_dispatch in the meantime.
+    # - cron: "0,30 * * * *"    # automation         — every 30 min (scrape+score+SEND)
+    # - cron: "10 * * * *"      # process-followups  — hourly (SENDS follow-ups)
   workflow_dispatch:
     inputs:
       route:
