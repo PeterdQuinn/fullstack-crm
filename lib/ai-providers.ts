@@ -476,7 +476,11 @@ export const CHAINS = {
   },
   scoring: {
     envVar: "SCORING_PROVIDERS",
-    defaults: ROSTER,
+    // Kablewy first, Ollama immediately behind it, per operator request.
+    // NOTE: Kablewy's configured host does not resolve (see callKablewy), so in
+    // practice it fails instantly on DNS and Ollama does the real work. The
+    // failure is measured at ~0ms, so it costs nothing inside the 60s budget.
+    defaults: ["Kablewy", "Ollama", "Groq", "Gemini", "Anthropic"],
     description: "Lead scoring — more reasoning, lower volume",
   },
   drafting: {

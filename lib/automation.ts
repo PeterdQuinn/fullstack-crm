@@ -40,9 +40,21 @@ const REQUIRED_FIELDS = ["business_name", "email", "phone"] as const;
 // Real (non-fallback) scores strictly below this are deleted.
 // Lowered 80 -> 50: with the old prompt every real score landed in the 10-35
 // band, so an 80 bar deleted essentially every lead the moment the phase ran.
-// 50 keeps the pipeline flowing and matches the score > 50 gate that every
-// send path already uses, so a kept lead is by definition a sendable one.
+// 50 keeps the pipeline flowing. NOTE: a kept lead is NOT automatically a
+// sendable one — see SCORE_SEND_THRESHOLD.
 const SCORE_KEEP_THRESHOLD = 50;
+// Minimum score to actually EMAIL a lead. Deliberately one above the keep
+// threshold, because 50 is the exact value lib/ai-scoring.ts writes when EVERY
+// provider fails (`provider: "fallback"`). The two gates previously read
+// `>= 50` to keep and `> 50` to send with no constant naming the gap, so leads
+// stuck at the fallback value were retained forever and silently never mailed.
+// The gap is real and intentional — a fallback 50 means "never evaluated", and
+// mailing an unevaluated lead is worse than not mailing it — but it is now
+// named and documented instead of being an accident of two magic numbers.
+// lead_ai_summaries has no `provider` column, so a fallback 50 cannot be
+// distinguished from a genuine 50 after the fact; excluding 50 is the only
+// safe test available.
+const SCORE_SEND_THRESHOLD = SCORE_KEEP_THRESHOLD + 1;
 
 // Only these statuses are eligible for an automated outreach email. A lead that
 // has replied, been sent a booking link, booked, or reached a terminal state
@@ -431,7 +443,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         : lead.lead_ai_summaries;
       const score = summary?.lead_score || 0;
 
-      if (score <= 50 || !lead.email) {
+      if (score < SCORE_SEND_THRESHOLD || !lead.email) {
         skipped++;
         continue;
       }
