@@ -7,7 +7,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export const maxDuration = 300;
+// Hobby caps function execution at 60s regardless of a higher value here —
+// declaring 300 did not buy 300, it just hid the ceiling. Batch sizes below
+// are tuned to finish inside this window.
+export const maxDuration = 60;
 
 async function scrapeLeadData(lead: any) {
   try {
@@ -18,6 +21,7 @@ async function scrapeLeadData(lead: any) {
         website: lead.website || undefined,
         business_name: lead.business_name,
         city: lead.city || "",
+        fast: true, // static-only scrape; a headless-browser pass per lead blew the 60s cap
       }),
     });
     return await res.json();
@@ -56,7 +60,9 @@ export async function GET(req: NextRequest) {
     // already-scored lead ids first, then over-fetch and filter in JS. Fetching
     // a plain page and filtering would risk a page that is entirely scored,
     // which would no-op forever without ever reaching the unscored backlog.
-    const BATCH = 10;
+    // 10 full scrapes + LLM scores could not complete in 60s and the run hung
+    // until curl gave up at 300s. Matches SCRAPE_BATCH/SCORE_BATCH in lib/automation.ts.
+    const BATCH = 3;
 
     const { data: scoredRows, error: scoredError } = await supabase
       .from("lead_ai_summaries")

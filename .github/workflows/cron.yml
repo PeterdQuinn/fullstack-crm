@@ -80,7 +80,7 @@ jobs:
           [ -n "${CRON_SECRET:-}" ] || { echo "::error::CRON_SECRET secret is empty"; exit 1; }
 
           echo "→ GET $APP_URL/api/cron/$ROUTE"
-          CODE=$(curl -sS -o body.json -w '%{http_code}' --max-time 300 \
+          CODE=$(curl -sS -o body.json -w '%{http_code}' --max-time 90 \
                    -H "Authorization: Bearer $CRON_SECRET" \
                    "$APP_URL/api/cron/$ROUTE")
 
