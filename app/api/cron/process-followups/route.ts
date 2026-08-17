@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
-import { renderOutreachEmail } from "@/lib/email-templates";
+import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
 
 const supabase = createClient(
@@ -87,6 +87,12 @@ export async function POST(req: NextRequest) {
       skipped: 0,
       errors: [] as Array<{ taskId: string; leadId: string | null; error: string }>,
     };
+
+    const blocked = sendBlockedReason();
+    if (blocked) {
+      console.error(blocked);
+      return NextResponse.json({ success: false, sent: 0, blocked }, { status: 409 });
+    }
 
     for (const task of tasks) {
       results.processed++;

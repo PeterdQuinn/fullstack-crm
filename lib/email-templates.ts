@@ -11,8 +11,32 @@
 // the lead's id, and the STOP line remains as the fallback when we don't.
 
 export const COMPANY_NAME = "Full Stack Services LLC";
+
+// Visible signature line. Deliberately a service-area tagline, NOT a street
+// address — the legally required postal address lives in the footer below.
+export const COMPANY_LOCATION_TAGLINE =
+  "Serving the greater Phoenix metro area and beyond.";
+
+// CAN-SPAM §7704(a)(5) requires a real physical postal address in every
+// commercial message. A PO box is pending, so this is intentionally a
+// placeholder and NOT a guess — an invented address is itself a violation.
+// `mailingAddressConfigured()` gates every lead-facing send until it is set.
+export const MAILING_ADDRESS_PLACEHOLDER = "[MAILING ADDRESS]";
 export const COMPANY_MAILING_ADDRESS =
-  process.env.COMPANY_MAILING_ADDRESS || "535 E Southern Ave Ste 6, Mesa, AZ 85204";
+  process.env.COMPANY_MAILING_ADDRESS?.trim() || MAILING_ADDRESS_PLACEHOLDER;
+
+/** False while the postal address is still the placeholder. Blocks sends. */
+export function mailingAddressConfigured(): boolean {
+  return COMPANY_MAILING_ADDRESS !== MAILING_ADDRESS_PLACEHOLDER;
+}
+
+/** Reason string for a blocked send, or null when sending is permitted. */
+export function sendBlockedReason(): string | null {
+  return mailingAddressConfigured()
+    ? null
+    : `CAN-SPAM: COMPANY_MAILING_ADDRESS is still ${MAILING_ADDRESS_PLACEHOLDER}. Set it before sending.`;
+}
+
 export const UNSUBSCRIBE_LINE = "Reply STOP to unsubscribe from future emails.";
 
 /**
@@ -107,7 +131,7 @@ function outreachBodyParagraphs(ownerName: string): string[] {
     `You can click around a live HVAC dashboard we built here: ${DEMO_URL}`,
     `If you're doing 10+ jobs a month, a 30-minute call is worth it — free, no pitch. I'll look at what you're paying now, tell you exactly which tools to cancel, and give you a real build number before we hang up. If it doesn't make sense to build, I'll tell you that too.`,
     `Grab a time here: ${CALENDLY_URL}`,
-    `— Peter\nFull Stack Services LLC\nPhoenix, AZ · fullstackservicesllc.net`,
+    `— Peter\nFull Stack Services LLC\n${COMPANY_LOCATION_TAGLINE}\nfullstackservicesllc.net`,
   ];
 }
 

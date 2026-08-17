@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
-import { renderOutreachEmail } from "@/lib/email-templates";
+import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
@@ -340,6 +340,13 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
 
   // PHASE 3: SEND — email high-score leads, up to SEND_CAP_PER_RUN per run.
   if (phase === "send") {
+    // Hard stop: never mail a lead while the CAN-SPAM postal address is still
+    // the placeholder. This is a legal requirement, not a formatting detail.
+    const blocked = sendBlockedReason();
+    if (blocked) {
+      console.error(blocked);
+      return { phase, sent: 0, skipped: 0, emailed: [], blocked } as any;
+    }
     // Per-run cap only (item 3): fetch at most SEND_CAP_PER_RUN candidates and
     // send however many qualify — no per-day tracking, no forced count.
     // Candidate query, shared by both passes below. `email` is required here,
@@ -365,14 +372,12 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       return q.limit(limit);
     };
 
-    // HVAC first — the touch-1 copy is written specifically for HVAC shops.
-    // Only once HVAC is exhausted does a run fall through to other industries.
+    // HVAC ONLY. The touch-1 copy opens "most HVAC shops are paying $300–500 a
+    // month", which reads as a mistake to a plumber or a lead with no industry
+    // set. There is no fall-through to other industries by design — the 23
+    // non-HVAC emailable leads need their own copy before they can be mailed.
     const { data: hvacLeads } = await candidates(true, SEND_CAP_PER_RUN);
-    let leads = hvacLeads || [];
-    if (leads.length < SEND_CAP_PER_RUN) {
-      const { data: rest } = await candidates(false, SEND_CAP_PER_RUN - leads.length);
-      leads = leads.concat(rest || []);
-    }
+    const leads = hvacLeads || [];
 
     let sent = 0;
     let skipped = 0;
