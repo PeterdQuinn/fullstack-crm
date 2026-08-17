@@ -25,16 +25,25 @@ export const MAILING_ADDRESS_PLACEHOLDER = "[MAILING ADDRESS]";
 export const COMPANY_MAILING_ADDRESS =
   process.env.COMPANY_MAILING_ADDRESS?.trim() || MAILING_ADDRESS_PLACEHOLDER;
 
-/** False while the postal address is still the placeholder. Blocks sends. */
+// A street address ("535 E Southern Ave") or a PO box ("PO Box 1234"). Checking
+// only for the placeholder was too weak: "Full Stack Services LLC, Mesa, AZ
+// 85201" — a company name and a city with no deliverable address — passed
+// happily, and a ZIP code alone does not satisfy CAN-SPAM's physical-address
+// requirement. This demands a street number or a PO box.
+const DELIVERABLE_ADDRESS = /(\bp\.?\s*o\.?\s*box\s*\d+)|(\b\d+\s+[A-Za-z])/i;
+
+/** False while the postal address is missing, placeholder, or undeliverable. */
 export function mailingAddressConfigured(): boolean {
-  return COMPANY_MAILING_ADDRESS !== MAILING_ADDRESS_PLACEHOLDER;
+  const a = COMPANY_MAILING_ADDRESS;
+  return a !== MAILING_ADDRESS_PLACEHOLDER && DELIVERABLE_ADDRESS.test(a);
 }
 
 /** Reason string for a blocked send, or null when sending is permitted. */
 export function sendBlockedReason(): string | null {
-  return mailingAddressConfigured()
-    ? null
-    : `CAN-SPAM: COMPANY_MAILING_ADDRESS is still ${MAILING_ADDRESS_PLACEHOLDER}. Set it before sending.`;
+  if (mailingAddressConfigured()) return null;
+  return COMPANY_MAILING_ADDRESS === MAILING_ADDRESS_PLACEHOLDER
+    ? `CAN-SPAM: COMPANY_MAILING_ADDRESS is still ${MAILING_ADDRESS_PLACEHOLDER}. Set it before sending.`
+    : `CAN-SPAM: COMPANY_MAILING_ADDRESS ("${COMPANY_MAILING_ADDRESS}") has no street address or PO box. A city and ZIP alone are not a valid physical postal address.`;
 }
 
 export const UNSUBSCRIBE_LINE = "Reply STOP to unsubscribe from future emails.";

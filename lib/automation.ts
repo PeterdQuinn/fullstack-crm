@@ -33,7 +33,7 @@ const SEND_CAP_PER_RUN = 100;
 // would still allow 12 x 48 = 576 sends/day. Counting what has already gone out
 // today makes the limit hold no matter how often the cron fires, how many runs
 // overlap, or how many times someone triggers it by hand.
-export const DAILY_SEND_CAP = 12;
+export const DAILY_SEND_CAP = 40;
 // A lead must have all of these (non-null, non-empty) to be scored. City/state
 // and other fields (socials, employees, founded_year, ...) may stay null.
 const REQUIRED_FIELDS = ["business_name", "email", "phone"] as const;
