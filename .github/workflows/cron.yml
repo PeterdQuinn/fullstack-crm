@@ -60,12 +60,20 @@ jobs:
 
       - name: Trigger route
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          # Accept either secret name. The repo secret was originally created as
+          # NEXT_PUBLIC_APP_URL, which resolved to empty against `secrets.APP_URL`
+          # and failed every run with "curl: (3) No host part in the URL". The
+          # literal is the last resort so a missing secret cannot silently
+          # reintroduce that failure.
+          APP_URL: ${{ secrets.APP_URL || secrets.NEXT_PUBLIC_APP_URL || 'https://fullstack-crm-nine.vercel.app' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           set -euo pipefail
           ROUTE="${{ steps.pick.outputs.routes }}"
           [ -n "$ROUTE" ] || { echo "No route mapped to this trigger"; exit 0; }
+
+          # Fail loudly on an unset secret rather than emitting a bare 401.
+          [ -n "${CRON_SECRET:-}" ] || { echo "::error::CRON_SECRET secret is empty"; exit 1; }
 
           echo "→ GET $APP_URL/api/cron/$ROUTE"
           CODE=$(curl -sS -o body.json -w '%{http_code}' --max-time 300 \
