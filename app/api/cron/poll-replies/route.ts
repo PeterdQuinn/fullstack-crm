@@ -104,8 +104,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Not configured is a SKIP, not a failure. This route is scheduled every 30
+  // minutes; returning a non-200 would make the workflow fail — and mail a
+  // failure notice — 48 times a day purely because an optional integration is
+  // not set up yet. The reason is still reported in the body and in the logs.
   const missing = graphMissingReason();
-  if (missing) return NextResponse.json({ success: false, error: missing }, { status: 503 });
+  if (missing) {
+    console.warn(`poll-replies skipped: ${missing}`);
+    return NextResponse.json({ success: true, skipped: missing, scanned: 0, matched: 0 });
+  }
 
   try {
     const unread = await fetchUnread(25);
