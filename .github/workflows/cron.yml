@@ -26,6 +26,7 @@ on:
     # about to supply.
     - cron: "5,25,45 * * * *"   # enrich-leads       — every 20 min, offset :05
     - cron: "15,45 * * * *"     # process-discovered — every 30 min
+    - cron: "20,50 * * * *"     # poll-replies       — every 30 min, pulls Outlook replies into the CRM
     - cron: "0 14 * * *"        # daily-digest       — 14:00 UTC (07:00 PT), owner-only email
     # ARMED — sends live outreach. Volume is bounded by DAILY_SEND_CAP (12/day,
     # counted from outreach_log), not by this cadence; the 30-min interval only
@@ -43,7 +44,7 @@ on:
         required: true
         default: automation
         type: choice
-        options: [automation, enrich-leads, process-discovered-leads, process-followups, daily-digest]
+        options: [automation, enrich-leads, process-discovered-leads, process-followups, daily-digest, poll-replies]
 
 jobs:
   run:
@@ -60,6 +61,7 @@ jobs:
               "15,45 * * * *")   echo "routes=process-discovered-leads" >> "$GITHUB_OUTPUT" ;;
               "0,30 * * * *")    echo "routes=automation" >> "$GITHUB_OUTPUT" ;;
               "10 * * * *")      echo "routes=process-followups" >> "$GITHUB_OUTPUT" ;;
+              "20,50 * * * *")   echo "routes=poll-replies" >> "$GITHUB_OUTPUT" ;;
               "0 14 * * *")      echo "routes=daily-digest" >> "$GITHUB_OUTPUT" ;;
               *)                 echo "routes=" >> "$GITHUB_OUTPUT" ;;
             esac
