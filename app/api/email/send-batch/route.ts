@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     // that made the button send 0 even when qualifying leads existed).
     const { data: leads, error } = await supabase
       .from("leads")
-      .select("id, business_name, email, status, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
+      .select("id, business_name, email, owner_name, status, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
       .eq("opt_out", false)
       .eq("bounced", false)
       .eq("complained", false)
@@ -84,6 +84,7 @@ export async function POST(req: NextRequest) {
       const { subject, html, bodyText } = renderOutreachEmail({
         leadId: lead.id,
         businessName: lead.business_name,
+        ownerName: (lead as any).owner_name,
         emailSentCount: lead.email_sent_count || 0,
         firstMessage: summary?.recommended_first_message,
         followUp: summary?.recommended_follow_up,

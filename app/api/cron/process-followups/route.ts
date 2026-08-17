@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
         const { data: lead, error: leadError } = await supabase
           .from("leads")
           .select(
-            `id, business_name, email, status, opt_out, email_sent_count,
+            `id, business_name, owner_name, email, status, opt_out, email_sent_count,
             lead_ai_summaries(recommended_first_message, recommended_follow_up, main_pain_point, lead_score)`
           )
           .eq("id", task.lead_id)
@@ -164,6 +164,7 @@ export async function POST(req: NextRequest) {
         const { subject, html, bodyText } = renderOutreachEmail({
           leadId: lead.id,
           businessName: lead.business_name,
+          ownerName: (lead as any).owner_name,
           emailSentCount: lead.email_sent_count || 0,
           firstMessage: summary?.recommended_first_message,
           followUp: summary?.recommended_follow_up,

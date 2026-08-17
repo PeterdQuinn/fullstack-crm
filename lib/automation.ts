@@ -342,23 +342,37 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
   if (phase === "send") {
     // Per-run cap only (item 3): fetch at most SEND_CAP_PER_RUN candidates and
     // send however many qualify — no per-day tracking, no forced count.
-    const { data: leads } = await supabase
-      .from("leads")
-      .select(
-        "id, business_name, email, city, state, status, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
-      )
-      .eq("opt_out", false)
-      .eq("bounced", false)
-      .eq("complained", false)
-      .not("email", "is", null)
-      .neq("email", "")
-      .lt("email_sent_count", 3)
-      // Status gate: without this, a lead sitting at "Booking Link Sent" or
-      // "Booked" with email_sent_count < 3 would be handed another COLD email,
-      // directly contradicting the reply automation that just moved it there.
-      .in("status", SENDABLE_STATUSES as unknown as string[])
-      .is("archived_at", null)
-      .limit(SEND_CAP_PER_RUN);
+    // Candidate query, shared by both passes below. `email` is required here,
+    // so phone-only leads are never even considered for a send.
+    const candidates = (hvacOnly: boolean, limit: number) => {
+      let q = supabase
+        .from("leads")
+        .select(
+          "id, business_name, email, city, state, status, owner_name, industry, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
+        )
+        .eq("opt_out", false)
+        .eq("bounced", false)
+        .eq("complained", false)
+        .not("email", "is", null)
+        .neq("email", "")
+        .lt("email_sent_count", 3)
+        // Status gate: without this, a lead sitting at "Booking Link Sent" or
+        // "Booked" with email_sent_count < 3 would be handed another COLD email,
+        // directly contradicting the reply automation that just moved it there.
+        .in("status", SENDABLE_STATUSES as unknown as string[])
+        .is("archived_at", null);
+      q = hvacOnly ? q.eq("industry", "HVAC") : q.or("industry.is.null,industry.neq.HVAC");
+      return q.limit(limit);
+    };
+
+    // HVAC first — the touch-1 copy is written specifically for HVAC shops.
+    // Only once HVAC is exhausted does a run fall through to other industries.
+    const { data: hvacLeads } = await candidates(true, SEND_CAP_PER_RUN);
+    let leads = hvacLeads || [];
+    if (leads.length < SEND_CAP_PER_RUN) {
+      const { data: rest } = await candidates(false, SEND_CAP_PER_RUN - leads.length);
+      leads = leads.concat(rest || []);
+    }
 
     let sent = 0;
     let skipped = 0;
@@ -385,6 +399,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       const rendered = renderOutreachEmail({
         leadId: lead.id,
         businessName: lead.business_name,
+        ownerName: (lead as any).owner_name,
         emailSentCount: lead.email_sent_count || 0,
         firstMessage: summary?.recommended_first_message,
         followUp: summary?.recommended_follow_up,

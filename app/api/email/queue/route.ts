@@ -29,7 +29,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("leads")
       .select(
-        "id, business_name, contact_name, email, status, email_sent_count, lead_ai_summaries!inner(lead_score, recommended_first_message, recommended_follow_up)"
+        "id, business_name, contact_name, owner_name, email, status, email_sent_count, lead_ai_summaries!inner(lead_score, recommended_first_message, recommended_follow_up)"
       )
       .eq("opt_out", false)
       .eq("bounced", false)
@@ -61,6 +61,7 @@ export async function GET() {
       const email = renderOutreachEmail({
         leadId: lead.id,
         businessName: lead.business_name,
+        ownerName: (lead as any).owner_name,
         emailSentCount: lead.email_sent_count || 0,
         firstMessage: summary?.recommended_first_message,
         followUp: summary?.recommended_follow_up,
