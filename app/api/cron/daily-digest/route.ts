@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
+import { DAILY_SEND_CAP } from "@/lib/automation";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
       opened,
       clicked,
       bounced,
+      complained,
       replies,
       meetings,
       suppressed,
@@ -73,6 +75,11 @@ export async function POST(req: NextRequest) {
       countHead(base().select("id", { count: "exact", head: true }).gte("opened_at", startIso).lt("opened_at", endIso)),
       countHead(base().select("id", { count: "exact", head: true }).gte("clicked_at", startIso).lt("clicked_at", endIso)),
       countHead(base().select("id", { count: "exact", head: true }).gte("bounced_at", startIso).lt("bounced_at", endIso)),
+      // Spam complaints are tracked separately from bounces: a complaint hurts
+      // domain reputation far more than a bad address, so during warm-up it
+      // needs its own line rather than being folded into "Bounced".
+      countHead(base().select("id", { count: "exact", head: true }).eq("status", "complained")
+        .gte("sent_at", startIso).lt("sent_at", endIso)),
       countHead(base().select("id", { count: "exact", head: true }).gte("replied_at", startIso).lt("replied_at", endIso)),
       countHead(
         supabase.from("appointments").select("id", { count: "exact", head: true })
@@ -101,7 +108,7 @@ export async function POST(req: NextRequest) {
     const dateLabel = end.toISOString().split("T")[0];
 
     const activity =
-      newLeads + leadsScored + emailsSent + opened + clicked + bounced + replies + meetings + suppressed;
+      newLeads + leadsScored + emailsSent + opened + clicked + bounced + complained + replies + meetings + suppressed;
     const quiet = activity === 0;
 
     const html = buildHtml({
@@ -118,9 +125,11 @@ export async function POST(req: NextRequest) {
       opened,
       clicked,
       bounced,
+      complained,
       replies,
       meetings,
       suppressed,
+      dailyCap: DAILY_SEND_CAP,
     });
 
     const subject = `CRM Daily Summary — ${dateLabel}`;
@@ -171,6 +180,8 @@ function buildHtml(d: {
   opened: number;
   clicked: number;
   bounced: number;
+  complained: number;
+  dailyCap: number;
   replies: number;
   meetings: number;
   suppressed: number;
@@ -201,14 +212,15 @@ function buildHtml(d: {
     ${section("Pipeline", row("New leads discovered", d.newLeads) + row("Leads scored", d.leadsScored))}
     ${section(
       "Outreach",
-      row("Emails sent", d.emailsSent) +
+      row(`Emails sent (cap ${d.dailyCap}/day)`, d.emailsSent) +
         row("Email 1 (initial)", d.email1, true) +
         row("Email 2 (follow-up)", d.email2, true) +
         row("Email 3 (follow-up)", d.email3, true)
     )}
     ${section(
       "Engagement",
-      row("Opened", d.opened) + row("Clicked", d.clicked) + row("Bounced", d.bounced) + row("Replies received", d.replies)
+      row("Opened", d.opened) + row("Clicked", d.clicked) + row("Bounced", d.bounced) +
+        row("Spam complaints", d.complained) + row("Replies received", d.replies)
     )}
     ${section("Outcomes", row("Meetings booked", d.meetings) + row("Do Not Contact / opted out", d.suppressed))}
     <p style="margin:28px 0 0;color:#bbb;font-size:11px;line-height:1.5;">

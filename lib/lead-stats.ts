@@ -35,6 +35,16 @@ export function phoenixDayIndex(iso?: string | null, ref: number = Date.now()): 
   return Math.floor((ms - PHX_OFFSET_MS) / 86_400_000);
 }
 
+/**
+ * ISO instant of the START of the current Phoenix day, for use as a `gte`
+ * filter in Supabase queries. Lets a caller count "what happened today" in the
+ * database rather than fetching rows and filtering in JS.
+ */
+export function phoenixDayStartIso(ref: number = Date.now()): string {
+  const startMs = phoenixDayIndex(null, ref) * 86_400_000 + PHX_OFFSET_MS;
+  return new Date(startMs).toISOString();
+}
+
 function phoenixWeekday(ref: number = Date.now()): number {
   // 0 = Sunday … 6 = Saturday, in Phoenix local time.
   return new Date(ref - PHX_OFFSET_MS).getUTCDay();

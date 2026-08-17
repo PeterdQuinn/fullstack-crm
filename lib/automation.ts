@@ -3,6 +3,7 @@ import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
+import { phoenixDayStartIso } from "@/lib/lead-stats";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -26,6 +27,13 @@ const SCRAPE_TIMEOUT_MS = 9000;
 const SCORE_BATCH = 3;
 // Max emails per run. Sends fewer if fewer qualify — never forces a number.
 const SEND_CAP_PER_RUN = 100;
+// Hard ceiling on outbound emails per Phoenix calendar day, counted from
+// outreach_log rather than tracked in memory. A per-RUN cap alone is not a
+// daily limit: automation is scheduled every 30 minutes, so a per-run cap of 12
+// would still allow 12 x 48 = 576 sends/day. Counting what has already gone out
+// today makes the limit hold no matter how often the cron fires, how many runs
+// overlap, or how many times someone triggers it by hand.
+export const DAILY_SEND_CAP = 12;
 // A lead must have all of these (non-null, non-empty) to be scored. City/state
 // and other fields (socials, employees, founded_year, ...) may stay null.
 const REQUIRED_FIELDS = ["business_name", "email", "phone"] as const;
@@ -372,11 +380,37 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       return q.limit(limit);
     };
 
+    // Daily cap, counted from the database so it survives restarts, overlapping
+    // runs and manual triggers. Every outbound email row written today counts,
+    // including ones that later bounced — the domain saw the send either way.
+    const dayStart = phoenixDayStartIso();
+    const { count: sentToday, error: countErr } = await supabase
+      .from("outreach_log")
+      .select("id", { count: "exact", head: true })
+      .eq("channel", "email")
+      .eq("direction", "outbound")
+      .gte("sent_at", dayStart);
+
+    // Fail CLOSED: if the count can't be read we cannot prove we're under the
+    // cap, and guessing risks torching the domain. Skip the run instead.
+    if (countErr) {
+      console.error("Daily send cap: count failed, skipping run —", countErr.message);
+      return { phase, sent: 0, skipped: 0, emailed: [], blocked: countErr.message } as any;
+    }
+
+    const alreadySent = sentToday || 0;
+    const remainingToday = DAILY_SEND_CAP - alreadySent;
+    if (remainingToday <= 0) {
+      console.log(`Daily send cap reached: ${alreadySent}/${DAILY_SEND_CAP} since ${dayStart}`);
+      return { phase, sent: 0, skipped: 0, emailed: [], cappedAt: DAILY_SEND_CAP, sentToday: alreadySent } as any;
+    }
+
     // HVAC ONLY. The touch-1 copy opens "most HVAC shops are paying $300–500 a
     // month", which reads as a mistake to a plumber or a lead with no industry
     // set. There is no fall-through to other industries by design — the 23
     // non-HVAC emailable leads need their own copy before they can be mailed.
-    const { data: hvacLeads } = await candidates(true, SEND_CAP_PER_RUN);
+    const fetchLimit = Math.min(SEND_CAP_PER_RUN, remainingToday);
+    const { data: hvacLeads } = await candidates(true, fetchLimit);
     const leads = hvacLeads || [];
 
     let sent = 0;
@@ -384,6 +418,14 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     const emailed: EmailedLead[] = [];
 
     for (const lead of leads || []) {
+      // Second line of defence: two runs overlapping could each read the same
+      // count before either writes. Stop the moment this run's own sends would
+      // cross the remaining allowance.
+      if (sent >= remainingToday) {
+        console.log(`Daily send cap hit mid-run at ${alreadySent + sent}/${DAILY_SEND_CAP}`);
+        break;
+      }
+
       const summary = Array.isArray(lead.lead_ai_summaries)
         ? lead.lead_ai_summaries[0]
         : lead.lead_ai_summaries;
