@@ -46,9 +46,13 @@ export async function POST(req: NextRequest) {
 
     if (action === "update_lead") {
       if (!body.id || !body.updates || typeof body.updates !== "object") return failure("Lead and updates are required", 400);
-      const { data: current, error: readError } = await supabase.from("leads").select("status").eq("id", body.id).single();
+      const { data: current, error: readError } = await supabase.from("leads").select("status, opt_out, bounced, complained").eq("id", body.id).single();
       if (readError) return failure("Lead was not found", 404);
       const { id: ignoredId, created_at: ignoredCreated, ...updates } = body.updates;
+      if ((current.opt_out || current.status === "Do Not Contact" || current.bounced || current.complained) &&
+          (updates.opt_out === false || updates.status && updates.status !== "Do Not Contact")) {
+        return failure("This lead is suppressed. Restore requires a dedicated reviewed action.", 409);
+      }
       const { error } = await supabase.from("leads").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", body.id);
       if (error) return failure("Could not update the lead");
       if (updates.status && updates.status !== current.status) {
@@ -60,6 +64,12 @@ export async function POST(req: NextRequest) {
     if (action === "add_call" || action === "add_note" || action === "add_appointment") {
       const table = action === "add_call" ? "call_logs" : action === "add_note" ? "lead_notes" : "appointments";
       if (!body.entry?.lead_id) return failure("Lead is required", 400);
+      if (action === "add_call") {
+        const { data: lead } = await supabase.from("leads").select("status, opt_out, bounced, complained").eq("id", body.entry.lead_id).maybeSingle();
+        if (!lead || lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) {
+          return failure("This lead is suppressed and cannot be contacted", 409);
+        }
+      }
       const { error } = await supabase.from(table).insert(body.entry);
       if (error) return failure("Could not save the activity");
       return NextResponse.json({ success: true });

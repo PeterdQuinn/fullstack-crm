@@ -57,6 +57,8 @@ export async function enrichLeadsBatch(batchSize = 3): Promise<EnrichResult> {
     .not("website", "is", null)
     .neq("website", "")
     .or("email.is.null,email.eq.")
+    .eq("opt_out", false)
+    .neq("status", "Do Not Contact")
     .is("archived_at", null)
     .order("updated_at", { ascending: true })
     .limit(Math.min(batchSize, 8));

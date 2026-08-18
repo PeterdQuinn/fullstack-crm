@@ -200,9 +200,15 @@ export default function LeadsWorkspace() {
   const selected = leads.find((l) => l.id === selectedId) || null;
 
   async function updateLead(id: string, updates: Partial<Lead>) {
+    const previous = leads.find((lead) => lead.id === id);
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates, updated_at: now() } : l)));
     if (dbMode === "supabase") {
-      await workspaceRequest({ action: "update_lead", id, updates });
+      try {
+        await workspaceRequest({ action: "update_lead", id, updates });
+      } catch (error) {
+        if (previous) setLeads((prev) => prev.map((lead) => lead.id === id ? previous : lead));
+        throw error;
+      }
     }
   }
 
@@ -611,8 +617,8 @@ function MeetingTab({ lead, appointments, bookMeeting }: any) {
   const [linkSent, setLinkSent] = useState(false);
   const [confirmDate, setConfirmDate] = useState("");
   function copyLink() { navigator.clipboard.writeText(CALENDLY_LINK); setCopied(true); setTimeout(() => setCopied(false), 2000); }
-  function sendSMS() { const phone = lead.phone?.replace(/[^0-9]/g, ""); if (!phone) return; window.open(`https://voice.google.com/u/0/messages?a=nc,${phone}`, "_blank"); setLinkSent(true); }
-  function sendEmail() { const fn = lead.owner_name?.split(" ")[0] || "there"; const s = encodeURIComponent("Let's set up a time — Full Stack Services"); const b = encodeURIComponent(`Hey ${fn},\n\nGreat chatting. Here's a link to grab 30 min with Peter:\n\n${CALENDLY_LINK}\n\nPick whatever works.\n\nFull Stack Services LLC\n${COMPANY_PHONE}\n${COMPANY_EMAIL}`); window.open(`mailto:${lead.email || ""}?subject=${s}&body=${b}`, "_self"); setLinkSent(true); }
+  function sendSMS() { if (lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) return; const phone = lead.phone?.replace(/[^0-9]/g, ""); if (!phone) return; window.open(`https://voice.google.com/u/0/messages?a=nc,${phone}`, "_blank"); setLinkSent(true); }
+  function sendEmail() { if (lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) return; const fn = lead.owner_name?.split(" ")[0] || "there"; const s = encodeURIComponent("Let's set up a time, Full Stack Services"); const b = encodeURIComponent(`Hey ${fn},\n\nGreat chatting. Here's a link to grab 30 min with Peter:\n\n${CALENDLY_LINK}\n\nPick whatever works.\n\nFull Stack Services LLC\n${COMPANY_PHONE}\n${COMPANY_EMAIL}`); window.open(`mailto:${lead.email || ""}?subject=${s}&body=${b}`, "_self"); setLinkSent(true); }
   function confirmBooked() { if (!confirmDate) return; bookMeeting(lead.id, confirmDate, "00:00", "Booked via Calendly"); }
   return (
     <div className="space-y-5">
@@ -621,7 +627,7 @@ function MeetingTab({ lead, appointments, bookMeeting }: any) {
         <p className="text-xs text-gray-500">They pick their own time — no back and forth.</p>
         <p className="text-xs text-amber-600">Tip: Copy first, then hit Text and paste into Google Voice.</p>
         <div className="bg-white border rounded-lg p-3 flex items-center justify-between gap-2"><span className="text-sm text-brand font-medium truncate">{CALENDLY_LINK}</span><button onClick={copyLink} className="flex-shrink-0 px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-md hover:bg-gray-200">{copied ? "✓ Copied!" : "Copy"}</button></div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{lead.phone && lead.phone !== "N/A" && <button onClick={sendSMS} className="py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">📱 Text via Google Voice</button>}<button onClick={sendEmail} className="py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">✉️ Email via Outlook</button></div>
+        {(lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) ? <div className="rounded-lg bg-red-100 p-3 text-sm font-bold text-red-800">Contact blocked. This lead is on the Do Not Contact list.</div> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{lead.phone && lead.phone !== "N/A" && <button onClick={sendSMS} className="py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">📱 Text via Google Voice</button>}<button onClick={sendEmail} className="py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">✉️ Email via Outlook</button></div>}
         {linkSent && <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-center text-sm text-amber-800">✓ Link sent — mark as Booked once they confirm</div>}
       </div>
       {!lead.meeting_booked && <div className="bg-gray-50 rounded-lg p-4 space-y-3"><div className="font-semibold text-sm text-gray-900">Confirm Meeting</div><p className="text-xs text-gray-500">Once they book via Calendly, enter the date.</p><div><label className="text-xs text-gray-500">Date</label><input type="date" value={confirmDate} onChange={(e: any) => setConfirmDate(e.target.value)} className="block w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div><button onClick={confirmBooked} disabled={!confirmDate} className="w-full py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50">✅ Mark as Booked</button></div>}

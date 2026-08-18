@@ -39,10 +39,13 @@ export async function POST(req: NextRequest) {
 
     const { data: lead, error: leadError } = await supabase
       .from("leads")
-      .select("status")
+      .select("status, opt_out, bounced, complained")
       .eq("id", leadId)
       .single();
     if (leadError || !lead) return NextResponse.json({ error: "Lead was not found" }, { status: 404 });
+    if (lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) {
+      return NextResponse.json({ error: "This lead is suppressed and cannot be contacted" }, { status: 409 });
+    }
 
     const calledAt = new Date().toISOString();
     const nextFollowUp = followUpAt || automaticFollowUp(outcome);

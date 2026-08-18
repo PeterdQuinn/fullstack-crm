@@ -53,7 +53,7 @@ async function unsubscribe(leadId: string | null) {
   }
 
   if (!lead.opt_out) {
-    await supabase
+    const { error: updateError } = await supabase
       .from("leads")
       .update({
         opt_out: true,
@@ -64,8 +64,15 @@ async function unsubscribe(leadId: string | null) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", leadId);
+    if (updateError) return page("Unable to update preferences", "Please contact us and we will remove you immediately.", 500);
     await logStatusChange({ leadId, from: lead.status ?? null, to: "Do Not Contact", source: "automation" });
   }
+
+  await supabase
+    .from("follow_up_tasks")
+    .update({ status: "cancelled", completed_at: new Date().toISOString(), notes: "Cancelled because contact unsubscribed" })
+    .eq("lead_id", leadId)
+    .eq("status", "pending");
 
   return page(
     "You've been unsubscribed",

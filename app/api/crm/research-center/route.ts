@@ -111,6 +111,10 @@ export async function POST(req: NextRequest) {
     const { data: lead, error } = await supabase.from("leads").select("*").eq("id", leadId).single();
     if (error || !lead) return NextResponse.json({ error: "Lead was not found" }, { status: 404 });
 
+    if ((lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) && action !== "do_not_contact") {
+      return NextResponse.json({ error: "This lead is suppressed and cannot enter an outreach workflow" }, { status: 409 });
+    }
+
     if (action === "research") {
       const summary = await selectedResearch(lead);
       return NextResponse.json({ success: true, summary });
@@ -142,6 +146,9 @@ export async function POST(req: NextRequest) {
     const { error: updateError } = await supabase.from("leads").update({ ...updates, updated_at: new Date().toISOString() }).eq("id", leadId);
     if (updateError) throw new Error(updateError.message);
     await logStatusChange({ leadId, from: lead.status, to: nextStatus, source: "owner", reason });
+    if (action === "do_not_contact") {
+      await supabase.from("follow_up_tasks").update({ status: "cancelled", completed_at: new Date().toISOString(), notes: "Cancelled because contact was suppressed" }).eq("lead_id", leadId).eq("status", "pending");
+    }
     return NextResponse.json({ success: true, status: nextStatus });
   } catch (error) {
     console.error("Research Center action error:", error);

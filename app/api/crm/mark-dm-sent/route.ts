@@ -10,6 +10,12 @@ export async function POST(req: NextRequest) {
   try {
     const { leadId } = await req.json();
 
+    const { data: lead } = await supabase.from("leads").select("status, opt_out, bounced, complained").eq("id", leadId).maybeSingle();
+    if (!lead) return NextResponse.json({ error: "Lead was not found" }, { status: 404 });
+    if (lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) {
+      return NextResponse.json({ error: "This lead is suppressed and cannot be contacted" }, { status: 409 });
+    }
+
     await supabase.from("outreach_log").insert({
       lead_id: leadId,
       channel: "dm",

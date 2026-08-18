@@ -104,6 +104,12 @@ check("manual discovery applies an exact radius when coordinates resolve", disco
 check("selected AI research remains manual", researchCenter.includes("Run AI Research") && researchRoute.includes('action === "research"'));
 check("research transfers are explicit", researchRoute.includes('action === "approve_email"') && researchRoute.includes('action === "move_calls"'));
 check("research findings preserve source review", researchCenter.includes("Open every source") && researchRoute.includes("sources:"));
+const unsubscribeRoute = read("app/api/email/unsubscribe/route.ts");
+const workspaceRoute = read("app/api/crm/workspace/route.ts");
+check("unsubscribe cancels pending outreach", unsubscribeRoute.includes('from("follow_up_tasks")') && unsubscribeRoute.includes('status: "cancelled"'));
+check("suppressed leads cannot be restored through general edits", workspaceRoute.includes("Restore requires a dedicated reviewed action"));
+check("suppressed leads cannot receive booking replies", read("lib/reply-actions.ts").includes('action: "suppressed_no_contact"'));
+check("suppressed leads cannot be logged as calls", read("app/api/crm/log-call/route.ts").includes("suppressed and cannot be contacted"));
 
 const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));

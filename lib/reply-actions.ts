@@ -96,6 +96,18 @@ export async function actOnReplyClassification(
     throw new Error(`Lead not found for id ${leadId}: ${error?.message || "no row"}`);
   }
 
+  if (lead.opt_out || lead.status === "Do Not Contact") {
+    await cancelPendingColdEmailTasks(leadId, now);
+    return {
+      bucket,
+      category,
+      action: "suppressed_no_contact",
+      emailSent: false,
+      leadStatus: "Do Not Contact",
+      sentTo: lead.email || undefined,
+    };
+  }
+
   // A reply always ends the automated cold sequence. This happens before any
   // classification-specific action so a positive, negative, wrong-person, or
   // unclear reply can never receive a queued touch 2/3 afterward.

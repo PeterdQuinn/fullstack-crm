@@ -23,6 +23,9 @@ export async function POST(req: NextRequest) {
       .eq("id", leadId)
       .single();
     if (leadError || !lead) return NextResponse.json({ error: "Lead was not found" }, { status: 404 });
+    if ((lead.opt_out || lead.status === "Do Not Contact") && action !== "do_not_contact") {
+      return NextResponse.json({ error: "This lead is suppressed and cannot enter an outreach workflow" }, { status: 409 });
+    }
 
     let updates: Record<string, unknown>;
     let reason: string;
@@ -55,6 +58,9 @@ export async function POST(req: NextRequest) {
       .eq("id", leadId);
     if (updateError) throw new Error(updateError.message);
     await logStatusChange({ leadId, from: lead.status, to: newStatus, source: "owner", reason });
+    if (action === "do_not_contact") {
+      await supabase.from("follow_up_tasks").update({ status: "cancelled", completed_at: new Date().toISOString(), notes: "Cancelled because contact was suppressed" }).eq("lead_id", leadId).eq("status", "pending");
+    }
 
     return NextResponse.json({ success: true, status: newStatus });
   } catch (error) {
