@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { renderOutreachEmail } from "@/lib/email-templates";
+import { sendBlockedReason } from "@/lib/email-templates";
+import { DAILY_SEND_CAP } from "@/lib/automation";
+import { phoenixDayStartIso } from "@/lib/lead-stats";
 
 // force-dynamic alone isn't enough — Next also caches the fetch() supabase-js
 // makes to PostgREST, so the queue would serve a stale snapshot (e.g. 0 ready
@@ -29,7 +32,15 @@ export async function GET() {
     const { data, error } = await supabase
       .from("leads")
       .select(
-        "id, business_name, contact_name, owner_name, email, status, email_sent_count, lead_ai_summaries!inner(lead_score, recommended_first_message, recommended_follow_up)"
+        `id, business_name, contact_name, owner_name, email, phone, website,
+        address, city, state, industry, niche, status, email_sent_count,
+        next_follow_up_at, current_software, monthly_spend_estimate,
+        short_description, pain_point, bounced, complained,
+        lead_ai_summaries!inner(lead_score, confidence_level, main_pain_point,
+          pain_reason, best_attack_angle, recommended_first_message,
+          recommended_follow_up),
+        outreach_log(id, direction, message_type, subject, status, sent_at,
+          delivered_at, opened_at, clicked_at, replied_at, bounced_at)`
       )
       .eq("opt_out", false)
       .eq("bounced", false)
@@ -71,7 +82,25 @@ export async function GET() {
         id: lead.id,
         business_name: lead.business_name,
         contact_name: lead.contact_name || null,
+        owner_name: lead.owner_name || null,
         email: lead.email,
+        phone: lead.phone,
+        website: lead.website,
+        address: lead.address,
+        city: lead.city,
+        state: lead.state,
+        industry: lead.industry || lead.niche,
+        short_description: lead.short_description,
+        current_software: lead.current_software,
+        monthly_spend_estimate: lead.monthly_spend_estimate,
+        next_follow_up_at: lead.next_follow_up_at,
+        score: summary?.lead_score || 0,
+        confidence: summary?.confidence_level,
+        main_pain_point: summary?.main_pain_point || lead.pain_point,
+        best_attack_angle: summary?.best_attack_angle,
+        history: [...(lead.outreach_log || [])]
+          .sort((a: any, b: any) => new Date(b.sent_at || b.replied_at || 0).getTime() - new Date(a.sent_at || a.replied_at || 0).getTime())
+          .slice(0, 8),
         status: lead.status,
         email_sent_count: lead.email_sent_count || 0,
         emailNum: email.emailNum,
@@ -81,7 +110,30 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json(rendered);
+    rendered.sort((a: any, b: any) => {
+      const aDue = a.next_follow_up_at ? new Date(a.next_follow_up_at).getTime() : Number.POSITIVE_INFINITY;
+      const bDue = b.next_follow_up_at ? new Date(b.next_follow_up_at).getTime() : Number.POSITIVE_INFINITY;
+      if (aDue !== bDue) return aDue - bDue;
+      return b.score - a.score;
+    });
+
+    const [{ count: sentToday }, { count: bounced }, { count: complained }] = await Promise.all([
+      supabase.from("outreach_log").select("id", { count: "exact", head: true }).eq("channel", "email").eq("direction", "outbound").gte("sent_at", phoenixDayStartIso()),
+      supabase.from("leads").select("id", { count: "exact", head: true }).eq("bounced", true),
+      supabase.from("leads").select("id", { count: "exact", head: true }).eq("complained", true),
+    ]);
+
+    return NextResponse.json({
+      leads: rendered,
+      safety: {
+        sentToday: sentToday || 0,
+        dailyCap: DAILY_SEND_CAP,
+        remaining: Math.max(0, DAILY_SEND_CAP - (sentToday || 0)),
+        bounced: bounced || 0,
+        complained: complained || 0,
+        blockedReason: sendBlockedReason(),
+      },
+    });
   } catch (error) {
     console.error("Queue error:", error);
     return NextResponse.json(

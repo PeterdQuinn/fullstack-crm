@@ -87,6 +87,13 @@ const logCallRoute = read("app/api/crm/log-call/route.ts");
 check("call workspace includes full lead preparation", callQueuePage.includes("Call Preparation") && callQueuePage.includes("Recent Calls") && callQueuePage.includes("Lead Notes"));
 check("call outcome controls lead status", logCallRoute.includes("OUTCOME_STATUS") && logCallRoute.includes("next_follow_up_at"));
 check("call workspace removes visible status hyphens", callQueuePage.includes('value.replaceAll("-", " ")'));
+const emailWorkspace = read("app/crm/email-queue/page.tsx");
+const emailQueueRoute = read("app/api/email/queue/route.ts");
+const emailQueueAction = read("app/api/email/queue-action/route.ts");
+check("email workspace sends only the selected lead", emailWorkspace.includes("leadId: selected.id") && emailWorkspace.includes("/api/email/send-batch"));
+check("email workspace has focused responsive tabs", emailWorkspace.includes('type Tab = "message" | "research" | "history"') && emailWorkspace.includes("lg:grid-cols"));
+check("email workspace shows real send capacity", emailQueueRoute.includes("DAILY_SEND_CAP") && emailQueueRoute.includes("remaining"));
+check("email workspace actions are allowlisted", emailQueueAction.includes("ACTIONS.includes") && emailQueueAction.includes("do_not_contact"));
 
 const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));
