@@ -11,3 +11,9 @@ drop policy if exists "Allow all on follow_up_tasks" on public.follow_up_tasks;
 drop policy if exists "Allow all on booking_tracker" on public.booking_tracker;
 drop policy if exists "Allow all on lead_discovery_config" on public.lead_discovery_config;
 drop policy if exists "Allow all on cron_failures" on public.cron_failures;
+
+-- Older versions of the live CRM used these policy names.
+drop policy if exists "Open access leads" on public.leads;
+drop policy if exists "Open access call_logs" on public.call_logs;
+drop policy if exists "Open access lead_notes" on public.lead_notes;
+drop policy if exists "Open access appointments" on public.appointments;
