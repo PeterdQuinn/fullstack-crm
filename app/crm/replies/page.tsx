@@ -13,6 +13,7 @@ interface Reply {
   status: string | null;
   replied_at?: string | null;
   error?: string | null;
+  action_completed: boolean;
 }
 
 export default function RepliesPage() {
@@ -52,7 +53,7 @@ export default function RepliesPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data?.error || `Classify failed (${response.status})`);
+        throw new Error(data?.automationError || data?.error || `Classification failed with status ${response.status}`);
       }
 
       // The route returns 200 even when the post-classification automation
@@ -106,7 +107,7 @@ export default function RepliesPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "16px" }}>
                 <div>
                   <div style={{ fontWeight: "600", fontSize: "16px", marginBottom: "8px" }}>
-                    {reply.company} {reply.contact && `— ${reply.contact}`}
+                    {reply.company} {reply.contact && `, ${reply.contact}`}
                   </div>
                   <div style={{ color: "#4b5563", marginBottom: "12px", lineHeight: "1.6" }}>
                     {reply.message}
@@ -114,7 +115,12 @@ export default function RepliesPage() {
                   {reply.classification && (
                     <div style={{ padding: "8px 12px", backgroundColor: "#dbeafe", borderRadius: "4px", fontSize: "13px", color: "#0c4a6e", fontWeight: "500" }}>
                       ✓ {reply.classification}
-                      {reply.status && ` — Status: ${reply.status}`}
+                      {reply.status && `. Status: ${reply.status}`}
+                    </div>
+                  )}
+                  {!reply.classification && reply.action_completed && (
+                    <div style={{ padding: "8px 12px", backgroundColor: "#dcfce7", borderRadius: "4px", fontSize: "13px", color: "#166534", fontWeight: "500" }}>
+                      ✓ Processed automatically{reply.status ? `. Status: ${reply.status}` : ""}
                     </div>
                   )}
                   {reply.error && (
@@ -123,7 +129,7 @@ export default function RepliesPage() {
                     </div>
                   )}
                 </div>
-                {!reply.classification && (
+                {!reply.classification && !reply.action_completed && (
                   <button
                     onClick={() => classifyReply(reply.id, reply.lead_id, reply.message)}
                     disabled={!!classifying[reply.id]}

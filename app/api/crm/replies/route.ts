@@ -20,6 +20,7 @@ interface ReplyRow {
   message: string;
   status: string | null;
   replied_at: string | null;
+  action_completed: boolean;
 }
 
 export async function GET() {
@@ -48,6 +49,7 @@ export async function GET() {
         message: r.message || "",
         status: lead?.status ?? null,
         replied_at: r.replied_at ?? null,
+        action_completed: ["Booking Link Sent", "Do Not Contact", "Needs Follow-Up", "Booked"].includes(lead?.status || ""),
       };
     });
 

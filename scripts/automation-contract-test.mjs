@@ -78,6 +78,10 @@ for (const file of ["app/api/cron/send-daily-emails/route.ts", "app/api/email/se
 const leadsPage = read("app/crm/leads/page.tsx");
 check("Leads workspace has no browser Supabase client", !leadsPage.includes("@/lib/supabase") && !leadsPage.includes("supabase.from"));
 check("anonymous database policies are removed", read("supabase/migrations/009_lock_down_anon.sql").includes('drop policy if exists "Allow all on leads"'));
+const repliesPage = read("app/crm/replies/page.tsx");
+const repliesRoute = read("app/api/crm/replies/route.ts");
+check("processed replies cannot be classified twice", repliesPage.includes("!reply.action_completed") && repliesRoute.includes("action_completed"));
+check("reply errors show the server detail", repliesPage.includes("data?.automationError"));
 
 const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));

@@ -20,13 +20,15 @@ export async function POST(req: NextRequest) {
         automation = await actOnReplyClassification(leadId, result.category);
       } catch (err) {
         console.error("Reply automation failed:", err);
+        const automationError = err instanceof Error ? err.message : "automation failed";
+        const leadMissing = automationError.startsWith("Lead not found for id");
         return NextResponse.json(
           {
             ...result,
-            error: "Reply was classified but the required CRM action failed",
-            automationError: err instanceof Error ? err.message : "automation failed",
+            error: leadMissing ? "This reply belongs to a lead that no longer exists" : "Reply was classified but the required CRM action failed",
+            automationError,
           },
-          { status: 500 }
+          { status: leadMissing ? 404 : 500 }
         );
       }
     }
