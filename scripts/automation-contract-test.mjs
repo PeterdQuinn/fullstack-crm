@@ -66,9 +66,18 @@ check("reply polling is daily", workflow.includes('cron: "30 14 * * *"'));
 check("heavy automation is Monday-only", workflow.includes('cron: "0 13 * * 1"') && workflow.includes('cron: "0 19 * * 1"'));
 
 for (const file of ["lib/automation.ts", "lib/reply-actions.ts", "app/api/cron/process-followups/route.ts",
-  "app/api/cron/send-daily-emails/route.ts", "app/api/email/send-daily/route.ts", "app/api/email/send-batch/route.ts"]) {
+  "app/api/email/send-batch/route.ts"]) {
   check(`idempotency key used: ${file}`, read(file).includes("`crm-${lead.id}-"));
 }
+
+for (const file of ["app/api/cron/send-daily-emails/route.ts", "app/api/email/send-daily/route.ts",
+  "app/api/email/bulk-ready/route.ts"]) {
+  check(`legacy route disabled: ${file}`, read(file).includes("{ status: 410 }"));
+}
+
+const leadsPage = read("app/crm/leads/page.tsx");
+check("Leads workspace has no browser Supabase client", !leadsPage.includes("@/lib/supabase") && !leadsPage.includes("supabase.from"));
+check("anonymous database policies are removed", read("supabase/migrations/009_lock_down_anon.sql").includes('drop policy if exists "Allow all on leads"'));
 
 const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));

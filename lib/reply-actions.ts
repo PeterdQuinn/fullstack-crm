@@ -32,13 +32,24 @@ export async function cancelPendingColdEmailTasks(leadId: string, now = new Date
   if (error) throw new Error(`Failed to cancel pending cold-email tasks: ${error.message}`);
 }
 
-function bookingEmail(company?: string | null, leadId?: string | null) {
-  const name = company?.trim() ? ` at ${company.trim()}` : "";
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]!);
+}
+
+function bookingEmail(ownerName?: string | null, leadId?: string | null) {
+  const firstName = ownerName?.trim().split(/\s+/)[0];
+  const greeting = firstName ? `Hi ${escapeHtml(firstName)},` : "Hi there,";
   return {
-    subject: "Great — let's find a time to talk",
+    subject: "Great, let us find a time to talk",
     html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-  <p style="color:#333; line-height:1.6;">Hi there,</p>
-  <p style="color:#333; line-height:1.6;">Thanks for getting back to us${name} — glad you're interested! The easiest next step is to grab whatever time works best for you. Pick any open slot on the link below and it'll drop straight onto both our calendars:</p>
+  <p style="color:#333; line-height:1.6;">${greeting}</p>
+  <p style="color:#333; line-height:1.6;">Thanks for getting back to us. We are glad you are interested. The easiest next step is to choose a time that works for you. Pick any open slot below and it will appear on both calendars.</p>
   <p style="text-align:center; margin:28px 0;">
     <a href="${CALENDLY_LINK}" style="background:#2563eb; color:#fff; text-decoration:none; padding:12px 24px; border-radius:8px; font-weight:600; display:inline-block;">Book a time →</a>
   </p>
@@ -77,7 +88,7 @@ export async function actOnReplyClassification(
 
   const { data: lead, error } = await supabase
     .from("leads")
-    .select("id, business_name, email, status, opt_out, calendly_link_sent")
+    .select("id, business_name, owner_name, email, status, opt_out, calendly_link_sent")
     .eq("id", leadId)
     .single();
 
@@ -119,7 +130,7 @@ export async function actOnReplyClassification(
       };
     }
 
-    const { subject, html } = bookingEmail(lead.business_name, leadId);
+    const { subject, html } = bookingEmail(lead.owner_name, leadId);
     const sendResult = await sendEmail(
       lead.email,
       subject,

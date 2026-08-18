@@ -124,16 +124,13 @@ create trigger leads_updated_at
   before update on leads
   for each row execute function update_updated_at();
 
--- ENABLE ROW LEVEL SECURITY (open for internal use)
+-- ENABLE ROW LEVEL SECURITY
 alter table leads enable row level security;
 alter table call_logs enable row level security;
 alter table lead_notes enable row level security;
 alter table appointments enable row level security;
 
-create policy "Allow all on leads" on leads for all using (true) with check (true);
-create policy "Allow all on call_logs" on call_logs for all using (true) with check (true);
-create policy "Allow all on lead_notes" on lead_notes for all using (true) with check (true);
-create policy "Allow all on appointments" on appointments for all using (true) with check (true);
+-- No anon policies. The application uses protected server routes.
 
 -- AUTOMATION LAYER TABLES
 
@@ -244,11 +241,7 @@ alter table outreach_log enable row level security;
 alter table follow_up_tasks enable row level security;
 alter table booking_tracker enable row level security;
 
-create policy "Allow all on lead_ai_summaries" on lead_ai_summaries for all using (true) with check (true);
-create policy "Allow all on lead_socials" on lead_socials for all using (true) with check (true);
-create policy "Allow all on outreach_log" on outreach_log for all using (true) with check (true);
-create policy "Allow all on follow_up_tasks" on follow_up_tasks for all using (true) with check (true);
-create policy "Allow all on booking_tracker" on booking_tracker for all using (true) with check (true);
+-- No anon policies. Automation uses the server service role.
 
 -- LEAD DISCOVERY CONFIG
 create table if not exists lead_discovery_config (
@@ -259,7 +252,6 @@ create table if not exists lead_discovery_config (
   updated_at timestamptz default now()
 );
 
-create policy "Allow all on lead_discovery_config" on lead_discovery_config for all using (true) with check (true);
 alter table lead_discovery_config enable row level security;
 
 -- CRON FAILURES TABLE (automation phase failure log)
@@ -273,4 +265,3 @@ create table if not exists cron_failures (
 create index if not exists idx_cron_failures_created_at on cron_failures(created_at);
 
 alter table cron_failures enable row level security;
-create policy "Allow all on cron_failures" on cron_failures for all using (true) with check (true);

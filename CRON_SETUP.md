@@ -24,7 +24,7 @@ curl -X GET "https://yourapp.com/api/cron/process-discovered-leads" \
 ```
 
 ### 2. Send Daily Emails
-**Endpoint**: `POST /api/cron/send-daily-emails`
+The old `send-daily-emails` endpoint is disabled. Outbound email runs through the weekly automation workflow.
 
 **What it does:**
 - Sends up to 25 emails per day to high-quality leads

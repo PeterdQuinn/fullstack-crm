@@ -6,7 +6,6 @@ import {
   LEAD_STATUSES, CALL_OUTCOMES, GUIDED_QUESTIONS, POSITIONING_LINES,
 } from "@/lib/types";
 import { PRELOADED_LEADS } from "@/lib/leads-data";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { getStatusStyle } from "@/lib/status-colors";
 import { computeLeadKpis } from "@/lib/lead-stats";
 
@@ -145,9 +144,22 @@ export default function LeadsWorkspace() {
   const [generatingAI, setGeneratingAI] = useState(false);
   const [leadScores, setLeadScores] = useState<Record<string, number>>({})
 
+  async function workspaceRequest(body: Record<string, unknown>) {
+    const response = await fetch("/api/crm/workspace", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error((await response.json()).error || "Workspace request failed");
+    return response.json();
+  }
+
   useEffect(() => {
     async function init() {
-      if (isSupabaseConfigured()) {
+      try {
+        const response = await fetch("/api/crm/workspace", { cache: "no-store" });
+        if (!response.ok) throw new Error("Workspace unavailable");
+        const data = await response.json();
         setDbMode("supabase");
         // Show exactly what's in the database. Previously this re-inserted
         // hardcoded PRELOADED_LEADS (including Landscaping) on every load —
@@ -155,9 +167,9 @@ export default function LeadsWorkspace() {
         // niche === "Landscaping" || "HVAC", which hid real HVAC leads whose
         // niche was "hvac", "General", "Plumbing", etc. Neither is wanted now
         // that discovery is HVAC-only and the DB is curated.
-        const { data } = await supabase.from("leads").select("*").order("created_at", { ascending: false });
-        setLeads((data || []) as Lead[]);
-      } else {
+        setLeads((data.leads || []) as Lead[]);
+        setLeadScores(data.scores || {});
+      } catch {
         setLeads(PRELOADED_LEADS
           .filter(l => l.niche === "Landscaping" || l.niche === "HVAC")
           .map((l) => ({ ...l, id: uid(), created_at: now(), updated_at: now() } as Lead)));
@@ -169,9 +181,15 @@ export default function LeadsWorkspace() {
   useEffect(() => {
     if (!selectedId) return;
     if (dbMode === "supabase") {
-      supabase.from("call_logs").select("*").eq("lead_id", selectedId).order("called_at", { ascending: false }).then(({ data }: any) => setCallLogs(data || []));
-      supabase.from("lead_notes").select("*").eq("lead_id", selectedId).order("created_at", { ascending: false }).then(({ data }: any) => setNotes(data || []));
-      supabase.from("appointments").select("*").eq("lead_id", selectedId).order("created_at", { ascending: false }).then(({ data }: any) => setAppointments(data || []));
+      fetch(`/api/crm/workspace?leadId=${encodeURIComponent(selectedId)}`, { cache: "no-store" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Activity unavailable");
+          const data = await response.json();
+          setCallLogs(data.callLogs || []);
+          setNotes(data.notes || []);
+          setAppointments(data.appointments || []);
+        })
+        .catch((error) => console.error("activity load failed:", error));
     } else {
       setCallLogs((prev) => prev.filter((c) => c.lead_id === selectedId));
       setNotes((prev) => prev.filter((n) => n.lead_id === selectedId));
@@ -179,31 +197,12 @@ export default function LeadsWorkspace() {
     }
   }, [selectedId, dbMode]);
 
-  useEffect(() => {
-    if (dbMode !== "supabase" || leads.length === 0) return;
-    supabase.from("lead_ai_summaries").select("lead_id, lead_score").then(({ data }: any) => {
-      const scores: Record<string, number> = {};
-      (data || []).forEach((s: any) => { if (s.lead_score) scores[s.lead_id] = s.lead_score; });
-      setLeadScores(scores);
-    });
-  }, [leads, dbMode]);
-
   const selected = leads.find((l) => l.id === selectedId) || null;
 
   async function updateLead(id: string, updates: Partial<Lead>) {
-    const prevStatus = leads.find((l) => l.id === id)?.status;
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates, updated_at: now() } : l)));
     if (dbMode === "supabase") {
-      await supabase.from("leads").update({ ...updates, updated_at: now() }).eq("id", id);
-      // Audit any status change made through the UI (source: owner). The browser
-      // (anon) client can't write status_audit_log under RLS, so log via the API.
-      if (updates.status && updates.status !== prevStatus) {
-        fetch("/api/crm/log-status", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadId: id, from: prevStatus ?? null, to: updates.status, field: "status" }),
-        }).catch((e) => console.error("audit log failed:", e));
-      }
+      await workspaceRequest({ action: "update_lead", id, updates });
     }
   }
 
@@ -220,29 +219,26 @@ export default function LeadsWorkspace() {
       return null;
     })();
     updateLead(log.lead_id, { last_called_at: now(), status: log.outcome === "Booked meeting" ? "Booked" : log.outcome === "Interested" ? "Interested" : log.outcome === "No answer" ? "No Answer" : log.outcome === "Not interested" ? "Dead" : "Called", ...(autoFollowUp ? { next_follow_up_at: autoFollowUp } : {}), ...(log.current_software ? { current_software: log.current_software } : {}) });
-    if (dbMode === "supabase") { await supabase.from("call_logs").insert(entry); }
+    if (dbMode === "supabase") { await workspaceRequest({ action: "add_call", entry }); }
   }
 
   async function addNote(leadId: string, note: string) {
     const entry = { id: uid(), lead_id: leadId, note, created_at: now() };
     setNotes((prev) => [entry, ...prev]);
-    if (dbMode === "supabase") { await supabase.from("lead_notes").insert(entry); }
+    if (dbMode === "supabase") { await workspaceRequest({ action: "add_note", entry }); }
   }
 
   async function bookMeeting(leadId: string, date: string, time: string, meetingNotes: string) {
     const entry: Appointment = { id: uid(), lead_id: leadId, meeting_date: date, meeting_time: time, notes: meetingNotes, created_at: now() };
     setAppointments((prev) => [entry, ...prev]);
     updateLead(leadId, { meeting_booked: true, meeting_date: `${date}T${time}`, status: "Booked" });
-    if (dbMode === "supabase") { await supabase.from("appointments").insert(entry); }
+    if (dbMode === "supabase") { await workspaceRequest({ action: "add_appointment", entry }); }
   }
 
   async function deleteAll() {
     if (!confirm("Delete ALL leads, call logs, notes, and appointments? This cannot be undone.")) return;
     if (dbMode === "supabase") {
-      await supabase.from("call_logs").delete().neq("id", "");
-      await supabase.from("lead_notes").delete().neq("id", "");
-      await supabase.from("appointments").delete().neq("id", "");
-      await supabase.from("leads").delete().neq("id", "");
+      await workspaceRequest({ action: "delete_all" });
     }
     setLeads([]); setCallLogs([]); setNotes([]); setAppointments([]); setSelectedId(null);
   }
@@ -259,7 +255,7 @@ export default function LeadsWorkspace() {
     if (!confirm(`Remove ${toDelete.length} duplicate lead(s)? Oldest copy of each will be kept.`)) return;
     setLeads((prev) => prev.filter((l) => !toDelete.includes(l.id)));
     if (dbMode === "supabase") {
-      await Promise.all(toDelete.map((id) => supabase.from("leads").delete().eq("id", id)));
+      await workspaceRequest({ action: "delete_leads", ids: toDelete });
     }
     if (selectedId && toDelete.includes(selectedId)) setSelectedId(null);
   }
@@ -275,11 +271,7 @@ export default function LeadsWorkspace() {
     setLeads((prev) => prev.filter((l) => l.id !== id));
     setSelectedId(null);
     if (dbMode === "supabase") {
-      await supabase.from("call_logs").delete().eq("lead_id", id);
-      await supabase.from("lead_notes").delete().eq("lead_id", id);
-      await supabase.from("appointments").delete().eq("lead_id", id);
-      await supabase.from("outreach_log").delete().eq("lead_id", id);
-      await supabase.from("leads").delete().eq("id", id);
+      await workspaceRequest({ action: "delete_leads", ids: [id] });
     }
   }
 
@@ -288,7 +280,7 @@ export default function LeadsWorkspace() {
     const existing = new Set(leads.map(dedupKey));
     const unique = newLeads.filter((l) => !existing.has(dedupKey(l)));
     setLeads((prev) => [...unique, ...prev]);
-    if (dbMode === "supabase" && unique.length > 0) { await supabase.from("leads").insert(unique); }
+    if (dbMode === "supabase" && unique.length > 0) { await workspaceRequest({ action: "add_leads", leads: unique }); }
     return unique.length;
   }
 
@@ -315,7 +307,7 @@ export default function LeadsWorkspace() {
   async function addSingleLead(data: Partial<Lead>) {
     const lead: Lead = { id: uid(), business_name: data.business_name || "Unknown", owner_name: data.owner_name || "", phone: data.phone || "", email: data.email || "", website: data.website || "", address: data.address || "", city: data.city || "", state: data.state || "", postal_code: data.postal_code || "", niche: data.niche || "General", industry: data.industry || "", employees: data.employees || "", annual_revenue: data.annual_revenue || "", founded_year: data.founded_year || "", short_description: data.short_description || "", technologies: data.technologies || "", keywords: data.keywords || "", linkedin_url: data.linkedin_url || "", facebook_url: data.facebook_url || "", twitter_url: data.twitter_url || "", apollo_account_id: "", current_software: data.current_software || "", monthly_spend_estimate: data.monthly_spend_estimate || "", status: "New", meeting_booked: false, created_at: now(), updated_at: now() };
     setLeads((prev) => [lead, ...prev]);
-    if (dbMode === "supabase") { await supabase.from("leads").insert(lead); }
+    if (dbMode === "supabase") { await workspaceRequest({ action: "add_leads", leads: [lead] }); }
     setSelectedId(lead.id);
   }
 
