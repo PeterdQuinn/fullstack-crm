@@ -19,7 +19,7 @@ export async function GET() {
     // One leads read → all lead-derived numbers come from the shared
     // lib/lead-stats definitions (same logic the leads workspace uses).
     // The three non-lead queues live in other tables, so they stay as counts.
-    const [leadsRes, replies, dmQ] = await Promise.all([
+    const [leadsRes, replies] = await Promise.all([
       supabase
         .from("leads")
         .select(
@@ -31,16 +31,10 @@ export async function GET() {
         .select("id", { count: "exact", head: true })
         .not("replied_at", "is", null),
 
-      supabase
-        .from("lead_socials")
-        .select("id", { count: "exact", head: true })
-        .eq("is_active", true),
-
     ]);
 
     if (leadsRes.error) throw leadsRes.error;
     if (replies.error) throw replies.error;
-    if (dmQ.error) throw dmQ.error;
 
     const leadStats = computeLeadDashboardStats(leadsRes.data || []);
     const repliesCount = replies.count || 0;
@@ -48,12 +42,14 @@ export async function GET() {
     const bookingsCount = (leadsRes.data || []).filter((lead) =>
       lead.meeting_booked === true || bookingStatuses.has(lead.status || "")
     ).length;
+    const researchStatuses = new Set(["New", "Needs Data", "Ready for AI Summary", "Scored"]);
+    const researchCount = (leadsRes.data || []).filter((lead) => researchStatuses.has(lead.status || "") && !lead.opt_out).length;
 
     return Response.json({
       // Per-queue pending counts (drive the queue cards + dynamic primary CTA).
       emailQueue: leadStats.emailQueue,
       callQueue: leadStats.callQueue,
-      dmQueue: dmQ.count || 0,
+      dmQueue: researchCount,
       replies: repliesCount,
       bookings: bookingsCount,
       onboarding: leadStats.onboarding,

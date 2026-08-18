@@ -8,7 +8,7 @@ import {
   Phone,
   Calendar,
   Mail,
-  Send,
+  Search,
   GraduationCap,
   Users,
   Ban,
@@ -33,7 +33,7 @@ const PRIMARY: NavItem[] = [
 // Desktop sidebar shows everything; mobile bottom bar shows only PRIMARY.
 const SECONDARY: NavItem[] = [
   { label: "Email Queue", href: "/crm/email-queue", icon: Mail },
-  { label: "DM Queue", href: "/crm/dm-queue", icon: Send },
+  { label: "Research", href: "/crm/dm-queue", icon: Search },
   { label: "Onboarding", href: "/crm/onboarding", icon: GraduationCap },
   { label: "All Leads", href: "/crm/leads", icon: Users },
   { label: "Suppressed", href: "/crm/suppressed", icon: Ban },

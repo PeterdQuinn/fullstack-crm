@@ -94,6 +94,16 @@ check("email workspace sends only the selected lead", emailWorkspace.includes("l
 check("email workspace has focused responsive tabs", emailWorkspace.includes('type Tab = "message" | "research" | "history"') && emailWorkspace.includes("lg:grid-cols"));
 check("email workspace shows real send capacity", emailQueueRoute.includes("DAILY_SEND_CAP") && emailQueueRoute.includes("remaining"));
 check("email workspace actions are allowlisted", emailQueueAction.includes("ACTIONS.includes") && emailQueueAction.includes("do_not_contact"));
+const researchCenter = read("app/crm/dm-queue/page.tsx");
+const researchRoute = read("app/api/crm/research-center/route.ts");
+const discoveryPipeline = read("lib/discovery-pipeline.ts");
+check("Research Center never contacts a lead", !researchCenter.includes("send-batch") && !researchCenter.includes("mark-dm-sent"));
+check("manual discovery has a hard result limit", discoveryPipeline.includes("Math.min(Number(options.limit) || 10, 25)"));
+check("manual discovery supports location and quality rules", researchCenter.includes("minimumRating") && researchCenter.includes("minimumReviews") && researchCenter.includes("requireWebsite"));
+check("manual discovery applies an exact radius when coordinates resolve", discoveryPipeline.includes("geocodeSearchArea") && discoveryPipeline.includes("radiusMeters"));
+check("selected AI research remains manual", researchCenter.includes("Run AI Research") && researchRoute.includes('action === "research"'));
+check("research transfers are explicit", researchRoute.includes('action === "approve_email"') && researchRoute.includes('action === "move_calls"'));
+check("research findings preserve source review", researchCenter.includes("Open every source") && researchRoute.includes("sources:"));
 
 const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));

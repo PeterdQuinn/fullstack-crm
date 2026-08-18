@@ -5,6 +5,8 @@ import {
   HVAC_NICHE,
   googleTextQuery,
   buildOverpassQuery,
+  buildOverpassRadiusQuery,
+  geocodeSearchArea,
   searchGooglePlaces,
   searchOverpass,
 } from "@/lib/discovery-sources";
@@ -18,10 +20,18 @@ export interface DiscoveryOptions {
   city?: string;
   state?: string;
   importToDb?: boolean;
+  zip?: string;
+  minimumRating?: number;
+  minimumReviews?: number;
+  requireEmail?: boolean;
+  requirePhone?: boolean;
+  requireWebsite?: boolean;
+  radiusMiles?: number;
 }
 
 export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
   const { states = 1, city, state, importToDb = true } = options;
+  const requestedLimit = Math.max(1, Math.min(Number(options.limit) || 10, 25));
   const targets = city && state
     ? [{ city, state }]
     : await getNextMetros(Math.max(2, states));
@@ -35,9 +45,15 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
   for (const { city: targetCity, state: targetState } of targets) {
     if (rawGoogle.length + rawOverpass.length >= MAX_RAW) break;
 
+    const radiusRequested = Number(options.radiusMiles) > 0;
+    const radiusMiles = Math.max(1, Math.min(Number(options.radiusMiles) || 15, 30));
+    const coordinates = radiusRequested ? await geocodeSearchArea(targetCity, targetState, options.zip) : null;
+    const radiusMeters = Math.round(radiusMiles * 1609.344);
     queriesSent.push({
       source: "overpass",
-      query: buildOverpassQuery(HVAC_OSM_FILTERS, targetCity, PER_CITY),
+      query: coordinates
+        ? buildOverpassRadiusQuery(HVAC_OSM_FILTERS, coordinates.latitude, coordinates.longitude, radiusMeters, PER_CITY)
+        : buildOverpassQuery(HVAC_OSM_FILTERS, targetCity, PER_CITY),
     });
     const overpassPromise = searchOverpass({
       osmFilters: HVAC_OSM_FILTERS,
@@ -45,6 +61,8 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
       city: targetCity,
       state: targetState,
       limit: PER_CITY,
+      ...(coordinates || {}),
+      radiusMeters: coordinates ? radiusMeters : undefined,
     });
 
     for (const term of HVAC_SEARCH_TERMS) {
@@ -52,8 +70,11 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
       const found = await searchGooglePlaces({
         term,
         niche: HVAC_NICHE,
-        city: targetCity,
+        city: options.zip ? `${targetCity} ${options.zip}` : targetCity,
         state: targetState,
+        maxResults: Math.min(requestedLimit, 20),
+        ...(coordinates || {}),
+        radiusMeters: coordinates ? radiusMeters : undefined,
       });
       rawGoogle.push(...found.map((lead: DiscoveredLead) => ({ ...lead, source: "google_places" })));
     }
@@ -64,7 +85,15 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
 
   const combined = [...rawGoogle, ...rawOverpass];
   const clean = await cleanAndStructureLeads(combined);
-  const newLeads = await filterNewLeads(clean.cleaned);
+  const qualified = clean.cleaned.filter((lead) => {
+    if (options.requireEmail && !lead.email) return false;
+    if (options.requirePhone && !lead.phone) return false;
+    if (options.requireWebsite && !lead.website) return false;
+    if (options.minimumRating && (!lead.rating || lead.rating < options.minimumRating)) return false;
+    if (options.minimumReviews && (!lead.review_count || lead.review_count < options.minimumReviews)) return false;
+    return true;
+  }).slice(0, requestedLimit);
+  const newLeads = await filterNewLeads(qualified);
   let imported = { imported: 0, skipped: 0, errors: 0, importedIds: [] as string[] };
   if (importToDb && newLeads.length > 0) imported = await importLeads(newLeads);
   if (imported.errors > 0) throw new Error(`Discovery import failed for ${imported.errors} lead(s)`);
@@ -77,6 +106,7 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
     pipeline: {
       discovered: combined.length,
       cleaned: clean.cleaned.length,
+      qualified: qualified.length,
       dropped: clean.dropped.length,
       merged: clean.merged.length,
       newLeads: newLeads.length,
@@ -85,6 +115,7 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
     sources: { google_places: rawGoogle.length, overpass: rawOverpass.length, google_quota: quota },
     ai: { used: clean.aiUsed, error: clean.aiError || null, dropped: clean.dropped, merged: clean.merged },
     targets,
+    searchArea: { radiusMiles: Math.max(1, Math.min(Number(options.radiusMiles) || 15, 30)), exactRadiusApplied: queriesSent.some((query) => query.query.includes("around:")) },
     importedLeadIds: imported.importedIds,
     message: `HVAC discovery — ${combined.length} raw (${rawGoogle.length} Google / ${rawOverpass.length} Overpass), cleaned to ${clean.cleaned.length}, imported ${imported.imported}.`,
   };

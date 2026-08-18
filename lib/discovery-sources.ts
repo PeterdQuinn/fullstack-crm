@@ -22,6 +22,24 @@ export function googleTextQuery(term: string, city: string, state: string): stri
   return `${term} in ${city}, ${state}`;
 }
 
+export async function geocodeSearchArea(city: string, state: string, zip?: string): Promise<{ latitude: number; longitude: number } | null> {
+  const query = [city, state, zip, "USA"].filter(Boolean).join(", ");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`, {
+      headers: { "User-Agent": "fullstack-crm-lead-discovery/1.0 (contact: owner@fullstackservicesllc.net)" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const latitude = Number(data?.[0]?.lat);
+    const longitude = Number(data?.[0]?.lon);
+    return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null;
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
 export const MAJOR_CITIES_BY_STATE: Record<string, string[]> = {
   CA: ["Los Angeles", "San Francisco", "San Diego", "Sacramento", "Fresno"],
   TX: ["Houston", "Dallas", "Austin", "San Antonio", "Fort Worth"],
@@ -54,6 +72,8 @@ const PLACES_FIELD_MASK = [
   "places.nationalPhoneNumber",
   "places.websiteUri",
   "places.addressComponents",
+  "places.rating",
+  "places.userRatingCount",
 ].join(",");
 
 function pickComponent(components: any[], type: string, short = false): string | undefined {
@@ -67,6 +87,9 @@ export async function searchGooglePlaces(opts: {
   city: string;
   state: string;
   maxResults?: number;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
 }): Promise<DiscoveredLead[]> {
   const key = process.env.GOOGLE_PLACES_API_KEY;
   if (!key) {
@@ -96,6 +119,9 @@ export async function searchGooglePlaces(opts: {
         textQuery: googleTextQuery(term, city, state),
         maxResultCount: Math.min(maxResults, 20),
         regionCode: "US",
+        ...(opts.latitude != null && opts.longitude != null && opts.radiusMeters
+          ? { locationBias: { circle: { center: { latitude: opts.latitude, longitude: opts.longitude }, radius: Math.min(opts.radiusMeters, 50000) } } }
+          : {}),
       }),
       signal: controller.signal,
     });
@@ -115,6 +141,8 @@ export async function searchGooglePlaces(opts: {
         state: pickComponent(p.addressComponents, "administrative_area_level_1", true) || state,
         niche,
         industry: niche,
+        rating: p.rating || undefined,
+        review_count: p.userRatingCount || undefined,
       }))
       .filter((l: DiscoveredLead) => l.business_name);
   } catch (error) {
@@ -136,6 +164,13 @@ export function buildOverpassQuery(osmFilters: string[], city: string, limit: nu
   return `[out:json][timeout:25];area["name"="${city}"]["admin_level"="8"]->.a;(${selectors});out center tags ${limit};`;
 }
 
+export function buildOverpassRadiusQuery(osmFilters: string[], latitude: number, longitude: number, radiusMeters: number, limit: number): string {
+  const selectors = osmFilters
+    .flatMap((filter) => [`node[${filter}](around:${radiusMeters},${latitude},${longitude});`, `way[${filter}](around:${radiusMeters},${latitude},${longitude});`])
+    .join("");
+  return `[out:json][timeout:25];(${selectors});out center tags ${limit};`;
+}
+
 function overpassAddress(tags: Record<string, string>): string | undefined {
   const parts = [
     [tags["addr:housenumber"], tags["addr:street"]].filter(Boolean).join(" "),
@@ -152,9 +187,14 @@ export async function searchOverpass(opts: {
   city: string;
   state: string;
   limit?: number;
+  latitude?: number;
+  longitude?: number;
+  radiusMeters?: number;
 }): Promise<DiscoveredLead[]> {
   const { osmFilters, niche, city, state, limit = 25 } = opts;
-  const query = buildOverpassQuery(osmFilters, city, limit);
+  const query = opts.latitude != null && opts.longitude != null && opts.radiusMeters
+    ? buildOverpassRadiusQuery(osmFilters, opts.latitude, opts.longitude, opts.radiusMeters, limit)
+    : buildOverpassQuery(osmFilters, city, limit);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
   try {

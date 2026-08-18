@@ -6,7 +6,7 @@ import {
   Phone,
   Mail,
   MessageSquare,
-  Send,
+  Search,
   Calendar,
   GraduationCap,
   ChevronRight,
@@ -61,7 +61,7 @@ const QUEUES: QueueMeta[] = [
   { key: "replies", label: "Replies", verb: "Respond to replies", href: "/crm/replies", icon: MessageSquare, color: "text-status-warm", chip: "bg-status-warm/10" },
   { key: "callQueue", label: "Calls", verb: "Start calling", href: "/crm/call-queue", icon: Phone, color: "text-status-active", chip: "bg-status-active/10" },
   { key: "emailQueue", label: "Email", verb: "Send emails", href: "/crm/email-queue", icon: Mail, color: "text-status-new", chip: "bg-status-new/10" },
-  { key: "dmQueue", label: "DMs", verb: "Send DMs", href: "/crm/dm-queue", icon: Send, color: "text-gold", chip: "bg-gold/10" },
+  { key: "dmQueue", label: "Research", verb: "Research businesses", href: "/crm/dm-queue", icon: Search, color: "text-gold", chip: "bg-gold/10" },
   { key: "bookings", label: "Bookings", verb: "Review bookings", href: "/crm/bookings", icon: Calendar, color: "text-status-meeting", chip: "bg-status-meeting/10" },
   { key: "onboarding", label: "Onboarding", verb: "Onboard clients", href: "/crm/onboarding", icon: GraduationCap, color: "text-status-won", chip: "bg-status-won/10" },
 ];

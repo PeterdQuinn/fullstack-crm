@@ -196,6 +196,8 @@ export async function importLeads(leads: DiscoveredLead[]): Promise<{
           niche: lead.niche || "General",
           industry: lead.industry || lead.niche || null,
           short_description: lead.short_description || null,
+          google_rating: lead.rating || null,
+          google_review_count: lead.review_count || null,
           status: "New",
           opt_out: false,
           bounced: false,

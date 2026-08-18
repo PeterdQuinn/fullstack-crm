@@ -89,6 +89,8 @@ function deterministicMerge(raw: RawLead[]): {
       existing.lead.website ||= r.website;
       existing.lead.email ||= r.email;
       existing.lead.address ||= r.address;
+      existing.lead.rating ||= r.rating;
+      existing.lead.review_count ||= r.review_count;
       existing.sources.add(r.source);
     } else {
       byKey.set(nameKey, { lead: { ...r }, sources: new Set([r.source]) });
@@ -126,6 +128,8 @@ export async function cleanAndStructureLeads(raw: RawLead[]): Promise<CleanResul
         ex.website = ex.website || r.website;
         ex.email = ex.email || r.email;
         ex.address = ex.address || r.address;
+        ex.rating = ex.rating || r.rating;
+        ex.review_count = ex.review_count || r.review_count;
       } else {
         seen.set(key, { ...r });
       }
@@ -142,7 +146,7 @@ Your job:
 
 Return ONLY a JSON object, no prose, in exactly this shape:
 {
-  "cleaned": [ { "business_name": "", "phone": "", "website": "", "email": "", "address": "", "city": "", "state": "", "niche": "" } ],
+  "cleaned": [ { "business_name": "", "phone": "", "website": "", "email": "", "address": "", "city": "", "state": "", "niche": "", "rating": 0, "review_count": 0 } ],
   "dropped": [ { "business_name": "", "reason": "" } ]
 }
 Use empty string for unknown fields. Do not invent data.
@@ -158,6 +162,8 @@ ${JSON.stringify(
     city: r.city || "",
     state: r.state || "",
     niche: r.niche || "",
+    rating: r.rating || 0,
+    review_count: r.review_count || 0,
     source: r.source,
   })),
   null,
@@ -196,6 +202,8 @@ ${JSON.stringify(
       city: c.city?.trim() || undefined,
       state: c.state?.trim() || undefined,
       niche: c.niche?.trim() || "General",
+      rating: Number(c.rating) || undefined,
+      review_count: Number(c.review_count) || undefined,
     }));
     aiDropped = Array.isArray(parsed.dropped)
       ? parsed.dropped.map((d: any) => ({
