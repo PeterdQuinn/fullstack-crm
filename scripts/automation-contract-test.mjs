@@ -82,6 +82,11 @@ const repliesPage = read("app/crm/replies/page.tsx");
 const repliesRoute = read("app/api/crm/replies/route.ts");
 check("processed replies cannot be classified twice", repliesPage.includes("!reply.action_completed") && repliesRoute.includes("action_completed"));
 check("reply errors show the server detail", repliesPage.includes("data?.automationError"));
+const callQueuePage = read("app/crm/call-queue/page.tsx");
+const logCallRoute = read("app/api/crm/log-call/route.ts");
+check("call workspace includes full lead preparation", callQueuePage.includes("Call Preparation") && callQueuePage.includes("Recent Calls") && callQueuePage.includes("Lead Notes"));
+check("call outcome controls lead status", logCallRoute.includes("OUTCOME_STATUS") && logCallRoute.includes("next_follow_up_at"));
+check("call workspace removes visible status hyphens", callQueuePage.includes('value.replaceAll("-", " ")'));
 
 const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));
