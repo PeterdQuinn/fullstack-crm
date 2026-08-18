@@ -59,6 +59,9 @@ export async function GET() {
     return Response.json([...byLead.values()]);
   } catch (error) {
     console.error("DM queue error:", error);
-    return Response.json([]);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Failed to load DM queue" },
+      { status: 500 }
+    );
   }
 }

@@ -7,37 +7,51 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const ALLOWED_STATUSES = new Set(["Booking Link Sent", "Booked", "Onboarding Sent", "Onboarding Completed"]);
+
 export async function POST(req: NextRequest) {
   try {
     const { bookingId, status } = await req.json();
+    if (!bookingId || !ALLOWED_STATUSES.has(status)) {
+      return NextResponse.json({ error: "Invalid lead id or booking status" }, { status: 400 });
+    }
 
-    // Read the prior value + lead_id so the audit row is complete.
-    const { data: existing } = await supabase
-      .from("booking_tracker")
-      .select("lead_id, booking_status")
+    // Booking rows shown by the UI are lead rows, so update that same source of
+    // truth. The previous implementation wrote to booking_tracker using a lead
+    // id as the tracker id and could return success after updating zero rows.
+    const { data: existing, error: readError } = await supabase
+      .from("leads")
+      .select("id, status, meeting_booked")
       .eq("id", bookingId)
       .single();
-
-    const update: any = { booking_status: status };
-    if (status === "Booked") {
-      update.booked_at = new Date().toISOString();
+    if (readError || !existing) {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
 
-    await supabase.from("booking_tracker").update(update).eq("id", bookingId);
+    const update = {
+      status,
+      meeting_booked: status !== "Booking Link Sent",
+      updated_at: new Date().toISOString(),
+    };
+    const { data: updated, error: updateError } = await supabase
+      .from("leads")
+      .update(update)
+      .eq("id", bookingId)
+      .select("id")
+      .single();
+    if (updateError || !updated) throw new Error(updateError?.message || "Booking update changed no rows");
 
-    if (existing?.lead_id) {
-      await logStatusChange({
-        leadId: existing.lead_id,
-        field: "booking_status",
-        from: existing.booking_status ?? null,
-        to: status,
-        source: "owner",
-      });
-    }
+    await logStatusChange({
+      leadId: existing.id,
+      field: "status",
+      from: existing.status ?? null,
+      to: status,
+      source: "owner",
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Update booking error:", error);
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 });
   }
 }

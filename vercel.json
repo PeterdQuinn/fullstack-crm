@@ -3,12 +3,24 @@
   "framework": "nextjs",
   "crons": [
     {
+      "path": "/api/cron/discover-leads",
+      "schedule": "0 15 * * *"
+    },
+    {
       "path": "/api/cron/automation",
-      "schedule": "0 9 * * *"
+      "schedule": "0 16 * * *"
     },
     {
       "path": "/api/cron/process-followups",
-      "schedule": "30 9 * * *"
+      "schedule": "0 17 * * *"
+    },
+    {
+      "path": "/api/cron/poll-replies",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/daily-digest",
+      "schedule": "0 1 * * *"
     }
   ]
 }

@@ -17,6 +17,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetchLeads();
@@ -24,11 +25,14 @@ export default function OnboardingPage() {
 
   async function fetchLeads() {
     try {
+      setError("");
       const response = await fetch("/api/crm/onboarding-queue");
       const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Failed to load onboarding queue");
       setLeads(data || []);
     } catch (error) {
       console.error("Error:", error);
+      setError(error instanceof Error ? error.message : "Failed to load onboarding queue");
     } finally {
       setLoading(false);
     }
@@ -36,27 +40,35 @@ export default function OnboardingPage() {
 
   async function markOnboardingSent(leadId: string) {
     try {
-      await fetch("/api/crm/onboarding-sent", {
+      setError("");
+      const response = await fetch("/api/crm/onboarding-sent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leadId }),
       });
-      fetchLeads();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Failed to mark onboarding sent");
+      await fetchLeads();
     } catch (error) {
       console.error("Error:", error);
+      setError(error instanceof Error ? error.message : "Failed to mark onboarding sent");
     }
   }
 
   async function markOnboardingCompleted(leadId: string) {
     try {
-      await fetch("/api/crm/onboarding-completed", {
+      setError("");
+      const response = await fetch("/api/crm/onboarding-completed", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ leadId }),
       });
-      fetchLeads();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Failed to complete onboarding");
+      await fetchLeads();
     } catch (error) {
       console.error("Error:", error);
+      setError(error instanceof Error ? error.message : "Failed to complete onboarding");
     }
   }
 
@@ -67,6 +79,7 @@ export default function OnboardingPage() {
         <button onClick={() => router.back()} style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
       </div>
 
+      {error && <p style={{ color: "#b91c1c", background: "#fee2e2", padding: "12px", borderRadius: "6px" }}>{error}</p>}
       {loading ? (
         <p>Loading...</p>
       ) : leads.length === 0 ? (

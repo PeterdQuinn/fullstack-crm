@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Webhook } from "svix";
 import { logStatusChange } from "@/lib/audit";
+import { cancelPendingColdEmailTasks } from "@/lib/reply-actions";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,25 +44,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: log } = await supabase
+    const { data: log, error: logLookupError } = await supabase
       .from("outreach_log")
       .select("id, lead_id")
       .eq("provider_message_id", messageId)
       .single();
 
+    if (logLookupError) {
+      return NextResponse.json(
+        { received: false, error: `Outreach log lookup failed: ${logLookupError.message}` },
+        { status: logLookupError.code === "PGRST116" ? 404 : 500 }
+      );
+    }
+
     if (!log) {
-      return NextResponse.json({ received: true }, { status: 200 });
+      return NextResponse.json({ received: false, error: "Email is not present in outreach_log" }, { status: 404 });
+    }
+
+    async function requireDb(operation: PromiseLike<any>, label: string) {
+      const result = await operation;
+      if (result.error) throw new Error(`${label}: ${result.error.message}`);
+      return result.data;
     }
 
     // For suppression events (bounce/complaint) we snapshot the lead's current
     // pipeline status before overwriting it, so the Suppressed view can show
     // where the lead was. Only captured the first time (not already suppressed).
     async function captureStatusBeforeSuppression(): Promise<string | undefined> {
-      const { data: leadRow } = await supabase
+      const { data: leadRow, error: leadError } = await supabase
         .from("leads")
         .select("status, status_before_suppression, opt_out, bounced, complained")
         .eq("id", log!.lead_id)
         .single();
+      if (leadError) throw new Error(`Lead suppression lookup failed: ${leadError.message}`);
       if (!leadRow) return undefined;
       const alreadySuppressed = leadRow.opt_out || leadRow.bounced || leadRow.complained;
       if (leadRow.status_before_suppression || alreadySuppressed) return undefined;
@@ -70,58 +85,77 @@ export async function POST(req: NextRequest) {
 
     switch (event.type) {
       case "email.delivered":
-        await supabase
+        await requireDb(supabase
           .from("outreach_log")
           .update({ delivered_at: new Date().toISOString() })
-          .eq("id", log.id);
+          .eq("id", log.id), "Delivery tracking update failed");
         break;
 
-      case "email.opened":
-        await supabase
+      case "email.opened": {
+        await requireDb(supabase
           .from("outreach_log")
           .update({ opened_at: new Date().toISOString() })
-          .eq("id", log.id);
+          .eq("id", log.id), "Open tracking update failed");
+
+        const { data: lead, error: leadError } = await supabase
+          .from("leads").select("status").eq("id", log.lead_id).single();
+        if (leadError) throw new Error(`Opened lead lookup failed: ${leadError.message}`);
+        const callableStatuses = new Set(["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Email 3 Sent"]);
+        if (lead && callableStatuses.has(lead.status)) {
+          await requireDb(supabase.from("leads")
+            .update({ status: "Call Needed", updated_at: new Date().toISOString() })
+            .eq("id", log.lead_id), "Opened lead prioritization failed");
+          await logStatusChange({
+            leadId: log.lead_id,
+            from: lead.status,
+            to: "Call Needed",
+            source: "automation",
+            reason: "prospect opened outreach email",
+          });
+        }
         break;
+      }
 
       case "email.clicked":
-        await supabase
+        await requireDb(supabase
           .from("outreach_log")
           .update({ clicked_at: new Date().toISOString() })
-          .eq("id", log.id);
+          .eq("id", log.id), "Click tracking update failed");
         break;
 
       case "email.bounced": {
         const before = await captureStatusBeforeSuppression();
-        await supabase
+        await requireDb(supabase
           .from("outreach_log")
           .update({
             bounced_at: new Date().toISOString(),
             status: "bounced",
           })
-          .eq("id", log.id);
+          .eq("id", log.id), "Bounce log update failed");
 
-        await supabase
+        await requireDb(supabase
           .from("leads")
           .update({
             bounced: true,
             status: "Bad Email",
             ...(before ? { status_before_suppression: before } : {}),
           })
-          .eq("id", log.lead_id);
+          .eq("id", log.lead_id), "Bounced lead suppression failed");
+        await cancelPendingColdEmailTasks(log.lead_id);
         await logStatusChange({ leadId: log.lead_id, from: before ?? null, to: "Bad Email", source: "automation" });
         break;
       }
 
       case "email.complained": {
         const before = await captureStatusBeforeSuppression();
-        await supabase
+        await requireDb(supabase
           .from("outreach_log")
           .update({
             status: "complained",
           })
-          .eq("id", log.id);
+          .eq("id", log.id), "Complaint log update failed");
 
-        await supabase
+        await requireDb(supabase
           .from("leads")
           .update({
             complained: true,
@@ -129,16 +163,17 @@ export async function POST(req: NextRequest) {
             status: "Do Not Contact",
             ...(before ? { status_before_suppression: before } : {}),
           })
-          .eq("id", log.lead_id);
+          .eq("id", log.lead_id), "Complained lead suppression failed");
+        await cancelPendingColdEmailTasks(log.lead_id);
         await logStatusChange({ leadId: log.lead_id, from: before ?? null, to: "Do Not Contact", source: "automation" });
         break;
       }
 
       default:
-        break;
+        return NextResponse.json({ received: true, handled: false, type: event.type });
     }
 
-    return NextResponse.json({ received: true });
+    return NextResponse.json({ received: true, handled: true, type: event.type });
   } catch (error) {
     console.error("Webhook error:", error);
     return NextResponse.json(

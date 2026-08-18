@@ -2,6 +2,10 @@ import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { footerHtml } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
+import { bucketForCategory, type ReplyBucket } from "@/lib/reply-policy";
+
+export { bucketForCategory } from "@/lib/reply-policy";
+export type { ReplyBucket } from "@/lib/reply-policy";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,16 +17,19 @@ const supabase = createClient(
 export const CALENDLY_LINK =
   "https://calendly.com/fullstackservicesllc/full-stack-meeting";
 
-export type ReplyBucket = "interested" | "not_interested" | "unclear";
+export async function cancelPendingColdEmailTasks(leadId: string, now = new Date().toISOString()): Promise<void> {
+  const { error } = await supabase
+    .from("follow_up_tasks")
+    .update({
+      status: "cancelled",
+      completed_at: now,
+      notes: "Cancelled automatically: prospect replied",
+    })
+    .eq("lead_id", leadId)
+    .eq("status", "pending")
+    .like("task_type", "send_email_%");
 
-// Grok/Together classifier categories → the three outcomes we automate.
-const POSITIVE = new Set(["Interested", "Asked Price", "Send Info"]);
-const NEGATIVE = new Set(["Not Interested", "Wrong Person", "Stop"]);
-
-export function bucketForCategory(category: string): ReplyBucket {
-  if (POSITIVE.has(category)) return "interested";
-  if (NEGATIVE.has(category)) return "not_interested";
-  return "unclear"; // Too Busy, Question, or anything unrecognized
+  if (error) throw new Error(`Failed to cancel pending cold-email tasks: ${error.message}`);
 }
 
 function bookingEmail(company?: string | null, leadId?: string | null) {
@@ -56,7 +63,7 @@ export interface ReplyActionResult {
  * Acts on a classified reply:
  *   interested     → send the Calendly booking-link email + status "Booking Link Sent"
  *   not_interested → status "Do Not Contact" + opt_out
- *   unclear        → status "Follow-Up Scheduled" + schedule a follow-up task
+ *   unclear        → status "Needs Follow-Up" for human review
  *
  * Operates on the `leads` table (the booking pipeline and email queues read from
  * there; the `booking_tracker` table is empty/unused per app/api/crm/bookings).
@@ -70,7 +77,7 @@ export async function actOnReplyClassification(
 
   const { data: lead, error } = await supabase
     .from("leads")
-    .select("id, business_name, email, status, opt_out")
+    .select("id, business_name, email, status, opt_out, calendly_link_sent")
     .eq("id", leadId)
     .single();
 
@@ -78,12 +85,30 @@ export async function actOnReplyClassification(
     throw new Error(`Lead not found for id ${leadId}: ${error?.message || "no row"}`);
   }
 
+  // A reply always ends the automated cold sequence. This happens before any
+  // classification-specific action so a positive, negative, wrong-person, or
+  // unclear reply can never receive a queued touch 2/3 afterward.
+  await cancelPendingColdEmailTasks(leadId, now);
+
   if (bucket === "interested") {
+    // Idempotency guard: a retry after an external send or status-write failure
+    // must not send a second booking email to the same prospect.
+    if (lead.calendly_link_sent) {
+      return {
+        bucket,
+        category,
+        action: "booking_link_already_sent",
+        emailSent: false,
+        leadStatus: lead.status || "Booking Link Sent",
+        sentTo: lead.email || undefined,
+      };
+    }
     if (!lead.email) {
-      await supabase
+      const { error: updateError } = await supabase
         .from("leads")
         .update({ status: "Booking Link Sent", updated_at: now })
         .eq("id", leadId);
+      if (updateError) throw new Error(`Failed to update interested lead: ${updateError.message}`);
       await logStatusChange({ leadId, from: lead.status, to: "Booking Link Sent", source: "automation" });
       return {
         bucket,
@@ -95,9 +120,15 @@ export async function actOnReplyClassification(
     }
 
     const { subject, html } = bookingEmail(lead.business_name, leadId);
-    const sendResult = await sendEmail(lead.email, subject, html);
+    const sendResult = await sendEmail(
+      lead.email,
+      subject,
+      html,
+      undefined,
+      `crm-${lead.id}-booking-link`
+    );
 
-    await supabase
+    const { error: updateError } = await supabase
       .from("leads")
       .update({
         status: "Booking Link Sent",
@@ -105,8 +136,9 @@ export async function actOnReplyClassification(
         updated_at: now,
       })
       .eq("id", leadId);
+    if (updateError) throw new Error(`Failed to update interested lead: ${updateError.message}`);
 
-    await supabase.from("outreach_log").insert({
+    const { error: logError } = await supabase.from("outreach_log").insert({
       lead_id: leadId,
       channel: "email",
       direction: "outbound",
@@ -118,6 +150,7 @@ export async function actOnReplyClassification(
       provider_message_id: sendResult?.id,
       sent_at: now,
     });
+    if (logError) throw new Error(`Booking link sent but outreach log failed: ${logError.message}`);
 
     await logStatusChange({ leadId, from: lead.status, to: "Booking Link Sent", source: "automation" });
 
@@ -133,7 +166,7 @@ export async function actOnReplyClassification(
   }
 
   if (bucket === "not_interested") {
-    await supabase
+    const { error: updateError } = await supabase
       .from("leads")
       .update({
         status: "Do Not Contact",
@@ -143,6 +176,7 @@ export async function actOnReplyClassification(
         updated_at: now,
       })
       .eq("id", leadId);
+    if (updateError) throw new Error(`Failed to suppress replied lead: ${updateError.message}`);
     await logStatusChange({ leadId, from: lead.status, to: "Do Not Contact", source: "automation" });
     return {
       bucket,
@@ -153,30 +187,21 @@ export async function actOnReplyClassification(
     };
   }
 
-  // unclear → set a follow-up on the lead and enqueue a task for the cron.
-  const dueAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
-  await supabase
+  // Unclear, Too Busy, Question, Wrong Person, or an unknown category requires
+  // human review. Do not enqueue it in follow_up_tasks: that table is consumed
+  // by the automatic email sender and could restart cold outreach after reply.
+  const { error: updateError } = await supabase
     .from("leads")
-    .update({ status: "Follow-Up Scheduled", next_follow_up_at: dueAt, updated_at: now })
+    .update({ status: "Needs Follow-Up", next_follow_up_at: now, updated_at: now })
     .eq("id", leadId);
-  await logStatusChange({ leadId, from: lead.status, to: "Follow-Up Scheduled", source: "automation" });
-
-  const { error: taskError } = await supabase.from("follow_up_tasks").insert({
-    lead_id: leadId,
-    task_type: "reply_followup",
-    due_at: dueAt,
-    status: "pending",
-  });
-  if (taskError) {
-    // Non-fatal: the lead already carries next_follow_up_at as a backstop.
-    console.warn("follow_up_tasks insert failed (non-fatal):", taskError.message);
-  }
+  if (updateError) throw new Error(`Failed to queue reply for human review: ${updateError.message}`);
+  await logStatusChange({ leadId, from: lead.status, to: "Needs Follow-Up", source: "automation" });
 
   return {
     bucket,
     category,
-    action: "follow_up_scheduled",
+    action: "human_review_required",
     emailSent: false,
-    leadStatus: "Follow-Up Scheduled",
+    leadStatus: "Needs Follow-Up",
   };
 }

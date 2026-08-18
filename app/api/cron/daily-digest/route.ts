@@ -12,8 +12,10 @@ export const maxDuration = 60;
 
 const DIGEST_TO = "owner@fullstackservicesllc.net";
 
-function countHead(query: any): Promise<number> {
-  return query.then((r: any) => r.count || 0);
+async function countHead(query: any): Promise<number> {
+  const result = await query;
+  if (result.error) throw new Error(result.error.message);
+  return result.count || 0;
 }
 
 // Vercel Cron sends GET. A bad or missing secret returns 401 — never a 200.
@@ -97,7 +99,10 @@ export async function POST(req: NextRequest) {
         .select("message_type")
         .eq("channel", "email")
         .gte("sent_at", startIso).lt("sent_at", endIso)
-        .then((r) => r.data || []),
+        .then((r) => {
+          if (r.error) throw new Error(r.error.message);
+          return r.data || [];
+        }),
     ]);
 
     const email1 = sentRows.filter((r: any) => r.message_type === "email_1").length;
@@ -133,7 +138,7 @@ export async function POST(req: NextRequest) {
     });
 
     const subject = `CRM Daily Summary — ${dateLabel}`;
-    await sendEmail(DIGEST_TO, subject, html);
+    await sendEmail(DIGEST_TO, subject, html, undefined, `crm-digest-${dateLabel}`);
 
     return NextResponse.json({
       success: true,

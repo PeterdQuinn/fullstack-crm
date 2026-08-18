@@ -22,6 +22,9 @@ export async function GET() {
     return Response.json(data || []);
   } catch (error) {
     console.error("Call queue error:", error);
-    return Response.json([]);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Failed to load call queue" },
+      { status: 500 }
+    );
   }
 }

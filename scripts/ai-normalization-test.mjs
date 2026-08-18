@@ -37,7 +37,7 @@ const sdk = path.join(ROOT, "node_modules", "@anthropic-ai", "sdk", "index.mjs")
 fs.writeFileSync(built, fs.readFileSync(built, "utf8")
   .replace(/from ["']@anthropic-ai\/sdk["']/g, `from "${sdk}"`));
 
-const { flattenTextParts, extractJsonText } = await import(`file://${built}`);
+const { flattenTextParts, extractJsonText, geminiAuth } = await import(`file://${built}`);
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -60,6 +60,10 @@ const normalize = (wire, label) => {
 const PAYLOAD = '{"category": "Asked Price", "recommended_action": "Send pricing"}';
 
 console.log("\n── Provider wire shapes → identical parsed object ──\n");
+
+check("Gemini legacy API key uses query auth", geminiAuth("AIzaExampleKey123456789012345"), { queryKey: "AIzaExampleKey123456789012345" });
+check("Gemini AQ API key uses query auth", geminiAuth("AQ.ExampleNewFormatKey"), { queryKey: "AQ.ExampleNewFormatKey" });
+check("Gemini OAuth token uses bearer auth", geminiAuth("ya29.example-token"), { bearer: "ya29.example-token" });
 
 // Groq: choices[0].message.content is already flat text.
 check("Groq (flat string)", normalize(PAYLOAD, "Groq"), EXPECTED);

@@ -67,6 +67,9 @@ async function runAutomation(req: NextRequest) {
     for (const phase of phases) {
       try {
         const result = await runAutomationPhase(phase);
+        if ("blocked" in result && result.blocked) {
+          throw new Error(`${phase} phase blocked: ${result.blocked}`);
+        }
         results.push({ phase, success: true, result });
         console.log(`✓ Phase ${phase} completed`, result);
       } catch (error) {
@@ -83,13 +86,15 @@ async function runAutomation(req: NextRequest) {
     ) as any;
     const emailedThisRun = sendEntry?.result?.emailed ?? [];
 
-    return NextResponse.json({
-      success: true,
+    const failedPhases = results.filter((r) => !r.success);
+    const payload = {
+      success: failedPhases.length === 0,
       message: "✅ Daily automation completed",
       emailedThisRun,
       results,
       timestamp: new Date().toISOString(),
-    });
+    };
+    return NextResponse.json(payload, { status: failedPhases.length === 0 ? 200 : 500 });
   } catch (error) {
     console.error("Cron error:", error);
     return NextResponse.json(

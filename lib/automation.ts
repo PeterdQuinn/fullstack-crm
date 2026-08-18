@@ -482,23 +482,41 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       const { subject, html, bodyText } = rendered;
 
       try {
-        const result = await sendEmail(lead.email, subject, html);
-        await supabase.from("outreach_log").insert({
-          lead_id: lead.id,
-          channel: "email",
-          direction: "outbound",
-          message_type: `email_${emailNum}`,
+        const result = await sendEmail(
+          lead.email,
           subject,
-          message_body: bodyText,
-          status: "sent",
-          provider: "resend",
-          provider_message_id: result.id,
-          sent_at: new Date().toISOString(),
-        });
-        await supabase
+          html,
+          undefined,
+          `crm-${lead.id}-email-${emailNum}`
+        );
+        const { data: existingLog, error: existingLogError } = await supabase
+          .from("outreach_log").select("id").eq("provider_message_id", result.id).maybeSingle();
+        if (existingLogError) throw new Error(`Sent email but log lookup failed: ${existingLogError.message}`);
+        if (!existingLog) {
+          const { error: logError } = await supabase.from("outreach_log").insert({
+            lead_id: lead.id,
+            channel: "email",
+            direction: "outbound",
+            message_type: `email_${emailNum}`,
+            subject,
+            message_body: bodyText,
+            status: "sent",
+            provider: "resend",
+            provider_message_id: result.id,
+            sent_at: new Date().toISOString(),
+          });
+          if (logError) throw new Error(`Sent email but failed to log it: ${logError.message}`);
+        }
+
+        const { data: updatedLead, error: updateError } = await supabase
           .from("leads")
           .update({ email_sent_count: emailNum, status: `Email ${emailNum} Sent` })
-          .eq("id", lead.id);
+          .eq("id", lead.id)
+          .select("id")
+          .single();
+        if (updateError || !updatedLead) {
+          throw new Error(updateError?.message || "Sent email but lead update changed no rows");
+        }
         await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: `Email ${emailNum} Sent`, source: "automation" });
 
         // Sending moves the lead to "Email N Sent", which is deliberately NOT
@@ -518,7 +536,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
             status: "pending",
           });
           if (taskError) {
-            console.warn(`follow_up_tasks insert failed for ${lead.business_name} (non-fatal):`, taskError.message);
+            throw new Error(`Email sent but follow-up scheduling failed: ${taskError.message}`);
           }
         }
 
@@ -532,7 +550,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         });
       } catch (err) {
         console.error(`Error sending to ${lead.business_name}:`, err);
-        skipped++;
+        throw err;
       }
     }
 

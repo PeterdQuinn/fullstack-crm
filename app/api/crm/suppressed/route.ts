@@ -45,6 +45,9 @@ export async function GET() {
     return Response.json(rows);
   } catch (error) {
     console.error("Suppressed leads error:", error);
-    return Response.json([], { status: 200 });
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Failed to load suppressed leads" },
+      { status: 500 }
+    );
   }
 }

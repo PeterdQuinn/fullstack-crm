@@ -137,7 +137,9 @@ export function computeLeadDashboardStats(
     callQueue: leads.filter(
       (l) => hasValue(l.phone) && !!l.status && CALL_QUEUE_STATUSES.includes(l.status)
     ).length,
-    onboarding: leads.filter((l) => l.meeting_booked === true && l.opt_out !== true).length,
+    onboarding: leads.filter(
+      (l) => l.opt_out !== true && (l.status === "Booked" || l.status === "Onboarding Sent")
+    ).length,
     meetingsToday: leads.filter(
       (l) => l.meeting_booked === true && phoenixDayIndex(l.meeting_date, ref) === today
     ).length,

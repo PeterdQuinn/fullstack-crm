@@ -11,15 +11,18 @@ export async function POST(req: NextRequest) {
   try {
     const { leadId } = await req.json();
 
-    // Capture prior status for the audit trail before overwriting it.
-    const { data: lead } = await supabase.from("leads").select("status").eq("id", leadId).single();
+    if (!leadId) return NextResponse.json({ error: "leadId is required" }, { status: 400 });
+    const { data: lead, error: readError } = await supabase
+      .from("leads").select("id, status").eq("id", leadId).single();
+    if (readError || !lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
 
-    await supabase
-      .from("booking_tracker")
-      .update({ onboarding_completed: true })
-      .eq("lead_id", leadId);
-
-    await supabase.from("leads").update({ status: "Onboarding Completed" }).eq("id", leadId);
+    const { data: updated, error: updateError } = await supabase
+      .from("leads")
+      .update({ status: "Onboarding Completed", meeting_booked: true, updated_at: new Date().toISOString() })
+      .eq("id", leadId)
+      .select("id")
+      .single();
+    if (updateError || !updated) throw new Error(updateError?.message || "Onboarding update changed no rows");
 
     await logStatusChange({
       leadId,
@@ -32,6 +35,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Onboarding completed error:", error);
-    return NextResponse.json({ error: "Failed" }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Failed" }, { status: 500 });
   }
 }

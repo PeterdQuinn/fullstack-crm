@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { classifyReply } from "@/lib/grok";
-import { actOnReplyClassification } from "@/lib/reply-actions";
+import { actOnReplyClassification, cancelPendingColdEmailTasks } from "@/lib/reply-actions";
 import { logStatusChange } from "@/lib/audit";
 import { fetchUnread, markRead, replyText, graphMissingReason, type GraphMessage } from "@/lib/graph-inbox";
 
@@ -57,7 +57,7 @@ async function handle(msg: GraphMessage) {
 
   const text = replyText(msg);
 
-  await supabase.from("outreach_log").insert({
+  const { error: replyLogError } = await supabase.from("outreach_log").insert({
     lead_id: lead.id,
     channel: "email",
     direction: "inbound",
@@ -69,6 +69,11 @@ async function handle(msg: GraphMessage) {
     provider_message_id: msg.id,
     replied_at: msg.receivedDateTime,
   });
+  if (replyLogError) throw new Error(`Failed to store inbound reply: ${replyLogError.message}`);
+
+  // Recording a reply always stops queued cold touches, even while classifier
+  // autopilot is disabled and a human is responsible for the next action.
+  await cancelPendingColdEmailTasks(lead.id);
 
   const classification = await classifyReply(text).catch(() => null);
   const category = classification?.category ?? "Unclear";
@@ -76,10 +81,11 @@ async function handle(msg: GraphMessage) {
   if (!autopilot()) {
     // Record only. Surfaces in /crm/replies for a human to action.
     if (lead.status !== "Replied") {
-      await supabase
+      const { error: updateError } = await supabase
         .from("leads")
         .update({ status: "Replied", updated_at: new Date().toISOString() })
         .eq("id", lead.id);
+      if (updateError) throw new Error(`Failed to mark lead Replied: ${updateError.message}`);
       await logStatusChange({
         leadId: lead.id,
         from: lead.status ?? null,
@@ -91,7 +97,7 @@ async function handle(msg: GraphMessage) {
     return { lead: lead.business_name, category, acted: false };
   }
 
-  const action = await actOnReplyClassification(lead.id, category).catch((e) => ({ error: String(e) }) as any);
+  const action = await actOnReplyClassification(lead.id, category);
   return { lead: lead.business_name, category, acted: true, action };
 }
 
@@ -104,14 +110,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Not configured is a SKIP, not a failure. This route is scheduled every 30
-  // minutes; returning a non-200 would make the workflow fail — and mail a
-  // failure notice — 48 times a day purely because an optional integration is
-  // not set up yet. The reason is still reported in the body and in the logs.
+  // Reply polling is part of the required automation. Missing credentials must
+  // fail visibly; a green cron that never reads replies is a false positive.
   const missing = graphMissingReason();
   if (missing) {
-    console.warn(`poll-replies skipped: ${missing}`);
-    return NextResponse.json({ success: true, skipped: missing, scanned: 0, matched: 0 });
+    console.error(`poll-replies unavailable: ${missing}`);
+    return NextResponse.json(
+      { success: false, error: missing, scanned: 0, matched: 0 },
+      { status: 503 }
+    );
   }
 
   try {
@@ -130,14 +137,17 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({
-      success: true,
+    const errors = results.filter((r) => r.error);
+    const payload = {
+      success: errors.length === 0,
       autopilot: autopilot(),
       scanned: unread.length,
       matched: results.filter((r) => r.lead).length,
       skipped: results.filter((r) => r.skipped).length,
+      errors: errors.length,
       results,
-    });
+    };
+    return NextResponse.json(payload, { status: errors.length === 0 ? 200 : 500 });
   } catch (e) {
     return NextResponse.json(
       { success: false, error: e instanceof Error ? e.message : String(e) },

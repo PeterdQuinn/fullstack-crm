@@ -99,7 +99,13 @@ export async function GET(req: NextRequest) {
         });
 
         console.log(`Sending email ${emailNum} to ${lead.business_name}...`);
-        const result = await sendEmail(lead.email, subject, html);
+        const result = await sendEmail(
+          lead.email,
+          subject,
+          html,
+          undefined,
+          `crm-${lead.id}-email-${emailNum}`
+        );
 
         // Log the email
         await supabase.from("outreach_log").insert({

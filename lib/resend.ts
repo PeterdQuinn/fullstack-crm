@@ -9,17 +9,21 @@ export async function sendEmail(
   email: string,
   subject: string,
   html: string,
-  replyTo?: string
+  replyTo?: string,
+  idempotencyKey?: string
 ) {
   try {
     const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@fullstackservicesllc.net";
-    const result = await resend.emails.send({
-      from: fromEmail,
-      to: email,
-      subject,
-      html,
-      replyTo: replyTo || "owner@fullstackservicesllc.net",
-    });
+    const result = await resend.emails.send(
+      {
+        from: fromEmail,
+        to: email,
+        subject,
+        html,
+        replyTo: replyTo || "owner@fullstackservicesllc.net",
+      },
+      idempotencyKey ? { idempotencyKey } : undefined
+    );
 
     if (result.error) {
       throw new Error(result.error.message);

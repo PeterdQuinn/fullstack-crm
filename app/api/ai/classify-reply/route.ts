@@ -20,9 +20,14 @@ export async function POST(req: NextRequest) {
         automation = await actOnReplyClassification(leadId, result.category);
       } catch (err) {
         console.error("Reply automation failed:", err);
-        automation = {
-          error: err instanceof Error ? err.message : "automation failed",
-        };
+        return NextResponse.json(
+          {
+            ...result,
+            error: "Reply was classified but the required CRM action failed",
+            automationError: err instanceof Error ? err.message : "automation failed",
+          },
+          { status: 500 }
+        );
       }
     }
 

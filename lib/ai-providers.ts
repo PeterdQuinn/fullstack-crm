@@ -147,10 +147,19 @@ const MAX_ATTEMPTS = 3;
 const BASE_BACKOFF_MS = 400;
 
 class ProviderHttpError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public retryAfterMs?: number) {
     super(message);
     this.name = "ProviderHttpError";
   }
+}
+
+function retryAfterMs(res: Response): number | undefined {
+  const raw = res.headers.get("retry-after");
+  if (!raw) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  const dateMs = Date.parse(raw);
+  return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : undefined;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -168,7 +177,10 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
       const retriable =
         err instanceof ProviderHttpError ? RETRY_STATUSES.has(err.status) : err instanceof TypeError;
       if (!retriable || attempt === MAX_ATTEMPTS) break;
-      const delay = BASE_BACKOFF_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 200);
+      const exponential = BASE_BACKOFF_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 200);
+      const delay = err instanceof ProviderHttpError && err.retryAfterMs
+        ? Math.max(exponential, err.retryAfterMs + 100)
+        : exponential;
       console.warn(
         `${label} attempt ${attempt}/${MAX_ATTEMPTS} failed (${
           err instanceof Error ? err.message : err
@@ -183,6 +195,7 @@ async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
 // ── Key accessors (tolerate both the mixed-case names in .env.local and the
 //    conventional SCREAMING_CASE forms) ──────────────────────────────────────
 const groqKey = () => process.env.Groq_API_KEY || process.env.GROQ_API_KEY;
+const kimiKey = () => process.env.Kimi_API_KEY || process.env.KIMI_API_KEY || process.env.MOONSHOT_API_KEY;
 const geminiKey = () => process.env.GEMINI_API_KEY;
 const ollamaKey = () => process.env.OLLAMA_API_KEY;
 const anthropicKey = () => process.env.ANTHROPIC_API_KEY;
@@ -207,14 +220,18 @@ async function openAICompatible(
         model,
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
-        max_tokens: 1024,
+        // Reasoning-capable models such as Groq's gpt-oss may consume part of
+        // this budget before emitting the JSON. 1024 produced an empty content
+        // block on the drafting contract; 4096 leaves room for both.
+        max_tokens: 4096,
       }),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       throw new ProviderHttpError(
         res.status,
-        `${label} ${res.status} ${res.statusText} ${detail}`.trim()
+        `${label} ${res.status} ${res.statusText} ${detail}`.trim(),
+        retryAfterMs(res)
       );
     }
     const data = await res.json();
@@ -225,12 +242,25 @@ async function openAICompatible(
 async function callGroq(prompt: string): Promise<string> {
   const key = groqKey();
   if (!key) throw new Error("Groq_API_KEY not set");
-  // llama-3.1-8b-instant = Groq's fastest free model, ideal for classification.
+  // Verified against the configured Groq account's live model roster.
+  // The former llama-3.1-8b-instant default is no longer available there.
   return openAICompatible(
     "Groq",
     "https://api.groq.com/openai/v1/chat/completions",
     key,
-    process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+    process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+    prompt
+  );
+}
+
+async function callKimi(prompt: string): Promise<string> {
+  const key = kimiKey();
+  if (!key) throw new Error("KIMI_API_KEY not set");
+  return openAICompatible(
+    "Kimi",
+    "https://api.moonshot.ai/v1/chat/completions",
+    key,
+    process.env.KIMI_MODEL || "kimi-k2.6",
     prompt
   );
 }
@@ -241,17 +271,16 @@ async function callGroq(prompt: string): Promise<string> {
 // AUTH: Google issues two DIFFERENT credential shapes for this endpoint and
 // they are NOT interchangeable:
 //
-//   AI Studio API key   "AIza..."  (39 chars)  -> ?key=<value> query param
-//   OAuth access token  "AQ.Ab8..." / "ya29." -> Authorization: Bearer <value>
+//   API keys may use the legacy "AIza..." shape or Google's newer "AQ...."
+//   shape. Both work through ?key= or x-goog-api-key. OAuth access tokens use
+//   the documented "ya29." prefix and must be sent as Bearer credentials.
 //
-// The configured GEMINI_API_KEY in this project is the OAuth shape, so the
-// original ?key=-only caller could never authenticate (401/403 on every call).
-// We now detect the shape and use the matching scheme, which is what lets the
-// existing credential work without swapping it out.
-const AI_STUDIO_KEY_RE = /^AIza[0-9A-Za-z_-]{20,}$/;
+// Do not infer OAuth from "not AIza": that incorrectly classified a verified
+// AQ-format Gemini API key as Bearer and produced a persistent 401.
+const OAUTH_ACCESS_TOKEN_RE = /^ya29\./;
 
 export function geminiAuth(apiKey: string): { queryKey?: string; bearer?: string } {
-  return AI_STUDIO_KEY_RE.test(apiKey) ? { queryKey: apiKey } : { bearer: apiKey };
+  return OAUTH_ACCESS_TOKEN_RE.test(apiKey) ? { bearer: apiKey } : { queryKey: apiKey };
 }
 
 async function callGemini(prompt: string): Promise<string> {
@@ -290,7 +319,8 @@ async function callGemini(prompt: string): Promise<string> {
       const detail = await res.text().catch(() => "");
       throw new ProviderHttpError(
         res.status,
-        `Gemini ${res.status} ${res.statusText} ${detail}`.trim()
+        `Gemini ${res.status} ${res.statusText} ${detail}`.trim(),
+        retryAfterMs(res)
       );
     }
     const data = await res.json();
@@ -328,7 +358,8 @@ async function callOllama(prompt: string): Promise<string> {
         const detail = await res.text().catch(() => "");
         throw new ProviderHttpError(
           res.status,
-          `Ollama ${res.status} ${res.statusText} ${detail}`.trim()
+          `Ollama ${res.status} ${res.statusText} ${detail}`.trim(),
+          retryAfterMs(res)
         );
       }
       const data = await res.json();
@@ -423,6 +454,7 @@ export const PROVIDERS: Record<string, Provider> = {
   Groq: { name: "Groq", hasKey: () => !!groqKey(), call: callGroq },
   Gemini: { name: "Gemini", hasKey: () => !!geminiKey(), call: callGemini },
   Ollama: { name: "Ollama", hasKey: () => !!ollamaKey(), call: callOllama },
+  Kimi: { name: "Kimi", hasKey: () => !!kimiKey(), call: callKimi },
   Anthropic: { name: "Anthropic", hasKey: () => !!anthropicKey(), call: callAnthropic },
   Kablewy: { name: "Kablewy", hasKey: () => !!kablewyKey(), call: callKablewy },
 };
@@ -451,7 +483,7 @@ export const PROVIDERS: Record<string, Provider> = {
 // everything ahead of it — including paid Anthropic — has already failed.
 //
 // Per-provider model + tuning env vars (all optional):
-//   GROQ_MODEL           default llama-3.1-8b-instant
+//   GROQ_MODEL           default openai/gpt-oss-20b
 //   GEMINI_MODEL         default gemini-flash-latest
 //   OLLAMA_MODEL         default gpt-oss:120b-cloud
 //   OLLAMA_BASE_URL      default https://ollama.com
@@ -464,7 +496,7 @@ export const PROVIDERS: Record<string, Provider> = {
 // API keys (a chain entry with no key is skipped, not an error):
 //   Groq_API_KEY | GROQ_API_KEY, GEMINI_API_KEY, OLLAMA_API_KEY,
 //   ANTHROPIC_API_KEY, KABLEWY_API
-const ROSTER = ["Ollama", "Groq", "Gemini", "Anthropic", "Kablewy"];
+const ROSTER = ["Ollama", "Groq", "Gemini", "Kimi", "Anthropic", "Kablewy"];
 
 export const CHAINS = {
   classification: {
@@ -480,7 +512,7 @@ export const CHAINS = {
     // NOTE: Kablewy's configured host does not resolve (see callKablewy), so in
     // practice it fails instantly on DNS and Ollama does the real work. The
     // failure is measured at ~0ms, so it costs nothing inside the 60s budget.
-    defaults: ["Kablewy", "Ollama", "Groq", "Gemini", "Anthropic"],
+    defaults: ["Ollama", "Gemini", "Groq", "Kimi", "Anthropic", "Kablewy"],
     description: "Lead scoring — more reasoning, lower volume",
   },
   drafting: {

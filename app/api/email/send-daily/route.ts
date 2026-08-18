@@ -72,7 +72,13 @@ export async function POST(req: NextRequest) {
           followUp: summary?.recommended_follow_up,
         });
 
-        const sendResult = await sendEmail(lead.email, subject, html);
+        const sendResult = await sendEmail(
+          lead.email,
+          subject,
+          html,
+          undefined,
+          `crm-${lead.id}-email-${emailNum}`
+        );
 
         await supabase.from("outreach_log").insert({
           lead_id: lead.id,

@@ -19,7 +19,7 @@ export async function GET() {
     // One leads read → all lead-derived numbers come from the shared
     // lib/lead-stats definitions (same logic the leads workspace uses).
     // The three non-lead queues live in other tables, so they stay as counts.
-    const [leadsRes, replies, dmQ, bookings] = await Promise.all([
+    const [leadsRes, replies, dmQ] = await Promise.all([
       supabase
         .from("leads")
         .select(
@@ -36,14 +36,18 @@ export async function GET() {
         .select("id", { count: "exact", head: true })
         .eq("is_active", true),
 
-      supabase
-        .from("booking_tracker")
-        .select("id", { count: "exact", head: true })
-        .neq("booked_at", null),
     ]);
+
+    if (leadsRes.error) throw leadsRes.error;
+    if (replies.error) throw replies.error;
+    if (dmQ.error) throw dmQ.error;
 
     const leadStats = computeLeadDashboardStats(leadsRes.data || []);
     const repliesCount = replies.count || 0;
+    const bookingStatuses = new Set(["Booking Link Sent", "Booked", "Onboarding Sent", "Onboarding Completed"]);
+    const bookingsCount = (leadsRes.data || []).filter((lead) =>
+      lead.meeting_booked === true || bookingStatuses.has(lead.status || "")
+    ).length;
 
     return Response.json({
       // Per-queue pending counts (drive the queue cards + dynamic primary CTA).
@@ -51,7 +55,7 @@ export async function GET() {
       callQueue: leadStats.callQueue,
       dmQueue: dmQ.count || 0,
       replies: repliesCount,
-      bookings: bookings.count || 0,
+      bookings: bookingsCount,
       onboarding: leadStats.onboarding,
       // Today-scoped headline numbers.
       actionToday: repliesCount + leadStats.callQueue,
@@ -60,16 +64,9 @@ export async function GET() {
     });
   } catch (error) {
     console.error("Stats error:", error);
-    return Response.json({
-      emailQueue: 0,
-      callQueue: 0,
-      dmQueue: 0,
-      replies: 0,
-      bookings: 0,
-      onboarding: 0,
-      actionToday: 0,
-      meetingsToday: 0,
-      newLeads: 0,
-    });
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Failed to load dashboard statistics" },
+      { status: 500 }
+    );
   }
 }

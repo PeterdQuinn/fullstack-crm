@@ -97,7 +97,13 @@ export async function POST(req: NextRequest) {
       });
 
       try {
-        const result = await sendEmail(lead.email, subject, html);
+        const result = await sendEmail(
+          lead.email,
+          subject,
+          html,
+          undefined,
+          `crm-${lead.id}-email-${emailNum}`
+        );
 
         // Log the email
         await supabase.from("outreach_log").insert({

@@ -54,6 +54,9 @@ export async function GET() {
     return Response.json(rows);
   } catch (error) {
     console.error("Replies error:", error);
-    return Response.json([]);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Failed to load replies" },
+      { status: 500 }
+    );
   }
 }

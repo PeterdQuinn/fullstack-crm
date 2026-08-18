@@ -10,9 +10,9 @@ const supabase = createClient(
 // stage, with phone + email attached.
 const BOOKING_STATUSES = [
   "Booking Link Sent",
-  "Booking Follow-Up 1",
-  "Booking Follow-Up 2",
   "Booked",
+  "Onboarding Sent",
+  "Onboarding Completed",
 ];
 
 
@@ -43,6 +43,9 @@ export async function GET() {
     );
   } catch (error) {
     console.error("Bookings error:", error);
-    return Response.json([]);
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Failed to load bookings" },
+      { status: 500 }
+    );
   }
 }

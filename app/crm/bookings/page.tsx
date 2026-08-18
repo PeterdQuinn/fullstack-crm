@@ -14,12 +14,13 @@ interface Booking {
   no_show: boolean;
 }
 
-const STATUSES = ["Booking Link Sent", "Booking Follow-Up 1", "Booking Follow-Up 2", "Booked", "No-show"];
+const STATUSES = ["Booking Link Sent", "Booked", "Onboarding Sent", "Onboarding Completed"];
 
 export default function BookingsPage() {
   const router = useRouter();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetchBookings();
@@ -27,11 +28,14 @@ export default function BookingsPage() {
 
   async function fetchBookings() {
     try {
+      setError("");
       const response = await fetch("/api/crm/bookings");
       const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Failed to load bookings");
       setBookings(data || []);
     } catch (error) {
       console.error("Error:", error);
+      setError(error instanceof Error ? error.message : "Failed to load bookings");
     } finally {
       setLoading(false);
     }
@@ -39,14 +43,18 @@ export default function BookingsPage() {
 
   async function updateStatus(bookingId: string, status: string) {
     try {
-      await fetch("/api/crm/update-booking", {
+      setError("");
+      const response = await fetch("/api/crm/update-booking", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingId, status }),
       });
-      fetchBookings();
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "Failed to update booking");
+      await fetchBookings();
     } catch (error) {
       console.error("Error:", error);
+      setError(error instanceof Error ? error.message : "Failed to update booking");
     }
   }
 
@@ -57,6 +65,7 @@ export default function BookingsPage() {
         <button onClick={() => router.back()} style={{ padding: "12px 16px", minHeight: "44px", backgroundColor: "#6b7280", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>← Back</button>
       </div>
 
+      {error && <p style={{ color: "#b91c1c", background: "#fee2e2", padding: "12px", borderRadius: "6px" }}>{error}</p>}
       {loading ? (
         <p>Loading...</p>
       ) : bookings.length === 0 ? (
