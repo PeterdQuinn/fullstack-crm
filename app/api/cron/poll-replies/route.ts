@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { classifyReply } from "@/lib/grok";
 import { actOnReplyClassification, cancelPendingColdEmailTasks } from "@/lib/reply-actions";
 import { logStatusChange } from "@/lib/audit";
-import { fetchUnread, markRead, replyText, graphMissingReason, type GraphMessage } from "@/lib/graph-inbox";
+import { fetchRecentInbox, markRead, replyText, graphMissingReason, type GraphMessage } from "@/lib/graph-inbox";
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
@@ -35,13 +35,23 @@ async function findLeadByEmail(address: string) {
   return data?.[0] ?? null;
 }
 
-async function alreadyStored(messageId: string): Promise<boolean> {
+async function storedReply(messageId: string): Promise<{ id: string; status: string | null } | null> {
   const { data } = await supabase
     .from("outreach_log")
-    .select("id")
+    .select("id, status")
     .eq("provider_message_id", messageId)
     .limit(1);
-  return Boolean(data?.length);
+  return data?.[0] ?? null;
+}
+
+async function markReplyProcessed(messageId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("outreach_log")
+    .update({ status: "processed" })
+    .eq("provider_message_id", messageId)
+    .select("id")
+    .single();
+  if (error || !data) throw new Error(error?.message || "Reply processing marker changed no rows");
 }
 
 async function handle(msg: GraphMessage) {
@@ -51,25 +61,31 @@ async function handle(msg: GraphMessage) {
   const lead = await findLeadByEmail(from);
   if (!lead) return { skipped: `no lead matches ${from}` };
 
-  // Idempotent: Graph ids are stable, so a retry after a partial failure will
-  // not double-log or re-fire the automation.
-  if (await alreadyStored(msg.id)) return { skipped: "already stored" };
+  // Graph ids are stable, so retries must not insert the inbound log twice.
+  // Do not return early when the log already exists: the previous attempt may
+  // have crashed after storing the reply but before cancelling follow-ups,
+  // updating the lead, or marking the Graph message read. Re-running the
+  // remaining idempotent actions lets that partial attempt finish safely.
+  const stored = await storedReply(msg.id);
+  if (stored?.status === "processed") return { skipped: "already processed", retryMarkRead: !msg.isRead };
 
   const text = replyText(msg);
 
-  const { error: replyLogError } = await supabase.from("outreach_log").insert({
-    lead_id: lead.id,
-    channel: "email",
-    direction: "inbound",
-    message_type: "reply",
-    subject: msg.subject,
-    message_body: text,
-    status: "received",
-    provider: "microsoft-graph",
-    provider_message_id: msg.id,
-    replied_at: msg.receivedDateTime,
-  });
-  if (replyLogError) throw new Error(`Failed to store inbound reply: ${replyLogError.message}`);
+  if (!stored) {
+    const { error: replyLogError } = await supabase.from("outreach_log").insert({
+      lead_id: lead.id,
+      channel: "email",
+      direction: "inbound",
+      message_type: "reply",
+      subject: msg.subject,
+      message_body: text,
+      status: "received",
+      provider: "microsoft-graph",
+      provider_message_id: msg.id,
+      replied_at: msg.receivedDateTime,
+    });
+    if (replyLogError) throw new Error(`Failed to store inbound reply: ${replyLogError.message}`);
+  }
 
   // Recording a reply always stops queued cold touches, even while classifier
   // autopilot is disabled and a human is responsible for the next action.
@@ -94,11 +110,13 @@ async function handle(msg: GraphMessage) {
         reason: `inbound reply classified ${category} (autopilot off)`,
       });
     }
-    return { lead: lead.business_name, category, acted: false };
+    await markReplyProcessed(msg.id);
+    return { lead: lead.business_name, category, acted: false, resumed: Boolean(stored) };
   }
 
   const action = await actOnReplyClassification(lead.id, category);
-  return { lead: lead.business_name, category, acted: true, action };
+  await markReplyProcessed(msg.id);
+  return { lead: lead.business_name, category, acted: true, action, resumed: Boolean(stored) };
 }
 
 export async function GET(req: NextRequest) {
@@ -122,16 +140,19 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const unread = await fetchUnread(25);
+    const messages = await fetchRecentInbox(50, 7);
     const results: any[] = [];
 
-    for (const msg of unread) {
+    for (const msg of messages) {
       try {
         const r = await handle(msg);
         results.push(r);
-        // Only mark read once the CRM has it — a crash mid-batch leaves the
-        // message unread so the next run retries it instead of losing it.
-        if (!("skipped" in r)) await markRead(msg.id);
+        // Preserve the owner's read state for unrelated/unmatched mail. A
+        // processed CRM reply is marked read only when it was unread; if that
+        // PATCH failed previously, retry it without repeating CRM actions.
+        if ((!('skipped' in r) && !msg.isRead) || ('retryMarkRead' in r && r.retryMarkRead)) {
+          await markRead(msg.id);
+        }
       } catch (e) {
         results.push({ messageId: msg.id, error: e instanceof Error ? e.message : String(e) });
       }
@@ -141,7 +162,7 @@ export async function GET(req: NextRequest) {
     const payload = {
       success: errors.length === 0,
       autopilot: autopilot(),
-      scanned: unread.length,
+      scanned: messages.length,
       matched: results.filter((r) => r.lead).length,
       skipped: results.filter((r) => r.skipped).length,
       errors: errors.length,

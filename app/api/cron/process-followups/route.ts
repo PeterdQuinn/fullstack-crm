@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
+import { rejectionReason } from "@/lib/email-validation";
+import { DAILY_SEND_CAP } from "@/lib/automation";
+import { phoenixDayStartIso } from "@/lib/lead-stats";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -94,7 +97,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, sent: 0, blocked }, { status: 409 });
     }
 
+    // Follow-ups share the same Phoenix-day cap as initial outreach. Count from
+    // the database and fail closed so a weekly backlog can never burst past the
+    // sender-reputation limit.
+    const { count: sentToday, error: countError } = await supabase
+      .from("outreach_log")
+      .select("id", { count: "exact", head: true })
+      .eq("channel", "email")
+      .eq("direction", "outbound")
+      .gte("sent_at", phoenixDayStartIso());
+    if (countError) {
+      return NextResponse.json(
+        { success: false, sent: 0, error: `Daily send-cap lookup failed: ${countError.message}` },
+        { status: 500 }
+      );
+    }
+    const remainingToday = DAILY_SEND_CAP - (sentToday || 0);
+    if (remainingToday <= 0) {
+      return NextResponse.json({
+        success: true,
+        processed: 0,
+        sent: 0,
+        skipped: 0,
+        errors: [],
+        cappedAt: DAILY_SEND_CAP,
+        message: `Daily send cap (${DAILY_SEND_CAP}) already reached; due tasks remain pending`,
+      });
+    }
+
     for (const task of tasks) {
+      if (results.sent >= remainingToday) break;
       results.processed++;
 
       try {
@@ -102,7 +134,7 @@ export async function POST(req: NextRequest) {
         const { data: lead, error: leadError } = await supabase
           .from("leads")
           .select(
-            `id, business_name, owner_name, email, status, opt_out, email_sent_count,
+            `id, business_name, owner_name, email, status, opt_out, bounced, complained, archived_at, email_sent_count,
             lead_ai_summaries(recommended_first_message, recommended_follow_up, main_pain_point, lead_score)`
           )
           .eq("id", task.lead_id)
@@ -112,18 +144,27 @@ export async function POST(req: NextRequest) {
           throw new Error(leadError?.message || "Lead not found");
         }
 
-        // b. Skip Do Not Contact / opted-out leads
-        if (lead.status === "Do Not Contact" || lead.opt_out === true) {
+        // Only an active lead still inside the cold-email sequence can receive
+        // a queued follow-up. This protects against stale tasks after replies,
+        // bookings, bounces, complaints, suppression, or archival.
+        const followUpStatuses = new Set(["Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"]);
+        if (
+          !followUpStatuses.has(lead.status) ||
+          lead.opt_out === true ||
+          lead.bounced === true ||
+          lead.complained === true ||
+          Boolean(lead.archived_at)
+        ) {
           await supabase
             .from("follow_up_tasks")
             .update({
               status: "skipped",
-              notes: `Skipped: lead is ${lead.opt_out ? "opted out" : "Do Not Contact"}`,
+              notes: `Skipped: lead is no longer eligible for cold follow-up (status ${lead.status})`,
               completed_at: new Date().toISOString(),
             })
             .eq("id", task.id);
 
-          console.log(`Skipped ${lead.business_name}: ${lead.opt_out ? "opted out" : "Do Not Contact"}`);
+          console.log(`Skipped ${lead.business_name}: no longer follow-up eligible`);
           results.skipped++;
           continue;
         }
@@ -150,6 +191,19 @@ export async function POST(req: NextRequest) {
 
         const emailNum = (lead.email_sent_count || 0) + 1;
 
+        if (task.task_type !== `send_email_${emailNum}`) {
+          await supabase
+            .from("follow_up_tasks")
+            .update({
+              status: "skipped",
+              notes: `Skipped stale task: expected send_email_${emailNum}, got ${task.task_type}`,
+              completed_at: new Date().toISOString(),
+            })
+            .eq("id", task.id);
+          results.skipped++;
+          continue;
+        }
+
         // Already sent the full 3-email sequence — nothing left to send
         if (emailNum > 3) {
           await supabase
@@ -162,6 +216,23 @@ export async function POST(req: NextRequest) {
             .eq("id", task.id);
 
           console.log(`Skipped ${lead.business_name}: max emails reached`);
+          results.skipped++;
+          continue;
+        }
+
+        const badAddress = await rejectionReason(lead.email);
+        if (badAddress) {
+          const { error: badLeadError } = await supabase
+            .from("leads")
+            .update({ status: "Bad Email", updated_at: new Date().toISOString() })
+            .eq("id", lead.id);
+          if (badLeadError) throw new Error(`Bad-email lead update failed: ${badLeadError.message}`);
+          const { error: badTaskError } = await supabase
+            .from("follow_up_tasks")
+            .update({ status: "skipped", notes: `Skipped: ${badAddress}`, completed_at: new Date().toISOString() })
+            .eq("id", task.id);
+          if (badTaskError) throw new Error(`Bad-email task update failed: ${badTaskError.message}`);
+          await logStatusChange({ leadId: lead.id, from: lead.status, to: "Bad Email", source: "automation", reason: badAddress });
           results.skipped++;
           continue;
         }

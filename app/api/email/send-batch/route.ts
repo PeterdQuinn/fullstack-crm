@@ -3,6 +3,9 @@ import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
+import { rejectionReason } from "@/lib/email-validation";
+import { DAILY_SEND_CAP } from "@/lib/automation";
+import { phoenixDayStartIso } from "@/lib/lead-stats";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -11,38 +14,38 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    const today = new Date().toISOString().split("T")[0];
-
-    // Count emails sent today
-    const { count: sentCount } = await supabase
-      .from("outreach_log")
-      .select("*", { count: "exact", head: true })
-      .eq("channel", "email")
-      .gte("sent_at", `${today}T00:00:00Z`);
-
-    const emailsSentToday = sentCount || 0;
-    if (emailsSentToday >= 25) {
-      return NextResponse.json({
-        sent: [],
-        failed: [],
-        totalSent: 0,
-        message: "Daily limit (25) reached",
-      });
+    const body = await req.json().catch(() => ({}));
+    const leadId = typeof body.leadId === "string" ? body.leadId.trim() : "";
+    if (!leadId) {
+      return NextResponse.json(
+        { error: "A leadId is required; bulk sending is not available from this endpoint" },
+        { status: 400 }
+      );
     }
 
-    const remaining = 25 - emailsSentToday;
+    // Use the same Phoenix-day, database-backed cap as scheduled automation.
+    const { count: sentCount, error: countError } = await supabase
+      .from("outreach_log")
+      .select("id", { count: "exact", head: true })
+      .eq("channel", "email")
+      .eq("direction", "outbound")
+      .gte("sent_at", phoenixDayStartIso());
+    if (countError) throw new Error(`Daily send-cap lookup failed: ${countError.message}`);
 
-    console.log(`📧 Email quota: ${emailsSentToday}/25 sent today, ${remaining} remaining`);
+    const emailsSentToday = sentCount || 0;
+    if (emailsSentToday >= DAILY_SEND_CAP) {
+      return NextResponse.json(
+        { error: `Daily limit (${DAILY_SEND_CAP}) reached`, totalSent: 0 },
+        { status: 429 }
+      );
+    }
 
-    // Get leads that ACTUALLY qualify: a real AI score > 50, email present, not
-    // opted out / bounced / complained, under the 3-email cap. The score filter
-    // and ordering run in the query (inner join on lead_ai_summaries), so
-    // `.limit(remaining)` keeps the highest-scoring qualifiers instead of an
-    // arbitrary unordered page that could be all low/unscored leads (the bug
-    // that made the button send 0 even when qualifying leads existed).
-    const { data: leads, error } = await supabase
+    // This route backs the selected lead's Email tab. It must never silently
+    // expand into a batch or mail a replied/booked/suppressed lead.
+    const { data: lead, error } = await supabase
       .from("leads")
-      .select("id, business_name, email, owner_name, status, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
+      .select("id, business_name, email, owner_name, status, industry, niche, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
+      .eq("id", leadId)
       .eq("opt_out", false)
       .eq("bounced", false)
       .eq("complained", false)
@@ -51,17 +54,23 @@ export async function POST(req: NextRequest) {
       .lt("email_sent_count", 3)
       .is("archived_at", null)
       .gt("lead_ai_summaries.lead_score", 50)
-      .order("lead_score", { referencedTable: "lead_ai_summaries", ascending: false })
-      .limit(remaining);
+      .in("status", ["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"])
+      .maybeSingle();
 
-    if (error) {
-      console.error("Query error:", error);
-      throw error;
+    if (error) throw new Error(`Lead eligibility lookup failed: ${error.message}`);
+    if (!lead) {
+      return NextResponse.json(
+        { error: "This lead is not eligible to email. Check its score, status, suppression flags, address, and sequence count." },
+        { status: 409 }
+      );
     }
-
-    console.log(`📋 Found ${leads?.length || 0} leads to process`);
-
-    const results = { sent: [] as any[], failed: [] as any[] };
+    const market = `${lead.industry || lead.niche || ""}`.trim().toLowerCase();
+    if (market !== "hvac") {
+      return NextResponse.json(
+        { error: "This outreach template is approved for HVAC leads only" },
+        { status: 409 }
+      );
+    }
 
     const blocked = sendBlockedReason();
     if (blocked) {
@@ -69,44 +78,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, sent: 0, blocked }, { status: 409 });
     }
 
-    for (const lead of leads || []) {
-      const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
-      const score = summary?.lead_score || 0;
+    const badAddress = await rejectionReason(lead.email);
+    if (badAddress) {
+      const { error: badEmailError } = await supabase
+        .from("leads")
+        .update({ status: "Bad Email", updated_at: new Date().toISOString() })
+        .eq("id", lead.id);
+      if (badEmailError) throw new Error(`Email rejected and lead update failed: ${badEmailError.message}`);
+      await logStatusChange({ leadId: lead.id, from: lead.status, to: "Bad Email", source: "owner", reason: badAddress });
+      return NextResponse.json({ error: `Email address rejected: ${badAddress}`, totalSent: 0 }, { status: 409 });
+    }
 
-      console.log(`  Checking ${lead.business_name}: score=${score}, email=${lead.email}, sent=${lead.email_sent_count}`);
+    const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
+    const emailNum = (lead.email_sent_count || 0) + 1;
+    const { subject, html, bodyText } = renderOutreachEmail({
+      leadId: lead.id,
+      businessName: lead.business_name,
+      ownerName: lead.owner_name,
+      emailSentCount: lead.email_sent_count || 0,
+      firstMessage: summary?.recommended_first_message,
+      followUp: summary?.recommended_follow_up,
+    });
 
-      if (score <= 50) {
-        console.log(`    ❌ Score too low (${score})`);
-        continue;
-      }
-      if (!lead.email) {
-        console.log(`    ❌ No email`);
-        continue;
-      }
+    const result = await sendEmail(
+      lead.email!,
+      subject,
+      html,
+      undefined,
+      `crm-${lead.id}-email-${emailNum}`
+    );
 
-      const emailNum = (lead.email_sent_count || 0) + 1;
-      if (emailNum > 3) continue;
-
-      const { subject, html, bodyText } = renderOutreachEmail({
-        leadId: lead.id,
-        businessName: lead.business_name,
-        ownerName: (lead as any).owner_name,
-        emailSentCount: lead.email_sent_count || 0,
-        firstMessage: summary?.recommended_first_message,
-        followUp: summary?.recommended_follow_up,
-      });
-
-      try {
-        const result = await sendEmail(
-          lead.email,
-          subject,
-          html,
-          undefined,
-          `crm-${lead.id}-email-${emailNum}`
-        );
-
-        // Log the email
-        await supabase.from("outreach_log").insert({
+    const { data: existingLog, error: existingLogError } = await supabase
+      .from("outreach_log")
+      .select("id")
+      .eq("provider_message_id", result.id)
+      .maybeSingle();
+    if (existingLogError) throw new Error(`Email sent but log lookup failed: ${existingLogError.message}`);
+    if (!existingLog) {
+      const { error: logError } = await supabase.from("outreach_log").insert({
           lead_id: lead.id,
           channel: "email",
           direction: "outbound",
@@ -117,41 +126,53 @@ export async function POST(req: NextRequest) {
           provider: "resend",
           provider_message_id: result.id,
           sent_at: new Date().toISOString(),
-        });
+      });
+      if (logError) throw new Error(`Email sent but outreach logging failed: ${logError.message}`);
+    }
 
-        // Update lead
-        await supabase
-          .from("leads")
-          .update({
-            email_sent_count: emailNum,
-            status: `Email ${emailNum} Sent`,
-          })
-          .eq("id", lead.id);
+    const newStatus = `Email ${emailNum} Sent`;
+    const { data: updatedLead, error: updateError } = await supabase
+      .from("leads")
+      .update({ email_sent_count: emailNum, status: newStatus, updated_at: new Date().toISOString() })
+      .eq("id", lead.id)
+      .select("id")
+      .single();
+    if (updateError || !updatedLead) {
+      throw new Error(updateError?.message || "Email sent but lead update changed no rows");
+    }
 
-        await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: `Email ${emailNum} Sent`, source: "automation" });
+    await logStatusChange({ leadId: lead.id, from: lead.status, to: newStatus, source: "owner" });
 
-        results.sent.push({
-          leadId: lead.id,
-          company: lead.business_name,
-          email: lead.email,
-          emailNum,
-          success: true,
+    if (emailNum < 3) {
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 3);
+      dueDate.setHours(9, 0, 0, 0);
+      const { data: existingTask, error: taskLookupError } = await supabase
+        .from("follow_up_tasks")
+        .select("id")
+        .eq("lead_id", lead.id)
+        .eq("task_type", `send_email_${emailNum + 1}`)
+        .eq("status", "pending")
+        .maybeSingle();
+      if (taskLookupError) throw new Error(`Email sent but follow-up lookup failed: ${taskLookupError.message}`);
+      if (!existingTask) {
+        const { error: taskError } = await supabase.from("follow_up_tasks").insert({
+          lead_id: lead.id,
+          task_type: `send_email_${emailNum + 1}`,
+          due_at: dueDate.toISOString(),
+          status: "pending",
         });
-      } catch (err) {
-        results.failed.push({
-          leadId: lead.id,
-          company: lead.business_name,
-          email: lead.email,
-          error: err instanceof Error ? err.message : "Failed",
-        });
+        if (taskError) throw new Error(`Email sent but follow-up scheduling failed: ${taskError.message}`);
       }
     }
 
     return NextResponse.json({
-      sent: results.sent,
-      failed: results.failed,
-      totalSent: results.sent.length,
-      message: `Sent ${results.sent.length} emails (${emailsSentToday + results.sent.length}/25 today)`,
+      success: true,
+      totalSent: 1,
+      leadId: lead.id,
+      emailNum,
+      status: newStatus,
+      message: `Sent email ${emailNum} to ${lead.business_name} (${emailsSentToday + 1}/${DAILY_SEND_CAP} today)`,
     });
   } catch (error) {
     console.error("Email error:", error);

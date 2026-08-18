@@ -536,7 +536,7 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
         {tab === "calls" && <CallsTab lead={lead} callLogs={callLogs} addCallLog={addCallLog} />}
         {tab === "notes" && <NotesTab lead={lead} notes={notes} addNote={addNote} />}
         {tab === "meeting" && <MeetingTab lead={lead} appointments={appointments} bookMeeting={bookMeeting} />}
-        {tab === "email" && <EmailTab lead={lead} />}
+        {tab === "email" && <EmailTab lead={lead} updateLead={updateLead} />}
         {tab === "replies" && <RepliesTab lead={lead} />}
         {tab === "bookings" && <BookingsTab lead={lead} />}
         {tab === "onboarding" && <OnboardingTab lead={lead} />}
@@ -1073,12 +1073,24 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (le
   );
 }
 
-function EmailTab({ lead }: { lead: Lead }) {
+function EmailTab({ lead, updateLead }: { lead: Lead; updateLead: (id: string, updates: Partial<Lead>) => Promise<void> }) {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<any>(null);
   const [generating, setGenerating] = useState(false);
   const [outreachLogs, setOutreachLogs] = useState<any[]>([]);
   const nextNum = (lead.email_sent_count || 0) + 1;
+  const sendableStatuses: LeadStatus[] = ["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"];
+  const isHvac = `${lead.industry || lead.niche || ""}`.trim().toLowerCase() === "hvac";
+  const canSend = Boolean(
+    lead.email &&
+    summary?.lead_score > 50 &&
+    sendableStatuses.includes(lead.status) &&
+    !lead.opt_out &&
+    !lead.bounced &&
+    !lead.complained &&
+    isHvac &&
+    nextNum <= 3
+  );
 
   useEffect(() => {
     fetchSummary();
@@ -1123,13 +1135,21 @@ function EmailTab({ lead }: { lead: Lead }) {
   }
 
   async function sendEmail() {
+    if (!window.confirm(`Send Email ${nextNum} to ${lead.email}?`)) return;
     setLoading(true);
     try {
-      const res = await fetch("/api/email/send-batch", { method: "POST" });
+      const res = await fetch("/api/email/send-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: lead.id }),
+      });
       const data = await res.json();
-      alert(`Email sent (${data.totalSent || 0})`);
+      if (!res.ok) throw new Error(data.error || data.blocked || `Send failed (${res.status})`);
+      await updateLead(lead.id, { email_sent_count: data.emailNum, status: data.status });
+      await fetchOutreachLogs();
+      alert(data.message || "Email sent");
     } catch (error) {
-      alert("Error sending email");
+      alert(error instanceof Error ? error.message : "Error sending email");
     } finally {
       setLoading(false);
     }
@@ -1160,11 +1180,16 @@ function EmailTab({ lead }: { lead: Lead }) {
       )}
 
       {lead.email ? (
-        <button onClick={sendEmail} disabled={loading || nextNum > 3} className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+        <button onClick={sendEmail} disabled={loading || !canSend} className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
           {loading ? "Sending..." : nextNum > 3 ? "All emails sent" : `Send Email ${nextNum} → ${lead.email}`}
         </button>
       ) : (
         <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded">No email address</div>
+      )}
+      {lead.email && !canSend && nextNum <= 3 && (
+        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 p-3 rounded">
+          Email is blocked until this is an unsuppressed HVAC lead with a real AI score above 50 and an outreach-eligible status.
+        </div>
       )}
 
       {outreachLogs.length > 0 && (

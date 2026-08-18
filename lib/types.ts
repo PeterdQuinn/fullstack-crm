@@ -199,7 +199,7 @@ export interface FollowUpTask {
   outreach_log_id?: string;
   task_type: string;
   due_at: string;
-  status: "pending" | "completed" | "cancelled";
+  status: "pending" | "completed" | "skipped" | "cancelled";
   notes?: string;
   completed_at?: string;
   created_at: string;

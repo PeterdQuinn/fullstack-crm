@@ -40,11 +40,12 @@ export async function GET() {
       .lt("email_sent_count", 3)
       .is("archived_at", null)
       .gt("lead_ai_summaries.lead_score", 50)
+      .or("industry.ilike.HVAC,niche.ilike.HVAC")
       .in("status", [
-        "New",
         "Ready for Outreach",
         "Email 1 Sent",
         "Email 2 Sent",
+        "Follow-Up Scheduled",
       ]);
 
     if (error) {

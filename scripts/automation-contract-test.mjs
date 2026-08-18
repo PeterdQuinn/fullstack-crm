@@ -56,20 +56,49 @@ check("opened/call-priority lead counted", stats.callQueue === 1);
 check("completed onboarding excluded from pending queue", stats.onboarding === 2);
 
 const vercel = JSON.parse(read("vercel.json"));
-const schedules = new Map(vercel.crons.map((cron) => [cron.path, cron.schedule]));
-for (const route of ["/api/cron/discover-leads", "/api/cron/automation", "/api/cron/process-followups",
-  "/api/cron/poll-replies", "/api/cron/daily-digest"]) {
-  check(`scheduled: ${route}`, schedules.has(route));
+const workflow = read(".github/workflows/cron.yml");
+check("Vercel-native crons disabled", !Object.hasOwn(vercel, "crons"));
+for (const route of ["discover-leads", "enrich-leads", "process-discovered-leads", "automation",
+  "process-followups", "poll-replies", "daily-digest"]) {
+  check(`GitHub schedule maps: ${route}`, workflow.includes(`routes=${route}`));
 }
+check("reply polling is daily", workflow.includes('cron: "30 14 * * *"'));
+check("heavy automation is Monday-only", workflow.includes('cron: "0 13 * * 1"') && workflow.includes('cron: "0 19 * * 1"'));
 
 for (const file of ["lib/automation.ts", "lib/reply-actions.ts", "app/api/cron/process-followups/route.ts",
   "app/api/cron/send-daily-emails/route.ts", "app/api/email/send-daily/route.ts", "app/api/email/send-batch/route.ts"]) {
   check(`idempotency key used: ${file}`, read(file).includes("`crm-${lead.id}-"));
 }
 
+const selectedSendRoute = read("app/api/email/send-batch/route.ts");
+check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));
+check("legacy endpoint cannot silently bulk send", selectedSendRoute.includes("bulk sending is not available"));
+check("selected-lead send uses shared daily cap", selectedSendRoute.includes("DAILY_SEND_CAP") && selectedSendRoute.includes("phoenixDayStartIso"));
+check("selected-lead send rejects unsafe statuses", selectedSendRoute.includes('["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"]'));
+check("selected-lead send is HVAC-only", selectedSendRoute.includes('market !== "hvac"'));
+check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
+
 check("reply polling fails when mailbox config is missing", read("app/api/cron/poll-replies/route.ts").includes("{ status: 503 }"));
+check(
+  "stored replies resume unfinished processing",
+  read("app/api/cron/poll-replies/route.ts").includes("const stored = await storedReply(msg.id)") &&
+    read("app/api/cron/poll-replies/route.ts").includes("await markReplyProcessed(msg.id)")
+);
+check("reply polling includes already-read messages", read("lib/graph-inbox.ts").includes("fetchRecentInbox") && !read("lib/graph-inbox.ts").includes("$filter=isRead eq false"));
+check("processed replies are not acted on twice", read("app/api/cron/poll-replies/route.ts").includes('stored?.status === "processed"'));
+check("failed mark-read can retry independently", read("app/api/cron/poll-replies/route.ts").includes("retryMarkRead"));
+check(
+  "Graph mark-read failures are surfaced",
+  read("lib/graph-inbox.ts").includes("if (!res.ok)") &&
+    read("lib/graph-inbox.ts").includes("Graph mark-read failed")
+);
 check("cron reports partial phase failures", read("app/api/cron/automation/route.ts").includes("failedPhases.length === 0 ? 200 : 500"));
 check("follow-up cron reports per-task failures", read("app/api/cron/process-followups/route.ts").includes("results.errors.length === 0 ? 200 : 500"));
+const followupRoute = read("app/api/cron/process-followups/route.ts");
+check("follow-ups share the daily send cap", followupRoute.includes("DAILY_SEND_CAP") && followupRoute.includes("remainingToday"));
+check("follow-ups reject unsafe addresses", followupRoute.includes("rejectionReason(lead.email)"));
+check("follow-ups reject stale tasks", followupRoute.includes("Skipped stale task"));
+check("follow-ups reject non-sequence statuses", followupRoute.includes("followUpStatuses.has(lead.status)"));
 
 fs.rmSync(out, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed`);

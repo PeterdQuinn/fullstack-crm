@@ -63,18 +63,22 @@ export async function graphToken(): Promise<string> {
   return cachedToken.value;
 }
 
-/**
- * Unread inbox messages, newest first.
+/** Recent inbox messages, newest first, regardless of read state.
  *
- * Unread is the processing marker: a message is marked read only after the CRM
- * has stored it, so a crash mid-batch leaves it to be retried rather than lost.
+ * Outlook read state cannot be the processing marker: the owner may read a
+ * reply before the daily CRM poll. `outreach_log.provider_message_id` plus its
+ * received/processed status is the durable CRM-side marker instead.
  */
-export async function fetchUnread(limit = 25): Promise<GraphMessage[]> {
+export async function fetchRecentInbox(limit = 50, days = 7): Promise<GraphMessage[]> {
   const token = await graphToken();
-  const url =
-    `${GRAPH}/users/${encodeURIComponent(process.env.MS_MAILBOX!)}/mailFolders/inbox/messages` +
-    `?$filter=isRead eq false&$top=${limit}&$orderby=receivedDateTime desc` +
-    `&$select=id,subject,bodyPreview,receivedDateTime,isRead,from,body,conversationId`;
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const params = new URLSearchParams({
+    "$filter": `receivedDateTime ge ${since}`,
+    "$top": String(limit),
+    "$orderby": "receivedDateTime desc",
+    "$select": "id,subject,bodyPreview,receivedDateTime,isRead,from,body,conversationId",
+  });
+  const url = `${GRAPH}/users/${encodeURIComponent(process.env.MS_MAILBOX!)}/mailFolders/inbox/messages?${params}`;
 
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   const json = await res.json().catch(() => ({}));
@@ -84,11 +88,15 @@ export async function fetchUnread(limit = 25): Promise<GraphMessage[]> {
 
 export async function markRead(messageId: string): Promise<void> {
   const token = await graphToken();
-  await fetch(`${GRAPH}/users/${encodeURIComponent(process.env.MS_MAILBOX!)}/messages/${messageId}`, {
+  const res = await fetch(`${GRAPH}/users/${encodeURIComponent(process.env.MS_MAILBOX!)}/messages/${messageId}`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ isRead: true }),
   });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    throw new Error(`Graph mark-read failed (${res.status}): ${json.error?.message || "unknown"}`);
+  }
 }
 
 /**
