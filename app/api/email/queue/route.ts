@@ -39,6 +39,7 @@ export async function GET() {
         lead_ai_summaries!inner(lead_score, confidence_level, main_pain_point,
           pain_reason, best_attack_angle, recommended_first_message,
           recommended_follow_up),
+        follow_up_tasks(id, task_type, due_at, status),
         outreach_log(id, direction, message_type, subject, status, sent_at,
           delivered_at, opened_at, clicked_at, replied_at, bounced_at)`
       )
@@ -75,9 +76,10 @@ export async function GET() {
         businessName: lead.business_name,
         ownerName: (lead as any).owner_name,
         emailSentCount: lead.email_sent_count || 0,
-        firstMessage: summary?.recommended_first_message,
-        followUp: summary?.recommended_follow_up,
       });
+      const pendingTask = [...(lead.follow_up_tasks || [])]
+        .filter((task: any) => task.status === "pending" && task.task_type === `send_email_${email.emailNum}`)
+        .sort((a: any, b: any) => new Date(a.due_at).getTime() - new Date(b.due_at).getTime())[0];
       return {
         id: lead.id,
         business_name: lead.business_name,
@@ -93,7 +95,7 @@ export async function GET() {
         short_description: lead.short_description,
         current_software: lead.current_software,
         monthly_spend_estimate: lead.monthly_spend_estimate,
-        next_follow_up_at: lead.next_follow_up_at,
+        next_follow_up_at: pendingTask?.due_at || lead.next_follow_up_at,
         score: summary?.lead_score || 0,
         confidence: summary?.confidence_level,
         main_pain_point: summary?.main_pain_point || lead.pain_point,

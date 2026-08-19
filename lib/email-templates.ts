@@ -98,70 +98,57 @@ export interface RenderedOutreachEmail {
   copyText: string; // "Subject: …\n\n<bodyText>" — the full copy-paste blob
 }
 
-// ── Touch 1: the cold outreach email ────────────────────────────────────────
-//
-// Three subject lines under an A/B/C test. The variant is chosen from a hash of
-// the lead id rather than at random, so a given lead always renders the same
-// subject — the Email Queue preview, the sent message and the outreach_log row
-// can never disagree, and re-rendering is idempotent.
-export const OUTREACH_SUBJECTS: ReadonlyArray<(company: string) => string> = [
-  (c) => `${c} — that $300/mo software bill`,
-  (c) => `Quick math for ${c}`,
-  () => `Own your tech instead of renting it`,
-];
-
-/** Stable 0..n-1 bucket from a lead id (FNV-1a). */
-export function subjectVariantIndex(leadId?: string | null): number {
-  if (!leadId) return 0;
-  let h = 0x811c9dc5;
-  for (let i = 0; i < leadId.length; i++) {
-    h ^= leadId.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h % OUTREACH_SUBJECTS.length;
-}
-
 /** CAN-SPAM requires the recipient's own name never be injected as markup. */
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export const DEMO_URL = "https://hvac-2026.vercel.app/dashboard";
-export const CALENDLY_URL = "https://calendly.com/fullstackservicesllc";
+const SUBJECTS: Record<number, (company: string) => string> = {
+  1: (company) => `Does ${company} own the software it depends on?`,
+  2: (company) => `Stop renting the software that runs ${company}`,
+  3: (company) => `Should ${company} own its business software?`,
+};
 
-// Touch-1 body. Fixed copy — deliberately NOT the AI-generated
-// recommended_first_message, which only drives touches 2–3 now.
-function outreachBodyParagraphs(ownerName: string): string[] {
+const PETER_SIGNATURE = [
+  "Peter Quinn",
+  "Owner, Full Stack Services LLC",
+  "fullstackservicesllc.net",
+];
+
+function messageParagraphs(emailNum: number, ownerName: string, company: string): string[] {
+  if (emailNum === 1) {
+    return [
+      `Hi ${ownerName},`,
+      `If ${company} stopped paying its software subscriptions tomorrow, how much of the system running the business would it still own?`,
+      `I'm Peter Quinn, owner of Full Stack Services LLC. I help businesses replace rented software with custom systems built around how they actually work. The business owns the system instead of paying forever for access to it.`,
+      `If owning your business software is worth exploring, let me know a good time for a short call.`,
+      ...PETER_SIGNATURE,
+    ];
+  }
+
+  if (emailNum === 2) {
+    return [
+      `Hi ${ownerName},`,
+      `The software that runs scheduling, dispatch, invoicing, and customer management should be a business asset, not a collection of bills that never ends.`,
+      `I help businesses build one system around their operation so they can own the tool they depend on. If you want to see what that could look like for ${company}, let me know a good time for a short call.`,
+      ...PETER_SIGNATURE,
+    ];
+  }
+
   return [
     `Hi ${ownerName},`,
-    `Quick one — most HVAC shops are paying $300–500 a month across scheduling, dispatch, invoicing, and a client portal. That's $6,000+ a year, and you own none of it.`,
-    `I'm Peter with Full Stack Services LLC. We help HVAC owners save money every month by owning their tech instead of renting it. We started in Arizona and now work with companies across the country. It's one custom investment build — you own it forever, and it scales as your company grows without ever charging you more.`,
-    `No subscriptions. No per-seat fees. No long-term lock-in.`,
-    `You can click around a live HVAC dashboard we built here: ${DEMO_URL}`,
-    `If you're doing 10+ jobs a month, a 30-minute call is worth it — free, no pitch. I'll look at what you're paying now, tell you exactly which tools to cancel, and give you a real build number before we hang up. If it doesn't make sense to build, I'll tell you that too.`,
-    `Grab a time here: ${CALENDLY_URL}`,
-    `— Peter\nFull Stack Services LLC\n${COMPANY_LOCATION_TAGLINE}\nfullstackservicesllc.net`,
+    `One last question. Does ${company} want to keep renting its business software, or would owning a system built for the way you work be worth a conversation?`,
+    `If ownership is worth exploring, I can walk you through the idea in one short call. If not, no problem.`,
+    ...PETER_SIGNATURE,
   ];
 }
 
-const SUBJECTS: Record<number, (company: string) => string> = {
-  2: (c) => `Follow-up: ${c}`,
-  3: (c) => `Last message: ${c}`,
-};
-
-const HEADINGS: Record<number, string> = {
-  2: "Hey,",
-  3: "One final message,",
-};
-
-// Build the exact email for a lead given its position in the sequence and any
-// AI-generated copy. Identical logic to what the cron send phase used inline,
-// now shared so the manual queue shows precisely what would go out.
+// Build the exact approved email for a lead's position in the sequence. The
+// manual workspace and automated followup processor both use this renderer so
+// the preview always matches the sent message.
 export function renderOutreachEmail(opts: {
   businessName: string;
   emailSentCount: number;
-  firstMessage?: string | null;
-  followUp?: string | null;
   /** Lead id — required for the footer's one-click unsubscribe link. */
   leadId?: string | null;
   /** Lead's owner_name. Blank/missing renders the "there" fallback. */
@@ -171,42 +158,14 @@ export function renderOutreachEmail(opts: {
   const emailNum = Math.min((opts.emailSentCount || 0) + 1, 3);
   const ownerName = (opts.ownerName || "").trim() || "there";
 
-  // Touch 1 uses the fixed outreach copy; touches 2–3 keep the AI follow-up.
-  if (emailNum === 1) {
-    const subject = OUTREACH_SUBJECTS[subjectVariantIndex(opts.leadId)](company);
-    const paras = outreachBodyParagraphs(ownerName);
-
-    const html =
-      `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color:#222; font-size:15px; line-height:1.6;">` +
-      paras
-        .map((p) =>
-          `<p style="margin:0 0 16px;">` +
-          esc(p)
-            .replace(/\n/g, "<br>")
-            .replace(DEMO_URL, `<a href="${DEMO_URL}">${DEMO_URL}</a>`)
-            .replace(CALENDLY_URL, `<a href="${CALENDLY_URL}">${CALENDLY_URL}</a>`) +
-          `</p>`
-        )
-        .join("") +
-      footerHtml(opts.leadId) +
-      `</div>`;
-
-    const bodyText = `${paras.join("\n\n")}\n\n${footerText(opts.leadId)}`;
-    return { emailNum, subject, html, bodyText, copyText: `Subject: ${subject}\n\n${bodyText}` };
-  }
-
-  const message =
-    emailNum === 2
-      ? opts.followUp ||
-        `Following up on our previous message about custom software for ${company}.`
-      : `Final follow-up: custom software solution for ${company}`;
-
   const subject = SUBJECTS[emailNum](company);
-  const heading = HEADINGS[emailNum];
-
-  const html = `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;"><h2>${heading}</h2><p style="color: #666; line-height: 1.6;">${message}</p>${footerHtml(opts.leadId)}</div>`;
-
-  const bodyText = `${message}\n\n${footerText(opts.leadId)}`;
+  const paragraphs = messageParagraphs(emailNum, ownerName, company);
+  const html =
+    `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color:#222; font-size:15px; line-height:1.6;">` +
+    paragraphs.map((paragraph) => `<p style="margin:0 0 16px;">${esc(paragraph)}</p>`).join("") +
+    footerHtml(opts.leadId) +
+    `</div>`;
+  const bodyText = `${paragraphs.join("\n\n")}\n\n${footerText(opts.leadId)}`;
   const copyText = `Subject: ${subject}\n\n${bodyText}`;
 
   return { emailNum, subject, html, bodyText, copyText };

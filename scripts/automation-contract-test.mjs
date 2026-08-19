@@ -16,12 +16,13 @@ for (const line of read(".env.local").split(/\r?\n/)) {
 }
 
 fs.rmSync(out, { recursive: true, force: true });
-execFileSync("npx", ["tsc", "lib/email-validation.ts", "lib/email-templates.ts", "lib/lead-stats.ts",
+execFileSync("npx", ["tsc", "lib/email-validation.ts", "lib/email-templates.ts", "lib/email-sequence.ts", "lib/lead-stats.ts",
   "--outDir", out, "--module", "esnext", "--target", "es2022", "--moduleResolution", "bundler",
   "--skipLibCheck"], { cwd: root, stdio: "inherit" });
 
 const emailValidation = await import(`file://${path.join(out, "email-validation.js")}`);
 const emailTemplates = await import(`file://${path.join(out, "email-templates.js")}`);
+const emailSequence = await import(`file://${path.join(out, "email-sequence.js")}`);
 const leadStats = await import(`file://${path.join(out, "lead-stats.js")}`);
 
 let passed = 0;
@@ -45,6 +46,26 @@ const rendered = emailTemplates.renderOutreachEmail({
 });
 check("outreach includes unsubscribe URL", rendered.html.includes("/api/email/unsubscribe?lead_id="));
 check("recipient name is HTML escaped", !rendered.html.includes("<script>"));
+const ownershipFollowup = emailTemplates.renderOutreachEmail({
+  leadId: "service-wizard",
+  businessName: "Service Wizard",
+  ownerName: "Sam",
+  emailSentCount: 1,
+  followUp: "recommended_follow_up",
+});
+check("followup uses the honest software ownership message", ownershipFollowup.bodyText.includes("should be a business asset") && ownershipFollowup.bodyText.includes("own the tool they depend on"));
+check("outbound copy contains no unsupported case study claim", [0, 1, 2].every(emailSentCount => {
+  const message = emailTemplates.renderOutreachEmail({ leadId: "claim-check", businessName: "Example HVAC", emailSentCount });
+  return !/Austin|35%|case study/i.test(message.bodyText);
+}));
+check("followup includes the configured postal address", ownershipFollowup.bodyText.includes(emailTemplates.COMPANY_MAILING_ADDRESS));
+check("every message identifies Peter Quinn as owner", [0, 1, 2].every(emailSentCount => {
+  const message = emailTemplates.renderOutreachEmail({ leadId: "identity-check", businessName: "Example HVAC", emailSentCount });
+  return message.bodyText.includes("Peter Quinn") && message.bodyText.includes("Owner, Full Stack Services LLC") && message.bodyText.includes("fullstackservicesllc.net");
+}));
+check("followup is independent of AI draft text", !ownershipFollowup.bodyText.includes("recommended_follow_up"));
+const dueFrom = new Date("2026-08-18T16:00:00.000Z");
+check("followup waits exactly three days", emailSequence.nextFollowUpAt(dueFrom) === "2026-08-21T16:00:00.000Z");
 
 const stats = leadStats.computeLeadDashboardStats([
   { status: "Call Needed", phone: "6025550100" },
@@ -63,6 +84,7 @@ for (const route of ["discover-leads", "enrich-leads", "process-discovered-leads
   check(`GitHub schedule maps: ${route}`, workflow.includes(`routes=${route}`));
 }
 check("reply polling is daily", workflow.includes('cron: "30 14 * * *"'));
+check("followup processing is daily after reply polling", workflow.includes('cron: "30 15 * * *"'));
 check("heavy automation is Monday-only", workflow.includes('cron: "0 13 * * 1"') && workflow.includes('cron: "0 19 * * 1"'));
 
 for (const file of ["lib/automation.ts", "lib/reply-actions.ts", "app/api/cron/process-followups/route.ts",

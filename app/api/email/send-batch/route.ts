@@ -6,6 +6,7 @@ import { logStatusChange } from "@/lib/audit";
 import { rejectionReason } from "@/lib/email-validation";
 import { DAILY_SEND_CAP } from "@/lib/automation";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
+import { nextFollowUpAt } from "@/lib/email-sequence";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,7 +45,7 @@ export async function POST(req: NextRequest) {
     // expand into a batch or mail a replied/booked/suppressed lead.
     const { data: lead, error } = await supabase
       .from("leads")
-      .select("id, business_name, email, owner_name, status, industry, niche, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, main_pain_point, best_attack_angle, lead_score)")
+      .select("id, business_name, email, owner_name, status, industry, niche, email_sent_count, next_follow_up_at, lead_ai_summaries!inner(lead_score)")
       .eq("id", leadId)
       .eq("opt_out", false)
       .eq("bounced", false)
@@ -72,6 +73,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const emailNum = (lead.email_sent_count || 0) + 1;
+    if (emailNum > 1) {
+      const { data: pendingTask, error: pendingTaskError } = await supabase
+        .from("follow_up_tasks")
+        .select("due_at")
+        .eq("lead_id", lead.id)
+        .eq("task_type", `send_email_${emailNum}`)
+        .eq("status", "pending")
+        .order("due_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (pendingTaskError) throw new Error(`Followup timing lookup failed: ${pendingTaskError.message}`);
+
+      const dueAt = pendingTask?.due_at || lead.next_follow_up_at;
+      if (dueAt && new Date(dueAt).getTime() > Date.now()) {
+        return NextResponse.json(
+          { error: `This followup is ready ${new Date(dueAt).toLocaleString("en-US", { timeZone: "America/Phoenix" })}` },
+          { status: 409 }
+        );
+      }
+    }
+
     const blocked = sendBlockedReason();
     if (blocked) {
       console.error(blocked);
@@ -89,15 +112,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Email address rejected: ${badAddress}`, totalSent: 0 }, { status: 409 });
     }
 
-    const summary = Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] : lead.lead_ai_summaries;
-    const emailNum = (lead.email_sent_count || 0) + 1;
     const { subject, html, bodyText } = renderOutreachEmail({
       leadId: lead.id,
       businessName: lead.business_name,
       ownerName: lead.owner_name,
       emailSentCount: lead.email_sent_count || 0,
-      firstMessage: summary?.recommended_first_message,
-      followUp: summary?.recommended_follow_up,
     });
 
     const result = await sendEmail(
@@ -131,9 +150,15 @@ export async function POST(req: NextRequest) {
     }
 
     const newStatus = `Email ${emailNum} Sent`;
+    const nextFollowUp = emailNum < 3 ? nextFollowUpAt() : null;
     const { data: updatedLead, error: updateError } = await supabase
       .from("leads")
-      .update({ email_sent_count: emailNum, status: newStatus, updated_at: new Date().toISOString() })
+      .update({
+        email_sent_count: emailNum,
+        status: newStatus,
+        next_follow_up_at: nextFollowUp,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", lead.id)
       .select("id")
       .single();
@@ -144,9 +169,6 @@ export async function POST(req: NextRequest) {
     await logStatusChange({ leadId: lead.id, from: lead.status, to: newStatus, source: "owner" });
 
     if (emailNum < 3) {
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 3);
-      dueDate.setHours(9, 0, 0, 0);
       const { data: existingTask, error: taskLookupError } = await supabase
         .from("follow_up_tasks")
         .select("id")
@@ -159,7 +181,7 @@ export async function POST(req: NextRequest) {
         const { error: taskError } = await supabase.from("follow_up_tasks").insert({
           lead_id: lead.id,
           task_type: `send_email_${emailNum + 1}`,
-          due_at: dueDate.toISOString(),
+          due_at: nextFollowUp,
           status: "pending",
         });
         if (taskError) throw new Error(`Email sent but follow-up scheduling failed: ${taskError.message}`);

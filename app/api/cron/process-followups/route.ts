@@ -6,6 +6,7 @@ import { logStatusChange } from "@/lib/audit";
 import { rejectionReason } from "@/lib/email-validation";
 import { DAILY_SEND_CAP } from "@/lib/automation";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
+import { nextFollowUpAt } from "@/lib/email-sequence";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -135,7 +136,7 @@ export async function POST(req: NextRequest) {
           .from("leads")
           .select(
             `id, business_name, owner_name, email, status, opt_out, bounced, complained, archived_at, email_sent_count,
-            lead_ai_summaries(recommended_first_message, recommended_follow_up, main_pain_point, lead_score)`
+            lead_ai_summaries(lead_score)`
           )
           .eq("id", task.lead_id)
           .single();
@@ -184,10 +185,6 @@ export async function POST(req: NextRequest) {
           results.skipped++;
           continue;
         }
-
-        const summary = Array.isArray(lead.lead_ai_summaries)
-          ? lead.lead_ai_summaries[0]
-          : lead.lead_ai_summaries;
 
         const emailNum = (lead.email_sent_count || 0) + 1;
 
@@ -243,8 +240,6 @@ export async function POST(req: NextRequest) {
           businessName: lead.business_name,
           ownerName: (lead as any).owner_name,
           emailSentCount: lead.email_sent_count || 0,
-          firstMessage: summary?.recommended_first_message,
-          followUp: summary?.recommended_follow_up,
         });
 
         console.log(`Sending follow-up email ${emailNum} to ${lead.business_name}...`);
@@ -278,12 +273,14 @@ export async function POST(req: NextRequest) {
 
         // e. Update the lead's email_sent_count and status
         const newStatus = emailNum === 1 ? "Email 1 Sent" : emailNum === 2 ? "Email 2 Sent" : "Email 3 Sent";
+        const nextFollowUp = emailNum < 3 ? nextFollowUpAt() : null;
 
         const { data: updatedLead, error: leadUpdateError } = await supabase
           .from("leads")
           .update({
             email_sent_count: emailNum,
             status: newStatus,
+            next_follow_up_at: nextFollowUp,
           })
           .eq("id", lead.id)
           .select("id")
@@ -310,14 +307,10 @@ export async function POST(req: NextRequest) {
 
         // Auto-schedule the next email (mirrors send-daily/route.ts)
         if (emailNum < 3) {
-          const dueDate = new Date();
-          dueDate.setDate(dueDate.getDate() + 3);
-          dueDate.setHours(9, 0, 0, 0);
-
           const { error: nextTaskError } = await supabase.from("follow_up_tasks").insert({
             lead_id: lead.id,
             task_type: `send_email_${emailNum + 1}`,
-            due_at: dueDate.toISOString(),
+            due_at: nextFollowUp,
             status: "pending",
           });
           if (nextTaskError) throw new Error(`Next follow-up scheduling failed: ${nextTaskError.message}`);

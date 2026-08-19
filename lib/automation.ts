@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
+import { nextFollowUpAt } from "@/lib/email-sequence";
 import { logStatusChange } from "@/lib/audit";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { rejectionReason } from "@/lib/email-validation";
@@ -476,8 +477,6 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         businessName: lead.business_name,
         ownerName: (lead as any).owner_name,
         emailSentCount: lead.email_sent_count || 0,
-        firstMessage: summary?.recommended_first_message,
-        followUp: summary?.recommended_follow_up,
       });
       const { subject, html, bodyText } = rendered;
 
@@ -508,9 +507,14 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           if (logError) throw new Error(`Sent email but failed to log it: ${logError.message}`);
         }
 
+        const nextFollowUp = emailNum < 3 ? nextFollowUpAt() : null;
         const { data: updatedLead, error: updateError } = await supabase
           .from("leads")
-          .update({ email_sent_count: emailNum, status: `Email ${emailNum} Sent` })
+          .update({
+            email_sent_count: emailNum,
+            status: `Email ${emailNum} Sent`,
+            next_follow_up_at: nextFollowUp,
+          })
           .eq("id", lead.id)
           .select("id")
           .single();
@@ -526,13 +530,10 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         // stop on a reply. Without this hand-off the status gate above would
         // silently truncate the sequence to a single email.
         if (emailNum < 3) {
-          const dueDate = new Date();
-          dueDate.setDate(dueDate.getDate() + 3);
-          dueDate.setHours(9, 0, 0, 0);
           const { error: taskError } = await supabase.from("follow_up_tasks").insert({
             lead_id: lead.id,
             task_type: `send_email_${emailNum + 1}`,
-            due_at: dueDate.toISOString(),
+            due_at: nextFollowUp,
             status: "pending",
           });
           if (taskError) {

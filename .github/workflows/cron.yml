@@ -21,16 +21,18 @@ name: CRM Pipeline
 on:
   schedule:
     # Phoenix stays on UTC-7 year-round. Order matters: discovery -> enrichment
-    # -> scoring -> outreach -> follow-ups -> digest.
+    # -> scoring -> outreach -> digest.
     - cron: "0 13 * * 1"        # discover-leads       — Monday 06:00 Phoenix
     - cron: "0 14 * * 1"        # enrich-leads         — Monday 07:00 Phoenix
     - cron: "0 15 * * 1"        # process-discovered   — Monday 08:00 Phoenix
     - cron: "0 16 * * 1"        # automation           — Monday 09:00 Phoenix
-    - cron: "0 17 * * 1"        # process-followups    — Monday 10:00 Phoenix
     - cron: "0 19 * * 1"        # daily-digest         — Monday 12:00 Phoenix
 
-    # Offset from Monday's enrichment run to avoid concurrent functions.
+    # Check replies first, then process any followups that have reached their
+    # three day due date. These are light daily checks. Discovery, enrichment,
+    # scoring, and initial outreach remain Monday only.
     - cron: "30 14 * * *"       # poll-replies         — daily 07:30 Phoenix
+    - cron: "30 15 * * *"       # process-followups    — daily 08:30 Phoenix
   workflow_dispatch:
     inputs:
       route:
@@ -55,9 +57,9 @@ jobs:
               "0 14 * * 1")      echo "routes=enrich-leads" >> "$GITHUB_OUTPUT" ;;
               "0 15 * * 1")      echo "routes=process-discovered-leads" >> "$GITHUB_OUTPUT" ;;
               "0 16 * * 1")      echo "routes=automation" >> "$GITHUB_OUTPUT" ;;
-              "0 17 * * 1")      echo "routes=process-followups" >> "$GITHUB_OUTPUT" ;;
               "0 19 * * 1")      echo "routes=daily-digest" >> "$GITHUB_OUTPUT" ;;
               "30 14 * * *")     echo "routes=poll-replies" >> "$GITHUB_OUTPUT" ;;
+              "30 15 * * *")     echo "routes=process-followups" >> "$GITHUB_OUTPUT" ;;
               *)                 echo "routes=" >> "$GITHUB_OUTPUT" ;;
             esac
           fi
