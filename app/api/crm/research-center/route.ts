@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { generateLeadSummary } from "@/lib/grok";
 import { logStatusChange } from "@/lib/audit";
 import { looksLikeRealEmail } from "@/lib/email-validation";
+import { buildResearchFacts } from "@/lib/research-evidence";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,7 +23,8 @@ export async function GET() {
       .select(`
         id, business_name, owner_name, contact_name, phone, email, website,
         address, city, state, postal_code, niche, industry, status,
-        short_description, technologies, current_software,
+        short_description, technologies, current_software, source,
+        employees, employee_count, annual_revenue, founded_year,
         monthly_spend_estimate, google_rating, google_review_count,
         created_at, updated_at,
         lead_ai_summaries(lead_score, confidence_level, main_pain_point,
@@ -37,14 +39,33 @@ export async function GET() {
       .limit(200);
     if (error) throw error;
 
-    return NextResponse.json((data || []).map((lead: any) => ({
-      ...lead,
-      ai_summary: Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] || null : lead.lead_ai_summaries,
-      sources: [
+    const leadIds = (data || []).map((lead: any) => lead.id);
+    const { data: storedFacts, error: factsError } = leadIds.length
+      ? await supabase.from("lead_research_facts").select("lead_id, field_name, label, field_value, certainty, source_label, source_url, source_count, researched_at").in("lead_id", leadIds)
+      : { data: [], error: null };
+    const factsByLead = new Map<string, any[]>();
+    for (const row of storedFacts || []) {
+      const list = factsByLead.get(row.lead_id) || [];
+      list.push({ ...row, value: row.field_value });
+      factsByLead.set(row.lead_id, list);
+    }
+
+    return NextResponse.json((data || []).map((lead: any) => {
+      const researchFacts = factsByLead.get(lead.id) || buildResearchFacts(lead);
+      const sourceCandidates = [
         lead.website ? { label: "Company website", url: lead.website } : null,
         ...(lead.lead_socials || []).filter((item: any) => item.is_active && item.url).map((item: any) => ({ label: item.platform, url: item.url })),
-      ].filter(Boolean),
-    })));
+        ...researchFacts.filter((fact: any) => fact.source_url).map((fact: any) => ({ label: fact.source_label || fact.label, url: fact.source_url })),
+      ].filter(Boolean) as Array<{ label: string; url: string }>;
+      const sources = [...new Map(sourceCandidates.map((source) => [source.url, source])).values()];
+      return {
+        ...lead,
+        ai_summary: Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] || null : lead.lead_ai_summaries,
+        research_facts: researchFacts,
+        evidence_storage_ready: !factsError,
+        sources,
+      };
+    }));
   } catch (error) {
     console.error("Research Center load error:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load research leads" }, { status: 500 });
@@ -73,6 +94,7 @@ async function selectedResearch(lead: any) {
   if (scraped.technologies && !lead.technologies) updates.technologies = scraped.technologies;
 
   const enriched = { ...lead, ...updates };
+  const researchFacts = buildResearchFacts(enriched, scraped);
   const summary = await generateLeadSummary(enriched);
   const { error: summaryError } = await supabase.from("lead_ai_summaries").upsert({
     lead_id: lead.id,
@@ -90,6 +112,22 @@ async function selectedResearch(lead: any) {
   const { error: leadError } = await supabase.from("leads").update({ ...updates, status: "Scored", updated_at: new Date().toISOString() }).eq("id", lead.id);
   if (leadError) throw new Error(leadError.message);
 
+  const { error: factsError } = await supabase.from("lead_research_facts").upsert(
+    researchFacts.map((fact) => ({
+      lead_id: lead.id,
+      field_name: fact.field_name,
+      label: fact.label,
+      field_value: fact.value,
+      certainty: fact.certainty,
+      source_label: fact.source_label,
+      source_url: fact.source_url,
+      source_count: fact.source_count,
+      researched_at: fact.researched_at,
+    })),
+    { onConflict: "lead_id,field_name" }
+  );
+  if (factsError) throw new Error(`Research evidence could not be stored. Apply migration 010 first. ${factsError.message}`);
+
   const socialCandidates = [
     ["facebook", scraped.facebook_url], ["instagram", scraped.instagram_url],
     ["linkedin", scraped.linkedin_url], ["twitter", scraped.twitter_url],
@@ -105,7 +143,7 @@ async function selectedResearch(lead: any) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { leadId, action } = await req.json();
+    const { leadId, action, researchReviewed } = await req.json();
     if (!leadId || !action) return NextResponse.json({ error: "Lead and action are required" }, { status: 400 });
 
     const { data: lead, error } = await supabase.from("leads").select("*").eq("id", leadId).single();
@@ -123,11 +161,12 @@ export async function POST(req: NextRequest) {
     let updates: Record<string, unknown>;
     let reason: string;
     if (action === "approve_email") {
-      const { data: score } = await supabase.from("lead_ai_summaries").select("lead_score").eq("lead_id", leadId).maybeSingle();
+      const { data: score } = await supabase.from("lead_ai_summaries").select("lead_score, confidence_level").eq("lead_id", leadId).maybeSingle();
       const market = String(lead.industry || lead.niche || "").toLowerCase();
       if (!lead.email) return NextResponse.json({ error: "An email address is required before approval" }, { status: 409 });
       if (market !== "hvac") return NextResponse.json({ error: "Only HVAC leads can enter this email workflow" }, { status: 409 });
       if (!score || score.lead_score <= 50) return NextResponse.json({ error: "A reviewed score above 50 is required" }, { status: 409 });
+      if (score.confidence_level === "low" && researchReviewed !== true) return NextResponse.json({ error: "Low confidence research must be checked against its sources before approval" }, { status: 409 });
       updates = { status: "Ready for Outreach" }; reason = "Approved for Email Workspace";
     } else if (action === "move_calls") {
       if (!lead.phone) return NextResponse.json({ error: "A phone number is required before moving to Calls" }, { status: 409 });

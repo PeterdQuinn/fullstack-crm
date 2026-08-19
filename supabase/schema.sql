@@ -165,6 +165,23 @@ create table if not exists lead_socials (
   created_at timestamptz default now()
 );
 
+-- RESEARCH EVIDENCE TABLE
+create table if not exists lead_research_facts (
+  id uuid default gen_random_uuid() primary key,
+  lead_id uuid not null references leads(id) on delete cascade,
+  field_name text not null,
+  label text not null,
+  field_value text,
+  certainty text not null check (certainty in ('verified', 'single_source', 'ai_inference', 'not_found')),
+  source_label text,
+  source_url text,
+  source_count integer not null default 0,
+  researched_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(lead_id, field_name)
+);
+
 -- OUTREACH LOG TABLE
 create table if not exists outreach_log (
   id uuid default gen_random_uuid() primary key,
@@ -219,6 +236,7 @@ create table if not exists booking_tracker (
 -- AUTOMATION INDEXES
 create index if not exists idx_lead_ai_summaries_lead_id on lead_ai_summaries(lead_id);
 create index if not exists idx_lead_socials_lead_id on lead_socials(lead_id);
+create index if not exists idx_lead_research_facts_lead_id on lead_research_facts(lead_id);
 create index if not exists idx_outreach_log_lead_id on outreach_log(lead_id);
 create index if not exists idx_outreach_log_channel on outreach_log(channel);
 create index if not exists idx_follow_up_tasks_lead_id on follow_up_tasks(lead_id);
@@ -230,6 +248,10 @@ create trigger lead_ai_summaries_updated_at
   before update on lead_ai_summaries
   for each row execute function update_updated_at();
 
+create trigger lead_research_facts_updated_at
+  before update on lead_research_facts
+  for each row execute function update_updated_at();
+
 create trigger booking_tracker_updated_at
   before update on booking_tracker
   for each row execute function update_updated_at();
@@ -237,6 +259,7 @@ create trigger booking_tracker_updated_at
 -- RLS FOR AUTOMATION TABLES
 alter table lead_ai_summaries enable row level security;
 alter table lead_socials enable row level security;
+alter table lead_research_facts enable row level security;
 alter table outreach_log enable row level security;
 alter table follow_up_tasks enable row level security;
 alter table booking_tracker enable row level security;

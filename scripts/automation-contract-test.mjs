@@ -16,7 +16,7 @@ for (const line of read(".env.local").split(/\r?\n/)) {
 }
 
 fs.rmSync(out, { recursive: true, force: true });
-execFileSync("npx", ["tsc", "lib/email-validation.ts", "lib/email-templates.ts", "lib/email-sequence.ts", "lib/lead-stats.ts",
+execFileSync("npx", ["tsc", "lib/email-validation.ts", "lib/email-templates.ts", "lib/email-sequence.ts", "lib/lead-stats.ts", "lib/research-evidence.ts",
   "--outDir", out, "--module", "esnext", "--target", "es2022", "--moduleResolution", "bundler",
   "--skipLibCheck"], { cwd: root, stdio: "inherit" });
 
@@ -24,6 +24,7 @@ const emailValidation = await import(`file://${path.join(out, "email-validation.
 const emailTemplates = await import(`file://${path.join(out, "email-templates.js")}`);
 const emailSequence = await import(`file://${path.join(out, "email-sequence.js")}`);
 const leadStats = await import(`file://${path.join(out, "lead-stats.js")}`);
+const researchEvidence = await import(`file://${path.join(out, "research-evidence.js")}`);
 
 let passed = 0;
 let failed = 0;
@@ -75,6 +76,10 @@ check("followup is independent of AI draft text", !ownershipFollowup.bodyText.in
 const dueFrom = new Date("2026-08-18T16:00:00.000Z");
 check("followup waits exactly three days", emailSequence.nextFollowUpAt(dueFrom) === "2026-08-21T16:00:00.000Z");
 check("manual Email Workspace allows 100 sends", emailSequence.MANUAL_SEND_CAP === 100);
+const evidenceFacts = researchEvidence.buildResearchFacts({ address: "Mesa, AZ", city: "Mesa", state: "AZ", industry: "Landscaping", technologies: "Shopify" });
+check("research address removes duplicate city values", researchEvidence.cleanResearchAddress({ address: "Mesa, AZ", city: "Mesa", state: "AZ" }) === "Mesa, AZ");
+check("website technology is not labeled operating software", evidenceFacts.find(f => f.field_name === "website_technologies")?.label === "Website technology" && evidenceFacts.find(f => f.field_name === "current_software")?.certainty === "not_found");
+check("single source research is not labeled verified", evidenceFacts.find(f => f.field_name === "industry")?.certainty === "single_source");
 
 const stats = leadStats.computeLeadDashboardStats([
   { status: "Call Needed", phone: "6025550100" },
@@ -134,7 +139,10 @@ check("manual discovery supports location and quality rules", researchCenter.inc
 check("manual discovery applies an exact radius when coordinates resolve", discoveryPipeline.includes("geocodeSearchArea") && discoveryPipeline.includes("radiusMeters"));
 check("selected AI research remains manual", researchCenter.includes("Run AI Research") && researchRoute.includes('action === "research"'));
 check("research transfers are explicit", researchRoute.includes('action === "approve_email"') && researchRoute.includes('action === "move_calls"'));
-check("research findings preserve source review", researchCenter.includes("Open every source") && researchRoute.includes("sources:"));
+check("research findings preserve source review", researchCenter.includes("Open every source") && researchRoute.includes("sourceCandidates") && researchRoute.includes("new Map"));
+check("research facts use explicit certainty levels", researchCenter.includes("Single source") && researchCenter.includes("AI inference") && researchCenter.includes("Not found"));
+check("low confidence research requires review", researchRoute.includes("Low confidence research must be checked") && researchCenter.includes("researchReviewed"));
+check("research evidence migration exists", read("supabase/migrations/010_research_evidence.sql").includes("lead_research_facts"));
 const unsubscribeRoute = read("app/api/email/unsubscribe/route.ts");
 const workspaceRoute = read("app/api/crm/workspace/route.ts");
 check("unsubscribe cancels pending outreach", unsubscribeRoute.includes('from("follow_up_tasks")') && unsubscribeRoute.includes('status: "cancelled"'));
