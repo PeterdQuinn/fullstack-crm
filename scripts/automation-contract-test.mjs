@@ -46,6 +46,14 @@ const rendered = emailTemplates.renderOutreachEmail({
 });
 check("outreach includes unsubscribe URL", rendered.html.includes("/api/email/unsubscribe?lead_id="));
 check("recipient name is HTML escaped", !rendered.html.includes("<script>"));
+const edited = emailTemplates.renderEditedOutreachEmail({
+  leadId: "edited-message",
+  emailNum: 1,
+  subject: "My approved subject",
+  messageText: "My approved message\n\n<script>alert(1)</script>",
+});
+check("edited email preserves approved subject and message", edited.subject === "My approved subject" && edited.bodyText.includes("My approved message"));
+check("edited email protects HTML and compliance footer", !edited.html.includes("<script>") && edited.bodyText.includes(emailTemplates.COMPANY_MAILING_ADDRESS) && edited.bodyText.includes("/api/email/unsubscribe?lead_id="));
 const ownershipFollowup = emailTemplates.renderOutreachEmail({
   leadId: "service-wizard",
   businessName: "Service Wizard",
@@ -66,6 +74,7 @@ check("every message identifies Peter Quinn as owner", [0, 1, 2].every(emailSent
 check("followup is independent of AI draft text", !ownershipFollowup.bodyText.includes("recommended_follow_up"));
 const dueFrom = new Date("2026-08-18T16:00:00.000Z");
 check("followup waits exactly three days", emailSequence.nextFollowUpAt(dueFrom) === "2026-08-21T16:00:00.000Z");
+check("manual Email Workspace allows 100 sends", emailSequence.MANUAL_SEND_CAP === 100);
 
 const stats = leadStats.computeLeadDashboardStats([
   { status: "Call Needed", phone: "6025550100" },
@@ -114,7 +123,7 @@ const emailQueueRoute = read("app/api/email/queue/route.ts");
 const emailQueueAction = read("app/api/email/queue-action/route.ts");
 check("email workspace sends only the selected lead", emailWorkspace.includes("leadId: selected.id") && emailWorkspace.includes("/api/email/send-batch"));
 check("email workspace has focused responsive tabs", emailWorkspace.includes('type Tab = "message" | "research" | "history"') && emailWorkspace.includes("lg:grid-cols"));
-check("email workspace shows real send capacity", emailQueueRoute.includes("DAILY_SEND_CAP") && emailQueueRoute.includes("remaining"));
+check("email workspace shows manual send capacity", emailQueueRoute.includes("MANUAL_SEND_CAP") && emailQueueRoute.includes("remaining"));
 check("email workspace actions are allowlisted", emailQueueAction.includes("ACTIONS.includes") && emailQueueAction.includes("do_not_contact"));
 const researchCenter = read("app/crm/dm-queue/page.tsx");
 const researchRoute = read("app/api/crm/research-center/route.ts");
@@ -136,7 +145,8 @@ check("suppressed leads cannot be logged as calls", read("app/api/crm/log-call/r
 const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));
 check("legacy endpoint cannot silently bulk send", selectedSendRoute.includes("bulk sending is not available"));
-check("selected-lead send uses shared daily cap", selectedSendRoute.includes("DAILY_SEND_CAP") && selectedSendRoute.includes("phoenixDayStartIso"));
+check("selected-lead send uses manual daily cap", selectedSendRoute.includes("MANUAL_SEND_CAP") && selectedSendRoute.includes("phoenixDayStartIso"));
+check("manual followup send closes its pending task", selectedSendRoute.includes("Sent manually from Email Workspace") && selectedSendRoute.includes('task_type", `send_email_${emailNum}`'));
 check("selected-lead send rejects unsafe statuses", selectedSendRoute.includes('["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"]'));
 check("selected-lead send is HVAC-only", selectedSendRoute.includes('market !== "hvac"'));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));

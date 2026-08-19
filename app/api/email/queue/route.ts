@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { renderOutreachEmail } from "@/lib/email-templates";
 import { sendBlockedReason } from "@/lib/email-templates";
-import { DAILY_SEND_CAP } from "@/lib/automation";
+import { MANUAL_SEND_CAP } from "@/lib/email-sequence";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 
 // force-dynamic alone isn't enough — Next also caches the fetch() supabase-js
@@ -107,6 +107,7 @@ export async function GET() {
         email_sent_count: lead.email_sent_count || 0,
         emailNum: email.emailNum,
         subject: email.subject,
+        messageText: email.messageText,
         bodyText: email.bodyText,
         copyText: email.copyText,
       };
@@ -129,8 +130,8 @@ export async function GET() {
       leads: rendered,
       safety: {
         sentToday: sentToday || 0,
-        dailyCap: DAILY_SEND_CAP,
-        remaining: Math.max(0, DAILY_SEND_CAP - (sentToday || 0)),
+        dailyCap: MANUAL_SEND_CAP,
+        remaining: Math.max(0, MANUAL_SEND_CAP - (sentToday || 0)),
         bounced: bounced || 0,
         complained: complained || 0,
         blockedReason: sendBlockedReason(),

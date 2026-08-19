@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
-import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
+import { renderEditedOutreachEmail, renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
 import { rejectionReason } from "@/lib/email-validation";
-import { DAILY_SEND_CAP } from "@/lib/automation";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
-import { nextFollowUpAt } from "@/lib/email-sequence";
+import { MANUAL_SEND_CAP, nextFollowUpAt } from "@/lib/email-sequence";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,9 +33,9 @@ export async function POST(req: NextRequest) {
     if (countError) throw new Error(`Daily send-cap lookup failed: ${countError.message}`);
 
     const emailsSentToday = sentCount || 0;
-    if (emailsSentToday >= DAILY_SEND_CAP) {
+    if (emailsSentToday >= MANUAL_SEND_CAP) {
       return NextResponse.json(
-        { error: `Daily limit (${DAILY_SEND_CAP}) reached`, totalSent: 0 },
+        { error: `Manual daily limit (${MANUAL_SEND_CAP}) reached`, totalSent: 0 },
         { status: 429 }
       );
     }
@@ -74,27 +73,6 @@ export async function POST(req: NextRequest) {
     }
 
     const emailNum = (lead.email_sent_count || 0) + 1;
-    if (emailNum > 1) {
-      const { data: pendingTask, error: pendingTaskError } = await supabase
-        .from("follow_up_tasks")
-        .select("due_at")
-        .eq("lead_id", lead.id)
-        .eq("task_type", `send_email_${emailNum}`)
-        .eq("status", "pending")
-        .order("due_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (pendingTaskError) throw new Error(`Followup timing lookup failed: ${pendingTaskError.message}`);
-
-      const dueAt = pendingTask?.due_at || lead.next_follow_up_at;
-      if (dueAt && new Date(dueAt).getTime() > Date.now()) {
-        return NextResponse.json(
-          { error: `This followup is ready ${new Date(dueAt).toLocaleString("en-US", { timeZone: "America/Phoenix" })}` },
-          { status: 409 }
-        );
-      }
-    }
-
     const blocked = sendBlockedReason();
     if (blocked) {
       console.error(blocked);
@@ -112,12 +90,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Email address rejected: ${badAddress}`, totalSent: 0 }, { status: 409 });
     }
 
-    const { subject, html, bodyText } = renderOutreachEmail({
+    const approved = renderOutreachEmail({
       leadId: lead.id,
       businessName: lead.business_name,
       ownerName: lead.owner_name,
       emailSentCount: lead.email_sent_count || 0,
     });
+    const requestedSubject = typeof body.subject === "string" ? body.subject.trim() : "";
+    const requestedMessage = typeof body.messageText === "string" ? body.messageText.trim() : "";
+    if ((requestedSubject && !requestedMessage) || (!requestedSubject && requestedMessage)) {
+      return NextResponse.json({ error: "Both the subject and message are required when editing an email" }, { status: 400 });
+    }
+    if (requestedSubject.length > 160 || requestedMessage.length > 5000) {
+      return NextResponse.json({ error: "The subject or message is too long" }, { status: 400 });
+    }
+    const rendered = requestedSubject && requestedMessage
+      ? renderEditedOutreachEmail({ emailNum, subject: requestedSubject, messageText: requestedMessage, leadId: lead.id })
+      : approved;
+    const { subject, html, bodyText } = rendered;
 
     const result = await sendEmail(
       lead.email!,
@@ -168,6 +158,20 @@ export async function POST(req: NextRequest) {
 
     await logStatusChange({ leadId: lead.id, from: lead.status, to: newStatus, source: "owner" });
 
+    if (emailNum > 1) {
+      const { error: completedTaskError } = await supabase
+        .from("follow_up_tasks")
+        .update({
+          status: "completed",
+          completed_at: new Date().toISOString(),
+          notes: "Sent manually from Email Workspace",
+        })
+        .eq("lead_id", lead.id)
+        .eq("task_type", `send_email_${emailNum}`)
+        .eq("status", "pending");
+      if (completedTaskError) throw new Error(`Email sent but followup task cleanup failed: ${completedTaskError.message}`);
+    }
+
     if (emailNum < 3) {
       const { data: existingTask, error: taskLookupError } = await supabase
         .from("follow_up_tasks")
@@ -194,7 +198,7 @@ export async function POST(req: NextRequest) {
       leadId: lead.id,
       emailNum,
       status: newStatus,
-      message: `Sent email ${emailNum} to ${lead.business_name} (${emailsSentToday + 1}/${DAILY_SEND_CAP} today)`,
+      message: `Sent email ${emailNum} to ${lead.business_name} (${emailsSentToday + 1}/${MANUAL_SEND_CAP} today)`,
     });
   } catch (error) {
     console.error("Email error:", error);

@@ -94,6 +94,7 @@ export interface RenderedOutreachEmail {
   emailNum: number; // 1..3 (which touch in the sequence)
   subject: string;
   html: string; // full HTML email (used if/when actually sent)
+  messageText: string; // editable message without the protected footer
   bodyText: string; // plain-text body incl. footer (for copy-paste)
   copyText: string; // "Subject: …\n\n<bodyText>" — the full copy-paste blob
 }
@@ -168,5 +169,30 @@ export function renderOutreachEmail(opts: {
   const bodyText = `${paragraphs.join("\n\n")}\n\n${footerText(opts.leadId)}`;
   const copyText = `Subject: ${subject}\n\n${bodyText}`;
 
-  return { emailNum, subject, html, bodyText, copyText };
+  return { emailNum, subject, html, messageText: paragraphs.join("\n\n"), bodyText, copyText };
+}
+
+export function renderEditedOutreachEmail(opts: {
+  emailNum: number;
+  subject: string;
+  messageText: string;
+  leadId: string;
+}): RenderedOutreachEmail {
+  const subject = opts.subject.replace(/[\r\n]+/g, " ").trim();
+  const messageText = opts.messageText.trim();
+  const paragraphs = messageText.split(/\n\s*\n/).filter(Boolean);
+  const html =
+    `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color:#222; font-size:15px; line-height:1.6;">` +
+    paragraphs.map((paragraph) => `<p style="margin:0 0 16px;">${esc(paragraph).replace(/\n/g, "<br>")}</p>`).join("") +
+    footerHtml(opts.leadId) +
+    `</div>`;
+  const bodyText = `${messageText}\n\n${footerText(opts.leadId)}`;
+  return {
+    emailNum: opts.emailNum,
+    subject,
+    html,
+    messageText,
+    bodyText,
+    copyText: `Subject: ${subject}\n\n${bodyText}`,
+  };
 }

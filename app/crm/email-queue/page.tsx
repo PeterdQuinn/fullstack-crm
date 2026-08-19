@@ -43,6 +43,7 @@ interface QueueLead {
   email_sent_count: number;
   emailNum: number;
   subject: string;
+  messageText: string;
   bodyText: string;
   copyText: string;
 }
@@ -81,7 +82,7 @@ async function copyText(value: string) {
 export default function EmailQueuePage() {
   const router = useRouter();
   const [leads, setLeads] = useState<QueueLead[]>([]);
-  const [safety, setSafety] = useState<Safety>({ sentToday: 0, dailyCap: 40, remaining: 40, bounced: 0, complained: 0 });
+  const [safety, setSafety] = useState<Safety>({ sentToday: 0, dailyCap: 100, remaining: 100, bounced: 0, complained: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("message");
   const [filter, setFilter] = useState<Filter>("ready");
@@ -90,6 +91,8 @@ export default function EmailQueuePage() {
   const [working, setWorking] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [draftSubject, setDraftSubject] = useState("");
+  const [draftMessage, setDraftMessage] = useState("");
 
   async function loadQueue() {
     setLoading(true);
@@ -131,7 +134,14 @@ export default function EmailQueuePage() {
   }, [leads, search, filter]);
 
   const selected = leads.find((lead) => lead.id === selectedId) || null;
-  const canSend = selected && !isWaiting(selected) && safety.remaining > 0 && !safety.blockedReason;
+  useEffect(() => {
+    setDraftSubject(selected?.subject || "");
+    setDraftMessage(selected?.messageText || "");
+  }, [selectedId, selected?.subject, selected?.messageText]);
+  const canSend = selected && draftSubject.trim() && draftMessage.trim() && safety.remaining > 0 && !safety.blockedReason;
+  const draftCopyText = selected
+    ? `Subject: ${draftSubject.trim()}\n\n${draftMessage.trim()}${selected.bodyText.slice(selected.messageText.length)}`
+    : "";
 
   async function sendSelected() {
     if (!selected || !canSend) return;
@@ -141,7 +151,7 @@ export default function EmailQueuePage() {
       const response = await fetch("/api/email/send-batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadId: selected.id }),
+        body: JSON.stringify({ leadId: selected.id, subject: draftSubject, messageText: draftMessage }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || data.blocked || "Could not send the email");
@@ -221,12 +231,12 @@ export default function EmailQueuePage() {
           </div>
 
           <div className="min-h-[420px] p-4 sm:p-5">
-            {tab === "message" && <div className="space-y-4"><div className="rounded-lg border border-slate-200"><div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm"><span className="font-semibold text-slate-500">To: </span>{selected.email}</div><div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm"><span className="font-semibold text-slate-500">Subject: </span>{selected.subject}</div><pre className="max-h-[480px] overflow-auto whitespace-pre-wrap break-words p-4 font-sans text-sm leading-7 text-slate-800">{selected.bodyText}</pre></div></div>}
+            {tab === "message" && <div className="space-y-4"><div className="rounded-lg border border-slate-200"><div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm"><span className="font-semibold text-slate-500">To: </span>{selected.email}</div><div className="space-y-4 p-4"><div><label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Subject</label><input value={draftSubject} onChange={(event) => setDraftSubject(event.target.value)} maxLength={160} className="min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-blue-500" /></div><div><label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Message</label><textarea value={draftMessage} onChange={(event) => setDraftMessage(event.target.value)} maxLength={5000} rows={14} className="w-full resize-y rounded-lg border border-slate-300 p-3 text-sm leading-7 outline-none focus:border-blue-500" /></div><div className="rounded-lg bg-slate-50 p-3 text-xs leading-6 text-slate-500">Your business address and this lead's unsubscribe link are added automatically when the email is sent.</div><button onClick={() => { setDraftSubject(selected.subject); setDraftMessage(selected.messageText); }} className="min-h-[40px] rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-700">Reset message</button></div></div></div>}
             {tab === "research" && <div className="space-y-5"><div className="grid gap-3 sm:grid-cols-2"><Info label="Industry" value={selected.industry} /><Info label="Location" value={[selected.address, selected.city, selected.state].filter(Boolean).join(", ")} /><Info label="Current software" value={selected.current_software} /><Info label="Monthly software spend" value={selected.monthly_spend_estimate} /></div>{selected.short_description && <Research title="Company profile" text={selected.short_description} />}{selected.main_pain_point && <Research title="Main pain point" text={selected.main_pain_point} />}{selected.best_attack_angle && <Research title="Best talking angle" text={selected.best_attack_angle} />}<div className="flex flex-wrap gap-2">{selected.phone && <a href={`tel:${selected.phone}`} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-700 px-4 text-sm font-semibold text-white"><Phone size={17} />Call</a>}{selected.website && <a href={selected.website.startsWith("http") ? selected.website : `https://${selected.website}`} target="_blank" rel="noreferrer" className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white"><ExternalLink size={17} />Website</a>}<a href={`/crm/leads?lead=${selected.id}`} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-700"><Building2 size={17} />Full lead</a></div></div>}
             {tab === "history" && <div>{selected.history.length === 0 ? <p className="text-sm text-slate-500">No previous email activity</p> : <div className="space-y-3">{selected.history.map((item) => <div key={item.id} className="rounded-lg bg-slate-50 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{cleanStatus(item.message_type || "Email activity")}</span><span className="text-xs text-slate-500">{dateText(item.sent_at || item.replied_at)}</span></div>{item.subject && <div className="mt-2 text-sm text-slate-700">{item.subject}</div>}<div className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{cleanStatus(item.status || item.direction || "Recorded")}</div></div>)}</div>}</div>}
           </div>
 
-          <div className="sticky bottom-0 border-t border-slate-200 bg-white p-4 sm:p-5"><div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap"><button onClick={sendSelected} disabled={!canSend || working} className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 font-bold text-white hover:bg-emerald-700 disabled:bg-slate-300"><Send size={18} />{isWaiting(selected) ? "Waiting for follow up date" : `Send email ${selected.emailNum}`}</button><button onClick={async () => { await copyText(selected.copyText); setNotice("Email copied"); }} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-semibold text-white"><Clipboard size={18} />Copy</button><button onClick={() => runAction("skip")} disabled={working} className="min-h-[48px] rounded-lg bg-amber-100 px-4 font-semibold text-amber-800">Skip until tomorrow</button></div><div className="mt-2 grid grid-cols-3 gap-2"><button onClick={() => runAction("move_to_calls")} disabled={working} className="min-h-[44px] rounded-lg bg-slate-100 px-2 text-xs font-semibold text-slate-700">Move to Calls</button><button onClick={() => runAction("bad_email")} disabled={working} className="min-h-[44px] rounded-lg bg-red-50 px-2 text-xs font-semibold text-red-700">Bad Email</button><button onClick={() => runAction("do_not_contact")} disabled={working} className="min-h-[44px] rounded-lg bg-red-100 px-2 text-xs font-semibold text-red-800">Do Not Contact</button></div></div>
+          <div className="sticky bottom-0 border-t border-slate-200 bg-white p-4 sm:p-5"><div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap"><button onClick={sendSelected} disabled={!canSend || working} className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 font-bold text-white hover:bg-emerald-700 disabled:bg-slate-300"><Send size={18} />{`Send email ${selected.emailNum}`}</button><button onClick={async () => { await copyText(draftCopyText); setNotice("Email copied"); }} className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 font-semibold text-white"><Clipboard size={18} />Copy</button><button onClick={() => runAction("skip")} disabled={working} className="min-h-[48px] rounded-lg bg-amber-100 px-4 font-semibold text-amber-800">Skip until tomorrow</button></div><div className="mt-2 grid grid-cols-3 gap-2"><button onClick={() => runAction("move_to_calls")} disabled={working} className="min-h-[44px] rounded-lg bg-slate-100 px-2 text-xs font-semibold text-slate-700">Move to Calls</button><button onClick={() => runAction("bad_email")} disabled={working} className="min-h-[44px] rounded-lg bg-red-50 px-2 text-xs font-semibold text-red-700">Bad Email</button><button onClick={() => runAction("do_not_contact")} disabled={working} className="min-h-[44px] rounded-lg bg-red-100 px-2 text-xs font-semibold text-red-800">Do Not Contact</button></div></div>
         </section>}
       </main>
     </div>
