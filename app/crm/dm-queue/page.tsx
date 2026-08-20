@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ExternalLink, FlaskConical, Mail, MapPin, Phone, Search, ShieldCheck, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, ExternalLink, FlaskConical, Mail, MapPin, Phone, Search, ShieldCheck, Sparkles, X } from "lucide-react";
+import ManualDiscoveryPanel from "../_components/ManualDiscoveryPanel";
 
 interface Summary {
   lead_score?: number;
@@ -33,7 +34,6 @@ interface Lead {
 }
 type Tab = "facts" | "weaknesses" | "sources";
 
-const progressStages = ["Preparing location search", "Checking Google Places", "Checking OpenStreetMap", "Removing duplicates", "Applying quality rules", "Saving new businesses"];
 const walkSteps = ["Choose an area", "Run discovery", "Select a business", "Run AI research", "Check every source", "Approve for Email or Calls"];
 function clean(value: string) { return value.replaceAll("-", " "); }
 function url(value?: string) { if (!value) return ""; return /^https?:\/\//i.test(value) ? value : `https://${value}`; }
@@ -49,13 +49,9 @@ export default function ResearchCenterPage() {
   const [showManual, setShowManual] = useState(false);
   const [walkthrough, setWalkthrough] = useState(false);
   const [walkStep, setWalkStep] = useState(0);
-  const [progress, setProgress] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [researchReviewed, setResearchReviewed] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [form, setForm] = useState({ city: "Mesa", state: "AZ", zip: "", radiusMiles: 15, limit: 10, minimumRating: 0, minimumReviews: 0, requirePhone: true, requireEmail: false, requireWebsite: true });
 
   async function loadLeads() {
     setLoading(true);
@@ -77,24 +73,6 @@ export default function ResearchCenterPage() {
   const selected = leads.find((lead) => lead.id === selectedId) || null;
   useEffect(() => { setResearchReviewed(false); }, [selectedId]);
 
-  async function manualDiscovery() {
-    if (!form.city.trim() || !form.state.trim()) { setError("City and state are required"); return; }
-    if (!window.confirm(`Search for up to ${form.limit} HVAC businesses in ${form.city}, ${form.state}?`)) return;
-    setWorking(true); setError(""); setNotice(""); setResult(null); setProgress(0); setElapsed(0);
-    if (walkthrough) setWalkStep(1);
-    const timer = window.setInterval(() => { setElapsed((value) => value + 1); setProgress((value) => Math.min(value + 1, progressStages.length - 1)); }, 4000);
-    try {
-      const response = await fetch("/api/admin/discover-leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, importToDb: true }) });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Discovery failed");
-      setResult(data);
-      setNotice(`Discovery finished. ${data.pipeline?.imported || 0} new businesses saved.`);
-      await loadLeads();
-      if (walkthrough) setWalkStep(2);
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Discovery failed"); }
-    finally { window.clearInterval(timer); setWorking(false); setProgress(progressStages.length - 1); }
-  }
-
   async function leadAction(action: "research" | "approve_email" | "move_calls" | "needs_more" | "reject" | "do_not_contact") {
     if (!selected) return;
     if (["reject", "do_not_contact"].includes(action) && !window.confirm(`Apply this decision to ${selected.business_name}?`)) return;
@@ -104,6 +82,7 @@ export default function ResearchCenterPage() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Research action failed");
       setNotice(action === "research" ? `AI research completed for ${selected.business_name}` : `${selected.business_name} moved successfully`);
+      if (data.warning) setError(data.warning);
       if (walkthrough && action === "research") setWalkStep(4);
       setSelectedId(action === "research" ? selected.id : null);
       await loadLeads();
@@ -116,8 +95,20 @@ export default function ResearchCenterPage() {
 
     <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-6">
       {walkthrough && <div className="rounded-xl border border-violet-200 bg-violet-50 p-4"><div className="flex items-center justify-between gap-3"><div><div className="text-xs font-bold uppercase tracking-wide text-violet-700">Walkthrough step {walkStep + 1} of {walkSteps.length}</div><div className="mt-1 font-semibold text-violet-950">{walkSteps[walkStep]}</div></div><button onClick={() => setWalkthrough(false)} className="rounded-lg p-2 text-violet-700"><X size={19} /></button></div><div className="mt-3 grid grid-cols-6 gap-1">{walkSteps.map((_, index) => <div key={index} className={`h-2 rounded-full ${index <= walkStep ? "bg-violet-600" : "bg-violet-200"}`} />)}</div></div>}
-      <button onClick={() => setShowManual(!showManual)} className="mt-4 flex min-h-[48px] w-full items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 font-bold text-blue-900"><span className="flex items-center gap-2"><Search size={19} />Manual Discovery</span><ChevronDown className={showManual ? "rotate-180" : ""} size={19} /></button>
-      {showManual && <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Input label="City" value={form.city} onChange={(value) => setForm({ ...form, city: value })} /><Input label="State" value={form.state} onChange={(value) => setForm({ ...form, state: value.toUpperCase().slice(0, 2) })} /><Input label="ZIP optional" value={form.zip} onChange={(value) => setForm({ ...form, zip: value.replace(/\D/g, "").slice(0, 5) })} /><NumberInput label="Search radius in miles" value={form.radiusMiles} min={1} max={30} onChange={(value) => setForm({ ...form, radiusMiles: value })} /><NumberInput label="Maximum businesses" value={form.limit} min={1} max={25} onChange={(value) => setForm({ ...form, limit: value })} /><NumberInput label="Minimum rating" value={form.minimumRating} min={0} max={5} step={0.1} onChange={(value) => setForm({ ...form, minimumRating: value })} /><NumberInput label="Minimum reviews" value={form.minimumReviews} min={0} max={10000} onChange={(value) => setForm({ ...form, minimumReviews: value })} /></div><div className="mt-4 flex flex-wrap gap-3"><Check label="Require phone" checked={form.requirePhone} onChange={(checked) => setForm({ ...form, requirePhone: checked })} /><Check label="Require website" checked={form.requireWebsite} onChange={(checked) => setForm({ ...form, requireWebsite: checked })} /><Check label="Require email" checked={form.requireEmail} onChange={(checked) => setForm({ ...form, requireEmail: checked })} /></div><div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><strong>Search summary:</strong> HVAC businesses within {form.radiusMiles} miles of {form.city}, {form.state}{form.zip ? ` near ZIP ${form.zip}` : ""}. Save no more than {form.limit}. Nothing will be contacted.</div>{working && progressStages[progress] && <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4"><div className="flex items-center justify-between gap-3"><span className="font-semibold text-blue-900">{progressStages[progress]}</span><span className="text-sm text-blue-700">{elapsed} seconds</span></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100"><div className="h-full bg-blue-600 transition-all" style={{ width: `${((progress + 1) / progressStages.length) * 100}%` }} /></div></div>}<button onClick={manualDiscovery} disabled={working} className="mt-4 min-h-[48px] w-full rounded-lg bg-blue-700 px-5 font-bold text-white disabled:opacity-60">{working ? "Discovery running" : "Start Manual Discovery"}</button>{result && <><div className={`mt-4 rounded-lg p-3 text-sm font-semibold ${result.searchArea?.exactRadiusApplied ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{result.searchArea?.exactRadiusApplied ? `Exact ${result.searchArea.radiusMiles} mile radius applied` : "Coordinate lookup failed. City boundary search was used."}</div><div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6"><Metric label="Raw" value={result.pipeline?.discovered || 0} /><Metric label="Clean" value={result.pipeline?.cleaned || 0} /><Metric label="Qualified" value={result.pipeline?.qualified || 0} /><Metric label="New" value={result.pipeline?.newLeads || 0} /><Metric label="Saved" value={result.pipeline?.imported || 0} /><Metric label="Duplicates" value={Math.max(0, (result.pipeline?.qualified || 0) - (result.pipeline?.newLeads || 0))} /></div></>}</div>}
+      <div className="mt-4">
+        <ManualDiscoveryPanel
+          open={showManual}
+          onOpenChange={setShowManual}
+          onStart={() => { if (walkthrough) setWalkStep(1); }}
+          onComplete={async (data) => {
+            setError("");
+            setNotice(`Discovery finished. ${data.pipeline?.imported || 0} new businesses saved.`);
+            await loadLeads();
+            if (walkthrough) setWalkStep(2);
+          }}
+          onError={(message) => { setNotice(""); setError(message); }}
+        />
+      </div>
       {notice && <div className="mt-3 flex gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800"><CheckCircle2 size={19} />{notice}</div>}{error && <div className="mt-3 flex gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800"><AlertTriangle size={19} />{error}</div>}
     </div>
 
@@ -132,10 +123,6 @@ export default function ResearchCenterPage() {
   </div>;
 }
 
-function Input({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="text-sm font-semibold text-slate-700">{label}<input value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 font-normal outline-none focus:border-blue-500" /></label>; }
-function NumberInput({ label, value, min, max, step = 1, onChange }: { label: string; value: number; min: number; max: number; step?: number; onChange: (value: number) => void }) { return <label className="text-sm font-semibold text-slate-700">{label}<input type="number" value={value} min={min} max={max} step={step} onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value))))} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 font-normal outline-none focus:border-blue-500" /></label>; }
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-semibold"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4" />{label}</label>; }
-function Metric({ label, value }: { label: string; value: number }) { return <div className="rounded-lg bg-slate-50 p-3 text-center"><div className="text-lg font-bold">{value}</div><div className="text-xs text-slate-500">{label}</div></div>; }
 function Fact({ fact }: { fact: ResearchFact }) {
   const styles = { verified: "border-emerald-200 bg-emerald-50 text-emerald-800", single_source: "border-blue-200 bg-blue-50 text-blue-800", ai_inference: "border-violet-200 bg-violet-50 text-violet-800", not_found: "border-slate-200 bg-slate-50 text-slate-600" };
   const labels = { verified: "Verified", single_source: "Single source", ai_inference: "AI inference", not_found: "Not found" };

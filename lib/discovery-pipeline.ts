@@ -39,6 +39,10 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
   const rawGoogle: RawLead[] = [];
   const rawOverpass: RawLead[] = [];
   const queriesSent: { source: string; query: string }[] = [];
+  // A source that 401s or times out otherwise looks identical to "no businesses
+  // here", so keep the reasons and hand them back to the caller.
+  const sourceErrors = new Set<string>();
+  const noteSourceError = (message: string) => sourceErrors.add(message);
   const MAX_RAW = 60;
   const PER_CITY = 15;
 
@@ -63,6 +67,7 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
       limit: PER_CITY,
       ...(coordinates || {}),
       radiusMeters: coordinates ? radiusMeters : undefined,
+      onError: noteSourceError,
     });
 
     for (const term of HVAC_SEARCH_TERMS) {
@@ -75,6 +80,7 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
         maxResults: Math.min(requestedLimit, 20),
         ...(coordinates || {}),
         radiusMeters: coordinates ? radiusMeters : undefined,
+        onError: noteSourceError,
       });
       rawGoogle.push(...found.map((lead: DiscoveredLead) => ({ ...lead, source: "google_places" })));
     }
@@ -113,6 +119,7 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
       imported: imported.imported,
     },
     sources: { google_places: rawGoogle.length, overpass: rawOverpass.length, google_quota: quota },
+    sourceErrors: [...sourceErrors],
     ai: { used: clean.aiUsed, error: clean.aiError || null, dropped: clean.dropped, merged: clean.merged },
     targets,
     searchArea: { radiusMiles: Math.max(1, Math.min(Number(options.radiusMiles) || 15, 30)), exactRadiusApplied: queriesSent.some((query) => query.query.includes("around:")) },

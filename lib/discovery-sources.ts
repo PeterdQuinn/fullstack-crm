@@ -90,10 +90,14 @@ export async function searchGooglePlaces(opts: {
   latitude?: number;
   longitude?: number;
   radiusMeters?: number;
+  // Lets the pipeline surface a dead source in the UI instead of silently
+  // reporting "0 results found".
+  onError?: (message: string) => void;
 }): Promise<DiscoveredLead[]> {
   const key = process.env.GOOGLE_PLACES_API_KEY;
   if (!key) {
     console.warn("GOOGLE_PLACES_API_KEY not set — skipping Google Places source.");
+    opts.onError?.("Google Places: GOOGLE_PLACES_API_KEY is not set");
     return [];
   }
 
@@ -101,6 +105,7 @@ export async function searchGooglePlaces(opts: {
   const allowed = await reserveGoogleRequest();
   if (!allowed) {
     console.warn("Google Places weekly cap reached — skipping this request.");
+    opts.onError?.("Google Places: weekly request cap reached");
     return [];
   }
 
@@ -128,6 +133,9 @@ export async function searchGooglePlaces(opts: {
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       console.error(`Google Places error ${res.status}: ${errText.slice(0, 200)}`);
+      let detail = "";
+      try { detail = JSON.parse(errText)?.error?.message || ""; } catch { detail = ""; }
+      opts.onError?.(`Google Places returned ${res.status}${detail ? `: ${detail}` : ""}`);
       return [];
     }
     const data = await res.json();
@@ -147,6 +155,7 @@ export async function searchGooglePlaces(opts: {
       .filter((l: DiscoveredLead) => l.business_name);
   } catch (error) {
     console.error(`Google Places request failed (${niche}/${city}):`, error);
+    opts.onError?.(`Google Places request failed: ${error instanceof Error ? error.message : "unknown error"}`);
     return [];
   } finally {
     clearTimeout(timer);
@@ -190,6 +199,7 @@ export async function searchOverpass(opts: {
   latitude?: number;
   longitude?: number;
   radiusMeters?: number;
+  onError?: (message: string) => void;
 }): Promise<DiscoveredLead[]> {
   const { osmFilters, niche, city, state, limit = 25 } = opts;
   const query = opts.latitude != null && opts.longitude != null && opts.radiusMeters
@@ -209,6 +219,7 @@ export async function searchOverpass(opts: {
     });
     if (!res.ok) {
       console.error(`Overpass error ${res.status} for ${niche}/${city}`);
+      opts.onError?.(`OpenStreetMap returned ${res.status}${res.status === 504 ? " (public Overpass server timed out — try again)" : ""}`);
       return [];
     }
     const data = await res.json();
@@ -229,6 +240,7 @@ export async function searchOverpass(opts: {
       .filter((l: DiscoveredLead) => l.business_name); // drop unnamed OSM nodes
   } catch (error) {
     console.error(`Overpass request failed (${niche}/${city}):`, error);
+    opts.onError?.(`OpenStreetMap request failed: ${error instanceof Error ? error.message : "unknown error"}`);
     return [];
   } finally {
     clearTimeout(timer);

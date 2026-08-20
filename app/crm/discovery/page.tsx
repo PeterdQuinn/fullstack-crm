@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import ManualDiscoveryPanel from "../_components/ManualDiscoveryPanel";
 
 interface Lead {
   id: string;
@@ -70,23 +71,33 @@ export default function DiscoveryDashboard() {
     { id: "scoring", label: "Scoring" },
   ];
 
-  if (loading) return <div className="p-8">Loading...</div>;
-
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="max-w-7xl mx-auto p-4 sm:p-6">
         {/* Header */}
         <div className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-          <h1 className="text-2xl sm:text-4xl font-bold text-gray-900">Discovery Dashboard</h1>
+          <div>
+            <h1 className="text-2xl sm:text-4xl font-bold text-gray-900">Discovery Dashboard</h1>
+            <p className="text-sm text-gray-500">
+              Scrape a specific area below, or let Auto Discovery pick the next metro in the rotation.
+            </p>
+          </div>
           <button
             onClick={runDiscovery}
             disabled={discovering}
             className="w-full sm:w-auto min-h-[44px] px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-semibold"
           >
-            {discovering ? "🔍 Discovering..." : "🚀 Run Discovery"}
+            {discovering ? "🔍 Discovering..." : "🚀 Auto Discovery"}
           </button>
         </div>
 
+        <div className="mb-6">
+          <ManualDiscoveryPanel collapsible={false} onComplete={fetchLeads} />
+        </div>
+
+        {loading ? (
+          <p className="text-gray-500">Loading discovered leads...</p>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-6">
           {/* LEFT: TAB NAVIGATION */}
           <div className="space-y-2">
@@ -195,11 +206,12 @@ export default function DiscoveryDashboard() {
               </>
             ) : (
               <div className="text-center text-gray-500 py-12">
-                <p>Click "Run Discovery" to find new leads</p>
+                <p>Run a manual search above to find new leads</p>
               </div>
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );

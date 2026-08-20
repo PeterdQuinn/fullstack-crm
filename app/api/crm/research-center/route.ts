@@ -126,7 +126,9 @@ async function selectedResearch(lead: any) {
     })),
     { onConflict: "lead_id,field_name" }
   );
-  if (factsError) throw new Error(`Research evidence could not be stored. Apply migration 010 first. ${factsError.message}`);
+  const evidenceWarning = factsError
+    ? `Research saved, but its evidence was not stored. Apply migration 010 to enable evidence storage. (${factsError.message})`
+    : null;
 
   const socialCandidates = [
     ["facebook", scraped.facebook_url], ["instagram", scraped.instagram_url],
@@ -138,7 +140,7 @@ async function selectedResearch(lead: any) {
     if (!existing) await supabase.from("lead_socials").insert({ lead_id: lead.id, platform, url, is_active: true });
   }
   await logStatusChange({ leadId: lead.id, from: lead.status, to: "Scored", source: "owner", reason: "Manual AI research completed" });
-  return summary;
+  return { summary, evidenceWarning };
 }
 
 export async function POST(req: NextRequest) {
@@ -154,8 +156,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "research") {
-      const summary = await selectedResearch(lead);
-      return NextResponse.json({ success: true, summary });
+      const { summary, evidenceWarning } = await selectedResearch(lead);
+      return NextResponse.json({ success: true, summary, warning: evidenceWarning });
     }
 
     let updates: Record<string, unknown>;

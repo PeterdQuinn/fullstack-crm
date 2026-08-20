@@ -13,6 +13,7 @@ import {
   Users,
   Ban,
   BarChart3,
+  Radar,
   type LucideIcon,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ const PRIMARY: NavItem[] = [
 
 // Desktop sidebar shows everything; mobile bottom bar shows only PRIMARY.
 const SECONDARY: NavItem[] = [
+  { label: "Discovery", href: "/crm/discovery", icon: Radar },
   { label: "Email Queue", href: "/crm/email-queue", icon: Mail },
   { label: "Research", href: "/crm/dm-queue", icon: Search },
   { label: "Onboarding", href: "/crm/onboarding", icon: GraduationCap },
