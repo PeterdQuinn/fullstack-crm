@@ -1,5 +1,5 @@
 import { DiscoveredLead } from "@/lib/lead-discovery";
-import { reserveGoogleRequest } from "@/lib/api-usage";
+import { releaseGoogleRequest, reserveGoogleRequest } from "@/lib/api-usage";
 
 // ── HVAC ONLY ──────────────────────────────────────────────────────────────
 // Discovery is locked to HVAC. These are the ONLY Google Places search terms
@@ -135,6 +135,8 @@ export async function searchGooglePlaces(opts: {
       console.error(`Google Places error ${res.status}: ${errText.slice(0, 200)}`);
       let detail = "";
       try { detail = JSON.parse(errText)?.error?.message || ""; } catch { detail = ""; }
+      // Credential rejections return no data — do not spend a weekly slot.
+      if ([400, 401, 403].includes(res.status)) await releaseGoogleRequest();
       opts.onError?.(`Google Places returned ${res.status}${detail ? `: ${detail}` : ""}`);
       return [];
     }
@@ -155,6 +157,7 @@ export async function searchGooglePlaces(opts: {
       .filter((l: DiscoveredLead) => l.business_name);
   } catch (error) {
     console.error(`Google Places request failed (${niche}/${city}):`, error);
+    await releaseGoogleRequest();
     opts.onError?.(`Google Places request failed: ${error instanceof Error ? error.message : "unknown error"}`);
     return [];
   } finally {

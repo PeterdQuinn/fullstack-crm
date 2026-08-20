@@ -94,3 +94,22 @@ export async function reserveGoogleRequest(): Promise<boolean> {
   }
   return true;
 }
+
+// Give a reserved slot back when the request never reached Google or was
+// rejected for credentials. Without this a broken API key silently burns the
+// entire weekly cap on calls that returned no data.
+export async function releaseGoogleRequest(): Promise<void> {
+  const weekKey = currentWeekKey();
+  const { data, error } = await supabase
+    .from("lead_discovery_config")
+    .select("id, last_state_index")
+    .eq("key", weekKey)
+    .maybeSingle();
+  if (error || !data) return;
+  const used = data.last_state_index ?? 0;
+  if (used <= 0) return;
+  await supabase
+    .from("lead_discovery_config")
+    .update({ last_state_index: used - 1, updated_at: new Date().toISOString() })
+    .eq("id", data.id);
+}
