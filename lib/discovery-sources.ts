@@ -163,7 +163,14 @@ export async function searchGooglePlaces(opts: {
 }
 
 // ─────────────────────── OpenStreetMap Overpass (free) ──────────────────────
-const OVERPASS_ENDPOINT = "https://overpass-api.de/api/interpreter";
+// Fallback order matters: the primary is authoritative, kumi is a full global
+// mirror used when it is busy. Regional instances (e.g. overpass.osm.ch) are
+// deliberately excluded — they answer 200 with 0 elements for US queries, which
+// is indistinguishable from "no businesses here".
+const OVERPASS_ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
 
 export function buildOverpassQuery(osmFilters: string[], city: string, limit: number): string {
   const selectors = osmFilters
@@ -205,44 +212,49 @@ export async function searchOverpass(opts: {
   const query = opts.latitude != null && opts.longitude != null && opts.radiusMeters
     ? buildOverpassRadiusQuery(osmFilters, opts.latitude, opts.longitude, opts.radiusMeters, limit)
     : buildOverpassQuery(osmFilters, city, limit);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
-  try {
-    const res = await fetch(OVERPASS_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "fullstack-crm-lead-discovery/1.0 (contact: owner@fullstackservicesllc.net)",
-      },
-      body: new URLSearchParams({ data: query }).toString(),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      console.error(`Overpass error ${res.status} for ${niche}/${city}`);
-      opts.onError?.(`OpenStreetMap returned ${res.status}${res.status === 504 ? " (public Overpass server timed out — try again)" : ""}`);
-      return [];
+  let lastFailure = "";
+  for (const endpoint of OVERPASS_ENDPOINTS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "fullstack-crm-lead-discovery/1.0 (contact: owner@fullstackservicesllc.net)",
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        console.error(`Overpass error ${res.status} for ${niche}/${city} via ${endpoint}`);
+        lastFailure = `OpenStreetMap returned ${res.status}${res.status === 504 ? " (server busy)" : ""}`;
+        continue;
+      }
+      const data = await res.json();
+      return (data.elements || [])
+        .map((el: any): DiscoveredLead => {
+          const tags: Record<string, string> = el.tags || {};
+          return {
+            business_name: tags.name || "",
+            phone: cleanPhone(tags.phone || tags["contact:phone"]),
+            website: tags.website || tags["contact:website"] || undefined,
+            address: overpassAddress(tags),
+            city: tags["addr:city"] || city,
+            state: tags["addr:state"] || state,
+            niche,
+            industry: niche,
+          };
+        })
+        .filter((l: DiscoveredLead) => l.business_name); // drop unnamed OSM nodes
+    } catch (error) {
+      console.error(`Overpass request failed (${niche}/${city}) via ${endpoint}:`, error);
+      lastFailure = `OpenStreetMap request failed: ${error instanceof Error ? error.message : "unknown error"}`;
+      continue;
+    } finally {
+      clearTimeout(timer);
     }
-    const data = await res.json();
-    return (data.elements || [])
-      .map((el: any): DiscoveredLead => {
-        const tags: Record<string, string> = el.tags || {};
-        return {
-          business_name: tags.name || "",
-          phone: cleanPhone(tags.phone || tags["contact:phone"]),
-          website: tags.website || tags["contact:website"] || undefined,
-          address: overpassAddress(tags),
-          city: tags["addr:city"] || city,
-          state: tags["addr:state"] || state,
-          niche,
-          industry: niche,
-        };
-      })
-      .filter((l: DiscoveredLead) => l.business_name); // drop unnamed OSM nodes
-  } catch (error) {
-    console.error(`Overpass request failed (${niche}/${city}):`, error);
-    opts.onError?.(`OpenStreetMap request failed: ${error instanceof Error ? error.message : "unknown error"}`);
-    return [];
-  } finally {
-    clearTimeout(timer);
   }
+  opts.onError?.(`${lastFailure || "OpenStreetMap unavailable"} — all ${OVERPASS_ENDPOINTS.length} mirrors failed`);
+  return [];
 }
