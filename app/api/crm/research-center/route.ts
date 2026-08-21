@@ -93,7 +93,8 @@ async function selectedResearch(lead: any) {
   if (scraped.address && !lead.address) updates.address = scraped.address;
   if (scraped.technologies && !lead.technologies) updates.technologies = scraped.technologies;
 
-  const enriched = { ...lead, ...updates };
+  // Signals ride along so the summary prompt can cite the contractor's own site.
+  const enriched = { ...lead, ...updates, hvac_signals: scraped.hvac_signals };
   const researchFacts = buildResearchFacts(enriched, scraped);
   const summary = await generateLeadSummary(enriched);
   const { error: summaryError } = await supabase.from("lead_ai_summaries").upsert({

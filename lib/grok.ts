@@ -1,3 +1,4 @@
+import { hvacGaps, HvacSignals } from "@/lib/hvac-signals";
 import { getChain, runChainJson } from "@/lib/ai-providers";
 
 interface GrokSummary {
@@ -24,26 +25,60 @@ interface LeadData {
 // Chain order for drafting lives in CHAINS.drafting (lib/ai-providers.ts).
 
 export async function generateLeadSummary(lead: LeadData): Promise<GrokSummary> {
-  const prompt = `Analyze this business and generate a cold email sales summary.
+  const sig = (lead as any).hvac_signals as HvacSignals | undefined;
+  const gaps = sig ? hvacGaps(sig) : [];
+  const yn = (v?: boolean) => (v === undefined ? "unknown" : v ? "yes" : "NO");
 
+  const prompt = `You are a sales researcher for an agency that sells websites,
+online booking and lead-capture systems to HVAC contractors. Analyze THIS
+contractor and produce targeting intelligence a rep can act on today.
+
+CONTRACTOR
 Business: ${lead.business_name}
 Owner: ${lead.owner_name || "Unknown"}
-Industry: ${lead.industry || "Unknown"}
+Location: ${[(lead as any).city, (lead as any).state].filter(Boolean).join(", ") || "Unknown"}
+Google rating: ${(lead as any).google_rating ?? "Unknown"} from ${(lead as any).google_review_count ?? "Unknown"} reviews
 Description: ${lead.short_description || "No info"}
-Current Software: ${lead.current_software || "Unknown"}
-Monthly Spend: ${lead.monthly_spend_estimate || "Unknown"}
-Technologies: ${lead.technologies || "Unknown"}
+Booking/dispatch software detected: ${lead.current_software || "none detected"}
+Website tech: ${lead.technologies || "Unknown"}
+
+WHAT THEIR WEBSITE SHOWS (read directly from their site — cite these, do not invent)
+Online booking: ${yn(sig?.online_booking)}
+24/7 emergency messaging: ${yn(sig?.emergency_24_7)}
+Financing offered: ${yn(sig?.financing)}
+Maintenance plan: ${yn(sig?.maintenance_plan)}
+Mobile friendly: ${yn(sig?.mobile_friendly)}
+Analytics/ad tracking: ${yn(sig?.runs_ads_or_tracking)}
+Chat/instant capture: ${yn(sig?.chat_widget)}
+Reviews on site: ${yn(sig?.review_widget)}
+Brands carried: ${sig?.brands?.join(", ") || "none found"}
+Certifications: ${sig?.certifications?.join(", ") || "none found"}
+Services: ${sig?.services?.join(", ") || "none found"}
+Market: ${sig?.segments?.join(", ") || "unknown"}
+License: ${sig?.license_numbers?.join(", ") || "not shown"}
+
+GAPS ALREADY DETECTED
+${gaps.length ? gaps.map((g) => "- " + g).join("\n") : "- none detected"}
+
+RULES
+- Ground every claim in the website facts above. If something is unknown, say so
+  rather than assuming.
+- Money talk must be HVAC-specific: missed after-hours calls, unbooked tune-ups,
+  stalled system-replacement quotes, seasonal swings, no recurring plan revenue.
+- The first message must reference one concrete, verifiable thing about THIS
+  contractor (a gap, a brand they carry, their review count) — never generic
+  flattery.
 
 Respond ONLY with valid JSON (no markdown, no code blocks):
 {
-  "main_pain_point": "The #1 problem they likely have",
-  "pain_reason": "Why this is their problem",
-  "best_attack_angle": "How to position our solution",
-  "recommended_first_message": "First email message (under 150 words)",
-  "recommended_follow_up": "Follow-up message (under 100 words)",
+  "main_pain_point": "The single biggest revenue leak, tied to a specific gap above",
+  "pain_reason": "Why it costs them money in HVAC terms, with a rough dollar/job impact",
+  "best_attack_angle": "The one offer to lead with and why it fits this contractor",
+  "recommended_first_message": "Cold email under 150 words citing a specific verifiable detail",
+  "recommended_follow_up": "Follow-up under 100 words with a different angle",
   "lead_score": 0-100,
   "confidence_level": "low|medium|high",
-  "missing_data_needed": ["list", "of", "missing", "info"]
+  "missing_data_needed": ["what to confirm before the call"]
 }`;
 
   const res = await runChainJson<GrokSummary>(getChain("drafting"), prompt, {

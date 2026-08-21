@@ -2,6 +2,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
+import { extractHvacSignals, hvacGaps, HvacSignals } from "@/lib/hvac-signals";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
 import nlp from "compromise";
 import type { WithContext, Organization, Person } from "schema-dts";
@@ -78,6 +79,7 @@ type PageData = {
   description: string | null;
   address: string | null;
   google_profile?: string | null;
+  hvac_signals?: HvacSignals;
 };
 
 // ── phone ─────────────────────────────────────────────────────────────────────
@@ -398,6 +400,7 @@ function parsePage(html: string, businessName?: string): PageData {
     description:      extractDescription($),
     address:          extractAddress($),
     google_profile:   businessName ? extractGoogleProfile($, businessName) : null,
+    hvac_signals:     extractHvacSignals(html, $("body").text()),
   };
 }
 
@@ -422,7 +425,20 @@ function mergeData(base: PageData, next: PageData): PageData {
     description:      base.description || next.description,
     address:          base.address     || next.address,
     google_profile:   base.google_profile || next.google_profile,
+    // Signals are unioned: a gap only counts if NO page on the site shows it.
+    hvac_signals:     mergeSignals(base.hvac_signals, next.hvac_signals),
   };
+}
+
+function mergeSignals(a?: HvacSignals, b?: HvacSignals): HvacSignals | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const merged = { ...a } as any;
+  for (const k of Object.keys(a) as (keyof HvacSignals)[]) {
+    const av = a[k], bv = b[k];
+    merged[k] = Array.isArray(av) ? [...new Set([...(av as string[]), ...((bv as string[]) || [])])] : (av || bv);
+  }
+  return merged as HvacSignals;
 }
 
 function isComplete(d: PageData): boolean {
@@ -578,6 +594,8 @@ function buildResponse(data: PageData, debug?: Record<string, any>) {
     description:      data.description,
     address:          data.address,
     google_profile:   data.google_profile || null,
+    hvac_signals:     data.hvac_signals || null,
+    hvac_gaps:        data.hvac_signals ? hvacGaps(data.hvac_signals) : [],
     confidence:       computeScore(data),
     debug: debug || {},
   });

@@ -1,5 +1,7 @@
 export type ResearchCertainty = "verified" | "single_source" | "ai_inference" | "not_found";
 
+import { hvacGaps, HvacSignals } from "@/lib/hvac-signals";
+
 export interface ResearchFact {
   field_name: string;
   label: string;
@@ -38,6 +40,8 @@ interface EvidenceLead {
 }
 
 interface ScrapedEvidence {
+  hvac_signals?: HvacSignals;
+  hvac_gaps?: string[];
   owner?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -99,6 +103,11 @@ export function buildResearchFacts(lead: EvidenceLead, scraped: ScrapedEvidence 
     comparable(scrapedAddress).includes(comparable(storedAddress))
   ));
 
+  const sig = scraped.hvac_signals as HvacSignals | undefined;
+  const gaps: string[] = Array.isArray(scraped.hvac_gaps) ? scraped.hvac_gaps : sig ? hvacGaps(sig) : [];
+  const yn = (v?: boolean) => (v === undefined ? null : v ? "Yes" : "No");
+  const list = (v?: string[]) => (v && v.length ? v.join(", ") : null);
+
   return [
     fact("owner", "Owner or decision maker", scraped.owner || lead.owner_name || lead.contact_name, "single_source", scraped.owner ? "Company website" : discoveryLabel, scraped.owner ? website : null),
     fact("industry", "Industry", lead.industry || lead.niche, "single_source", discoveryLabel, googleUrl),
@@ -114,5 +123,23 @@ export function buildResearchFacts(lead: EvidenceLead, scraped: ScrapedEvidence 
     fact("company_size", "Company size", lead.employee_count || lead.employees, "single_source", discoveryLabel, null),
     fact("founded_year", "Year founded", lead.founded_year, "single_source", discoveryLabel, null),
     fact("annual_revenue", "Annual revenue", lead.annual_revenue, "single_source", discoveryLabel, null),
+
+    // ── HVAC-specific intelligence: what to actually sell them ──────────────
+    // Every one of these is read off their own site, so it is citable in
+    // outreach rather than inferred.
+    fact("hvac_booking", "Online booking", yn(sig?.online_booking), sig?.online_booking ? "verified" : "single_source", sig?.online_booking ? "Company website" : "Not found on pages read", website),
+    fact("hvac_emergency", "24/7 emergency service", yn(sig?.emergency_24_7), sig?.emergency_24_7 ? "verified" : "single_source", sig?.emergency_24_7 ? "Company website" : "Not found on pages read", website),
+    fact("hvac_financing", "Financing offered", yn(sig?.financing), sig?.financing ? "verified" : "single_source", sig?.financing ? "Company website" : "Not found on pages read", website),
+    fact("hvac_maintenance", "Maintenance plan", yn(sig?.maintenance_plan), sig?.maintenance_plan ? "verified" : "single_source", sig?.maintenance_plan ? "Company website" : "Not found on pages read", website),
+    fact("hvac_brands", "Brands carried", list(sig?.brands), "verified", "Company website", website),
+    fact("hvac_certifications", "Certifications", list(sig?.certifications), "verified", "Company website", website),
+    fact("hvac_services", "Services offered", list(sig?.services), "verified", "Company website", website),
+    fact("hvac_segments", "Market served", list(sig?.segments), "verified", "Company website", website),
+    fact("hvac_license", "Contractor license", list(sig?.license_numbers), "verified", "Company website", website),
+    fact("hvac_mobile", "Mobile friendly site", yn(sig?.mobile_friendly), sig?.mobile_friendly ? "verified" : "single_source", sig?.mobile_friendly ? "Company website code" : "Not found on pages read", website),
+    fact("hvac_tracking", "Ad / analytics tracking", yn(sig?.runs_ads_or_tracking), sig?.runs_ads_or_tracking ? "verified" : "single_source", sig?.runs_ads_or_tracking ? "Company website code" : "Not found on pages read", website),
+    fact("hvac_chat", "Chat / instant capture", yn(sig?.chat_widget), sig?.chat_widget ? "verified" : "single_source", sig?.chat_widget ? "Company website code" : "Not found on pages read", website),
+    fact("hvac_reviews_widget", "Reviews shown on site", yn(sig?.review_widget), sig?.review_widget ? "verified" : "single_source", sig?.review_widget ? "Company website code" : "Not found on pages read", website),
+    fact("hvac_gaps", "Sellable gaps", gaps.length ? gaps.join(" | ") : null, "verified", "Company website", website, gaps.length),
   ];
 }
