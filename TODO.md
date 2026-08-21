@@ -1,189 +1,180 @@
 # SaaS Conversion — Goal & TODO
 
-> **Read this first.** This file is the brief for whoever picks the work up,
-> including a fresh AI agent with no memory of how we got here.
+> **Read this first.** Brief for whoever picks this up, including a fresh AI agent.
+> Last verified: 2026-08-21. Branch `saas-multi-tenant`, base commit `e55e330`.
 
 ## What this app is
 
-An **AI-driven cold-outreach CRM**, being converted from a single-operator tool
-into a **multi-tenant SaaS** we sell to other operators.
-
-The product's spine is one pipeline:
+An **AI-driven cold-outreach CRM**, converting from single-operator tool to
+**multi-tenant SaaS**.
 
 ```
 DISCOVER → ENRICH → RESEARCH → [APPROVE: human gate] → OUTREACH → REPLIES → CLOSE
 ```
 
-- **Discover** — find businesses matching the customer's niche (Google Places + OpenStreetMap)
-- **Enrich** — crawl each business's own site for real signals
-- **Research** — find the pain point, size the dollar impact, draft the outreach
-- **Approve** — the operator decides before anything sends. This gate never opens itself.
-- **Outreach** — a tracked email sequence from the customer's own inbox
-- **Replies** — poll, classify, act (interested → booking link; not interested → suppress; unclear → human task)
-- **Close** — call queue, bookings, reporting
-
 ## The goal
 
-Sell this as a product. Each customer connects **their own AI provider and keys**,
-so the engine runs on their data, in their network, trained on their niche.
+Each customer connects **their own AI provider and keys**.
 
 | Plan | Setup (one time) | Monthly | Annual (two months free) |
 |---|---|---|---|
 | Solo | $1,000 | $600/mo | $6,000/yr |
 | Company | $3,000 | $1,000/mo | $10,000/yr |
 
-Solo: 1 login, 1 niche, 1 inbox. Company: up to 5 logins, multiple niches and
-territories, several inboxes, shared pipeline, priority support.
-
-The setup fee is not a signup charge. It pays for wiring the customer's AI into
-their network and generating their niche config from a questionnaire. That
-questionnaire → config step is literally what the fee sells.
-
-## Why bring-your-own-AI matters
-
-- **The pitch:** "Your AI, your keys, your data, your network. It never leaves your control."
-- **The margin:** the customer pays their own AI bill; our only per-tenant cost is shared infrastructure.
-- **No lock-in fear:** they own the AI relationship, which lowers the barrier to saying yes.
+Solo: 1 login, 1 niche, 1 inbox. Company: 5 logins, multiple niches/territories,
+several inboxes, shared pipeline, priority support. The setup fee pays for wiring
+their AI into their network + generating niche config from a questionnaire.
 
 ## Non-negotiable guardrails
 
-1. **Tenant isolation.** Customer A must be unable to read or write Customer B's
-   data. A single cross-tenant leak kills the business.
-2. **Never hardcode our AI keys into a tenant's runtime.** Always use the
-   tenant's stored provider config. Fail loudly rather than falling back to ours.
-3. **Keep the evidence-grading discipline.** A negative only ever claims "not
-   found on pages read." A thin page returns unknown rather than a fabricated
-   gap. Never invent a fact to fill a hole.
-4. **Suppression is global per tenant.** opt-out / bounced / complained /
-   Do-Not-Contact blocks every outreach path.
-5. **Bring-your-own-inbox.** Customers send from their own connected inbox. Do
-   not build shared sending infrastructure — deliverability is theirs, not ours.
+1. **Tenant isolation.** One cross-tenant leak kills the business.
+2. **Never hardcode our AI keys into a tenant's runtime.** Fail loudly instead.
+3. **Keep evidence-grading discipline.** Negatives claim only "not found on pages
+   read." Thin page → unknown, never a fabricated gap.
+4. **Suppression is global per tenant.**
+5. **Bring-your-own-inbox.** No shared sending infrastructure.
 
 ## Stack
 
-Next.js 14 (App Router) · TypeScript · Tailwind · Supabase/Postgres (RLS on,
-service-role server-only) · Vercel. The AI layer is `lib/ai-providers.ts`, which
-already supports per-provider keys and task-specific chains — that is what makes
-bring-your-own-AI possible.
+Next.js 14 (App Router) · TypeScript · Tailwind · Supabase/Postgres · Vercel.
+AI layer is `lib/ai-providers.ts` (per-provider keys, task-specific chains).
 
 ## How the work gets done
 
-**The AI agent does the implementation.** Peter directs, decides, and approves;
-the agent writes the code, the migrations, and the tests. When picking this up:
-
-- Work top to bottom. Each step below depends on the one above it.
-- Verify with real calls against real data before reporting anything done.
-- Do not apply migrations or deploy without being asked.
-- Flag conflicts with this brief rather than silently resolving them.
+Peter directs and approves; the agent implements. Work top to bottom. Verify with
+real calls before reporting done. Do not apply migrations or deploy unasked.
 
 ---
 
-## Status
+## DONE
 
-Done: landing page with full pricing, login (session auth against the existing
-credentials), HVAC research intelligence, tenant schema (`011_multi_tenant.sql`,
-**not yet applied**), and `lib/tenant.ts` (scoped queries, per-tenant secrets, metering).
-
-Everything below is what's left.
+- [x] Landing page with full pricing
+- [x] Login + session auth (`lib/session.ts`, `app/api/auth/*`, middleware gate)
+- [x] HVAC research intelligence
+- [x] Tenant schema written — `supabase/migrations/011_multi_tenant.sql` (**not applied**)
+- [x] `lib/tenant.ts` — `tenantScope()`, `tenantSecrets()`, `reserveUsage()`, `PLAN_LIMITS`
+- [x] **All work committed** — was local-only, now on branch `saas-multi-tenant` @ `e55e330`
+- [x] **Route survey complete** (2026-08-21) — findings in step 2 below
+- [x] **Provider chain tested with real calls** (2026-08-21) — results at bottom
 
 ---
 
 ## 1. Apply the tenant migration
 
-`supabase/migrations/011_multi_tenant.sql` is written but **not applied**.
+`011_multi_tenant.sql` is written but **not applied**.
 
-- [ ] Test on a Supabase branch or a DB copy first, never straight at prod
-- [ ] Verify the backfill ran before `NOT NULL` landed (357 leads must all get a `tenant_id`)
-- [ ] Confirm the founding tenant row exists and owns all existing rows
+- [x] Verified: routes touch 10 tables, migration covers 12. **No gaps.**
+      (`appointments, call_logs, cron_failures, follow_up_tasks, lead_ai_summaries,
+      lead_notes, lead_research_facts, lead_socials, leads, outreach_log`)
+- [ ] Test on a Supabase branch or DB copy first, never straight at prod
+- [ ] Verify backfill ran before `NOT NULL` landed (357 leads must all get a `tenant_id`)
+- [ ] Confirm founding tenant row exists and owns all existing rows
 - [ ] Spot-check `current_tenant_id()` returns the right tenant for a test user
-
-**Risk:** run out of order and every existing row orphans. The migration handles
-the ordering, but confirm it on a copy before trusting it.
 
 ---
 
 ## 2. Migrate the API routes to `tenantScope()`  ← the big one
 
-Until this is done the app is still effectively single-tenant. ~50 routes.
+### Survey findings (2026-08-21)
 
-- [ ] Replace every request-scoped `createClient(...)` with `tenantScope(tenantId)`
-- [ ] Resolve `tenantId` from the session at the top of each route
-- [ ] Stamp `tenant_id` on every insert (a write without it is the same leak as a read)
-- [ ] Cron routes: loop per tenant instead of running globally
-- [ ] Webhooks: resolve tenant from the payload, not from a session
+| Fact | Value |
+|---|---|
+| Routes total / touching Supabase | 52 / 38 |
+| Shared query helper | **None** — 38 identical hand-rolled imports |
+| `createClient(` per file | exactly 1, uniform shape |
+| **Built at module scope (col 0)** | **38 / 38** |
+| Built inside a handler | **0** |
+| `.rpc()` calls | **0** — nothing escapes the wrapper |
 
-**Why it matters:** the service role bypasses RLS. RLS alone does not protect you.
-Server code is the real last line of defence.
+**The module-scope client is the real blocker.** `const supabase = createClient(...)`
+at file top-level is built once per warm lambda and shared across requests from
+different tenants. No request context exists at construction time, so it cannot be
+tenant-scoped where it sits. All 38 must move inside the handler. Not a find-and-replace.
 
-Priority order: `crm/*` → `admin/*` → `cron/*` → `webhooks/*`
+**Gaps in `tenantScope()` to close first:**
+- [ ] No `.upsert()` — needed by 7 calls in 5 files (`crm/research-center`,
+      `admin/bulk-score-and-clean`, `ai/summarize`, `cron/process-discovered-leads`)
+- [x] Chaining verified OK: `.single()` ×22, `.maybeSingle()` ×9, `.order()` ×17,
+      `.limit()` ×16, `.in()` ×10, `.or()` ×4 all chain off the builder
+
+### Batches (leak test after each; red = stop, do not start the next)
+
+- [ ] **Batch 0** — add `upsert` to `tenantScope()`; `requireTenant(req)` helper;
+      build leak-test harness; ESLint rule banning `@supabase/supabase-js`
+      imports outside `lib/` so fixed routes can't regress
+- [ ] **Batch 1** — `crm/*` — 17 routes, 16 writes — tenant from session
+- [ ] **Batch 2** — `admin/*` — 11 routes, 3 writes — session + role check
+- [ ] **Batch 3** — `email/*` — 8 routes, 9 writes — ⚠️ mixed, see decision below
+- [ ] **Batch 4** — `cron/*` — 8 routes, 17 writes — loop per tenant
+- [ ] **Batch 5** — `webhooks/resend` — 1 route, 8 writes — tenant from payload
+- [ ] **Batch 6** — `ai/*`, `appointments`, `scrape-phone` — 5 routes — session
+
+**BLOCKED — needs Peter's decision:** email tracking pixels, unsubscribe links, and
+the Resend webhook have no session. Either (a) encode a signed tenant token in every
+tracking/unsubscribe URL, or (b) resolve tenant from the lead/message ID in the
+payload. (b) is less work; (a) is harder to forge.
 
 ---
 
 ## 3. Cross-tenant leak tests
 
-Do this immediately after step 2, not at the end.
+Built in Batch 0, run after every batch.
 
-- [ ] Create two tenants with data in each
-- [ ] Assert tenant A cannot read B's leads, summaries, facts, replies, bookings
-- [ ] Assert tenant A cannot write into B by forging a `tenant_id` in a payload
-- [ ] Assert an unauthenticated request gets nothing
-- [ ] Assert cron scoped to A never touches B
-
-A single leak kills the business. Treat a failure here as a stop-the-line bug.
+- [ ] Two tenants seeded with data in each
+- [ ] Tenant A cannot read B's leads, summaries, facts, replies, bookings
+- [ ] Tenant A cannot write into B by forging a `tenant_id` in a payload
+- [ ] Unauthenticated request gets nothing
+- [ ] Cron scoped to A never touches B
 
 ---
 
 ## 4. Stripe billing
 
 - [ ] `npm i stripe`
-- [ ] Products/prices: Solo $600/mo + $1,000 setup, Company $1,000/mo + $3,000 setup
-- [ ] Annual prices: Solo $6,000/yr, Company $10,000/yr (two months free)
-- [ ] Checkout session charging setup fee + first subscription payment in one flow
-- [ ] Monthly vs annual-upfront toggle at checkout
-- [ ] Webhook handler: `checkout.session.completed` → set `setup_fee_paid`, `status = active`
-- [ ] Handle `past_due` / `cancelled` → gate access on `tenants.status`
-- [ ] Setup fee is one-time and non-refundable
+- [ ] Prices: Solo $600/mo + $1,000 setup, Company $1,000/mo + $3,000 setup
+- [ ] Annual: Solo $6,000/yr, Company $10,000/yr
+- [ ] Checkout charging setup fee + first subscription payment in one flow
+- [ ] Monthly vs annual-upfront toggle
+- [ ] Webhook `checkout.session.completed` → `setup_fee_paid`, `status = active`
+- [ ] `past_due` / `cancelled` → gate access on `tenants.status`
+- [ ] Setup fee one-time, non-refundable
 
 ---
 
 ## 5. Signup + onboarding
 
-- [ ] `app/signup` — creates the tenant + `tenant_members` row, then Stripe Checkout
-- [ ] Apply `PLAN_LIMITS` (seats, niches, inboxes, caps) from the chosen plan
-- [ ] Niche questionnaire: ICP, target niche, territories, differentiators, offer
-- [ ] Generate `tenant_configs.generated_config` from the answers
-  (signal logic, research prompts, email angles)
-- [ ] Connect their AI keys → `tenant_secrets` (kind `ai_provider`)
+- [ ] `app/signup` — creates tenant + `tenant_members`, then Stripe Checkout
+- [ ] Apply `PLAN_LIMITS` from chosen plan
+- [ ] Niche questionnaire: ICP, niche, territories, differentiators, offer
+- [ ] Generate `tenant_configs.generated_config` from answers
+- [ ] Connect AI keys → `tenant_secrets` (kind `ai_provider`)
 - [ ] Connect inbox + calendar → `tenant_secrets` (kind `inbox` / `calendar`)
-
-This questionnaire → config step is literally what the setup fee sells.
 
 ---
 
 ## 6. Bring-your-own-AI wiring
 
 - [ ] `lib/ai-providers.ts` reads keys from `tenantSecrets()`, not `process.env`
-- [ ] Never fall back to our keys inside a tenant's runtime — fail loudly instead
-- [ ] Per-tenant provider chain order stored in `tenant_configs`
+- [ ] Never fall back to our keys — fail loudly
+- [ ] Per-tenant provider chain order in `tenant_configs`
 
 ---
 
 ## 7. Auth cutover
 
-- [ ] Add Supabase Auth signup/login for tenant customers
-- [ ] Keep the existing `APP_USERNAME` / `APP_PASSWORD` session login working
-- [ ] Decide whether Basic Auth stays as the founder-only back door
-- [ ] Gate `/crm/*` on tenant `status` (`pending` / `past_due` must not reach the pipeline)
+- [ ] Supabase Auth signup/login for tenant customers
+- [ ] Keep existing `APP_USERNAME` / `APP_PASSWORD` session login working
+- [ ] Decide whether Basic Auth stays as founder-only back door
+- [ ] Gate `/crm/*` on tenant `status`
 
 ---
 
 ## 8. Metering enforcement
 
-- [ ] Call `reserveUsage()` before discovery runs and before sends
-- [ ] `releaseUsage()` when the work doesn't happen (mirrors the Google quota refund)
-- [ ] Surface remaining quota in the dashboard
-- [ ] **Set the real caps** — currently placeholder: Solo 500 leads / 1,000 sends,
-      Company 2,500 / 5,000
+- [ ] `reserveUsage()` before discovery runs and before sends
+- [ ] `releaseUsage()` when work doesn't happen
+- [ ] Surface remaining quota in dashboard
+- [ ] **Set real caps** — placeholder: Solo 500/1,000, Company 2,500/5,000
 
 ---
 
@@ -191,14 +182,28 @@ This questionnaire → config step is literally what the setup fee sells.
 
 - [ ] Final monthly volume caps per tier
 - [ ] Confirm Company seat count (5 is a starting point)
-- [ ] Founding-customer discount for the first 2–3 clients in exchange for a case study?
+- [ ] Founding-customer discount for first 2–3 clients for a case study?
+- [ ] Batch 3/5 tenant resolution — signed token vs payload lookup (see step 2)
 
 ---
 
-## Also outstanding (unrelated to SaaS)
+## Provider chain — real test calls, 2026-08-21
 
-- [ ] `GEMINI_API_KEY` is revoked — 401 on all chains. Reissue or drop it from the chains.
-- [ ] Kimi suspended, Anthropic out of credit, Kablewy unreachable. Ollama + Groq are
-      currently carrying the whole app.
-- [ ] Nothing from today is committed. Landing, login, session auth, HVAC research,
-      and the tenant scaffolding are all uncommitted local changes.
+| Provider | Result | Evidence |
+|---|---|---|
+| **Gemini** | ✅ **LIVE** http 200 | Returned "OK"; second call "7*6?" → **42** |
+| **Ollama** | ✅ **LIVE** http 200, 573ms | `gpt-oss:120b-cloud` returned "OK" |
+| Anthropic | ❌ http 400 | "Your credit balance is too low" |
+| Kablewy | ❌ fetch failed | `api.kablewy.com` → **NXDOMAIN** |
+| Groq | ⚠️ untested | **No `GROQ_API_KEY` in `.env.local`** — prod only? |
+| Kimi | ⚠️ untested | No `KIMI_API_KEY`/`MOONSHOT_API_KEY` locally |
+
+**Corrections to the old TODO:**
+- Gemini is **not** revoked. The local key answered 200 twice. If prod is 401ing,
+  prod holds a different, stale key — a working provider is sitting idle.
+- Groq has no local key at all, yet was believed to be carrying the app.
+  **Local and prod env have diverged.** Reconcile before trusting either.
+
+- [ ] Compare `.env.local` vs Vercel prod env for `GEMINI_API_KEY` and `GROQ_API_KEY`
+- [ ] Drop Kablewy from the chains (domain is dead)
+- [ ] Drop or refund Anthropic in the chains until credit is restored
