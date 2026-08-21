@@ -16,8 +16,8 @@ interface SuppressedLead {
 }
 
 const REASON_STYLE: Record<string, string> = {
-  bounced: "bg-orange-100 text-orange-700",
-  complained: "bg-red-100 text-red-700",
+  bounced: "bg-status-warm/10 text-status-warm",
+  complained: "bg-status-lost/10 text-status-lost",
   opt_out: "bg-gray-200 text-gray-700",
 };
 

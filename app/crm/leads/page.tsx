@@ -328,7 +328,7 @@ export default function LeadsWorkspace() {
   return (
     <div className="h-[calc(100dvh-4rem)] md:h-[100dvh] min-h-0 flex flex-col overflow-hidden bg-gray-50">
       {dbMode === "local" && (
-        <div className="flex-shrink-0 bg-amber-100 border-b border-amber-300 px-4 sm:px-6 py-2 text-sm font-medium text-amber-900 flex items-center gap-2">
+        <div className="flex-shrink-0 bg-status-warm/10 border-b border-status-warm/20 px-4 sm:px-6 py-2 text-sm font-medium text-status-warm flex items-center gap-2">
           <span aria-hidden>⚠️</span>
           <span>Warning: Supabase not connected. Showing fallback data. Changes will not be saved.</span>
         </div>
@@ -339,16 +339,16 @@ export default function LeadsWorkspace() {
           <div className="min-w-0"><h1 className="text-base sm:text-lg font-bold text-gray-900 truncate">Full Stack Services CRM</h1><p className="text-xs text-gray-500 truncate">{COMPANY_EMAIL} · {COMPANY_PHONE}</p></div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={bulkGenerateAI} disabled={generatingAI} className="px-3 min-h-[44px] py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50">🤖 Gen AI</button>
-          <button onClick={deduplicateLeads} className="px-3 min-h-[44px] py-1.5 bg-yellow-500 text-white text-sm font-medium rounded-lg hover:bg-yellow-600 transition-colors">Remove Duplicates</button>
-          <button onClick={() => setShowDialer(true)} className="px-3 min-h-[44px] py-1.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition-colors">⚡ Dial</button>
-          <button onClick={() => setShowAddLead(true)} className="px-3 min-h-[44px] py-1.5 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">+ Add Lead</button>
+          <button onClick={bulkGenerateAI} disabled={generatingAI} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors disabled:opacity-50">🤖 Gen AI</button>
+          <button onClick={deduplicateLeads} className="px-3 min-h-[44px] py-1.5 bg-status-warm text-white text-sm font-medium rounded-lg hover:bg-status-warm transition-colors">Remove Duplicates</button>
+          <button onClick={() => setShowDialer(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors">⚡ Dial</button>
+          <button onClick={() => setShowAddLead(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors">+ Add Lead</button>
           <button onClick={() => setShowImport(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import CSV</button>
-          <a href="/api/crm/export-leads" className="px-3 min-h-[44px] py-1.5 bg-slate-700 text-white text-sm font-medium rounded-lg hover:bg-slate-800 transition-colors inline-flex items-center">⬇ Export CSV</a>
+          <a href="/api/crm/export-leads" className="px-3 min-h-[44px] py-1.5 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors inline-flex items-center">⬇ Export CSV</a>
         </div>
       </header>
 
-      <div className="bg-white border-b px-4 sm:px-6 py-3 flex-shrink-0"><div className="flex gap-3 overflow-x-auto pb-1">{[{ label: "Total Leads", value: kpis.total, color: "text-gray-900" },{ label: "New", value: kpis.new, color: "text-blue-600" },{ label: "Called Today", value: kpis.calledToday, color: "text-yellow-600" },{ label: "Called This Week", value: kpis.calledThisWeek, color: "text-orange-500" },{ label: "Follow-Ups Due", value: kpis.followUps, color: "text-purple-600" },{ label: "Booked", value: kpis.booked, color: "text-green-600" },{ label: "Interested", value: kpis.interested, color: "text-emerald-600" },{ label: "Dead", value: kpis.dead, color: "text-red-500" }].map((k) => (<div key={k.label} className="flex-shrink-0 bg-gray-50 rounded-lg px-4 py-2 min-w-[120px]"><div className={`text-xl sm:text-2xl font-bold ${k.color}`}>{k.value}</div><div className="text-xs text-gray-500">{k.label}</div></div>))}</div></div>
+      <div className="bg-white border-b px-4 sm:px-6 py-3 flex-shrink-0"><div className="flex gap-3 overflow-x-auto pb-1">{[{ label: "Total Leads", value: kpis.total, color: "text-gray-900" },{ label: "New", value: kpis.new, color: "text-brand-dark" },{ label: "Called Today", value: kpis.calledToday, color: "text-status-warm" },{ label: "Called This Week", value: kpis.calledThisWeek, color: "text-status-warm" },{ label: "Follow-Ups Due", value: kpis.followUps, color: "text-brand-dark" },{ label: "Booked", value: kpis.booked, color: "text-brand-dark" },{ label: "Interested", value: kpis.interested, color: "text-brand-dark" },{ label: "Dead", value: kpis.dead, color: "text-status-lost" }].map((k) => (<div key={k.label} className="flex-shrink-0 bg-gray-50 rounded-lg px-4 py-2 min-w-[120px]"><div className={`text-xl sm:text-2xl font-bold ${k.color}`}>{k.value}</div><div className="text-xs text-gray-500">{k.label}</div></div>))}</div></div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="lg:hidden h-full min-h-0">
@@ -370,10 +370,10 @@ export default function LeadsWorkspace() {
 }
 
 function getScoreBadgeColor(score: number) {
-  if (score >= 76) return "bg-green-100 text-green-700";
-  if (score >= 51) return "bg-yellow-100 text-yellow-700";
-  if (score >= 26) return "bg-orange-100 text-orange-700";
-  return "bg-red-100 text-red-700";
+  if (score >= 76) return "bg-brand-light text-brand-dark";
+  if (score >= 51) return "bg-status-warm/10 text-status-warm";
+  if (score >= 26) return "bg-status-warm/10 text-status-warm";
+  return "bg-status-lost/10 text-status-lost";
 }
 
 function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, search, setSearch, statusFilter, setStatusFilter, nicheFilter, setNicheFilter, niches, leadScores }: any) {
@@ -389,8 +389,8 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
       <div className="px-4 pt-3 pb-0 border-b bg-white flex-shrink-0">
         <div className="flex gap-1 mb-3">
           <button onClick={() => setView("leads")} className={`px-4 min-h-[44px] py-1.5 rounded-lg text-sm font-medium transition-colors ${view === "leads" ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>All Leads</button>
-          <button onClick={() => setView("followups")} className={`px-4 min-h-[44px] py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${view === "followups" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            Follow-Ups {followUps.length > 0 && <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${view === "followups" ? "bg-white text-purple-600" : "bg-purple-600 text-white"}`}>{followUps.length}</span>}
+          <button onClick={() => setView("followups")} className={`px-4 min-h-[44px] py-1.5 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 ${view === "followups" ? "bg-brand text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            Follow-Ups {followUps.length > 0 && <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${view === "followups" ? "bg-white text-brand-dark" : "bg-brand text-white"}`}>{followUps.length}</span>}
           </button>
         </div>
         {view === "leads" && <div className="flex flex-col md:flex-row gap-2 pb-3">
@@ -409,12 +409,12 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
           ) : (
             <div className="divide-y">
               {followUps.map((lead: Lead) => (
-                <div key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("calls"); }} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-purple-50 transition-colors ${selectedId === lead.id ? "bg-purple-50 border-l-4 border-l-purple-600" : ""}`}>
+                <div key={lead.id} onClick={() => { setSelectedId(lead.id); setTab("calls"); }} className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-brand-light transition-colors ${selectedId === lead.id ? "bg-brand-light border-l-4 border-l-purple-600" : ""}`}>
                   <div className="flex-1 min-w-0">
                     <div className="font-medium text-gray-900 truncate">{lead.business_name}</div>
                     <div className="text-xs text-gray-500 truncate">{lead.owner_name || "—"} · {lead.city || "—"}</div>
-                    <div className="text-xs text-red-600 font-medium mt-0.5">Due {fmt(lead.next_follow_up_at)}</div>
-                    {lead.current_software && <div className="text-xs text-blue-500">Uses {lead.current_software}</div>}
+                    <div className="text-xs text-status-lost font-medium mt-0.5">Due {fmt(lead.next_follow_up_at)}</div>
+                    {lead.current_software && <div className="text-xs text-brand">Uses {lead.current_software}</div>}
                   </div>
                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusStyle(lead.status).badge}`}>{lead.status}</span>
@@ -450,7 +450,7 @@ function LeadListPanel({ leads, allLeads, selectedId, setSelectedId, setTab, sea
                     <td className="px-4 py-2.5">{lead.phone && lead.phone !== "N/A" ? <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="text-brand font-medium hover:underline" onClick={(e) => e.stopPropagation()}>{lead.phone}</a> : <span className="text-gray-400">—</span>}</td>
                     <td className="px-4 py-2.5"><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${getStatusStyle(lead.status).badge}`}>{lead.status}</span></td>
                     <td className="px-4 py-2.5 text-center">{leadScores[lead.id] !== undefined ? <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${getScoreBadgeColor(leadScores[lead.id])}`}>{leadScores[lead.id]}</span> : <span className="text-gray-400">—</span>}</td>
-                    <td className="px-4 py-2.5 text-xs text-gray-500">{lead.next_follow_up_at ? <span className={isPast(lead.next_follow_up_at) ? "text-red-600 font-medium" : ""}>{fmt(lead.next_follow_up_at)}</span> : "—"}</td>
+                    <td className="px-4 py-2.5 text-xs text-gray-500">{lead.next_follow_up_at ? <span className={isPast(lead.next_follow_up_at) ? "text-status-lost font-medium" : ""}>{fmt(lead.next_follow_up_at)}</span> : "—"}</td>
                   </tr>
                 ))}
                 {leads.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-gray-400">No leads found</td></tr>}
@@ -513,19 +513,19 @@ function LeadDetailPanel({ lead, callLogs, notes, appointments, tab, setTab, sho
           <div className="min-w-0">{mobile && onBack && <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-brand font-medium">← Back</button>}<h2 className="text-lg font-bold text-gray-900 break-words">{lead.business_name}</h2><p className="text-sm text-gray-500">{lead.owner_name || "No owner"}</p></div>
           <div className="flex items-center gap-2">
             <select value={lead.status} onChange={(e) => updateLead(lead.id, { status: e.target.value as LeadStatus })} className={`text-xs px-2 py-1 rounded-full font-medium border-0 max-w-[140px] ${getStatusStyle(lead.status).badge}`}>{LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
-            <button onClick={() => deleteLead(lead.id)} title="Permanently delete this lead and all its data" className="text-xs px-2 py-1 rounded-lg bg-red-100 text-red-600 hover:bg-red-200 transition-colors font-medium">Delete lead data</button>
+            <button onClick={() => deleteLead(lead.id)} title="Permanently delete this lead and all its data" className="text-xs px-2 py-1 rounded-lg bg-status-lost/10 text-status-lost hover:bg-status-lost transition-colors font-medium">Delete lead data</button>
           </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
           {lead.phone && lead.phone !== "N/A" && <a href={`https://voice.google.com/u/0/calls?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">📞 Call</a>}
-          {lead.phone && lead.phone !== "N/A" && <a href={`https://voice.google.com/u/0/messages?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-700 transition-colors">💬 Text</a>}
+          {lead.phone && lead.phone !== "N/A" && <a href={`https://voice.google.com/u/0/messages?a=nc,${lead.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors">💬 Text</a>}
           {lead.website && lead.website !== "N/A" && <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition-colors">🌐 Website</a>}
-          {lead.linkedin_url && <a href={lead.linkedin_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">in LinkedIn</a>}
+          {lead.linkedin_url && <a href={lead.linkedin_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-brand text-white text-sm rounded-lg hover:bg-brand transition-colors">in LinkedIn</a>}
           {(lead as any).instagram_url && <a href={(lead as any).instagram_url} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-1 px-3 py-2 bg-pink-500 text-white text-sm rounded-lg hover:bg-pink-600 transition-colors">IG</a>}
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <button onClick={findPhone} disabled={scraping} className="px-3 min-h-[44px] py-1.5 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 disabled:opacity-50 transition-colors">{scraping ? "Scanning..." : "🔍 Find Phone"}</button>
-          {scrapeMsg && <span className={`text-xs font-medium ${scrapeMsg.startsWith("Found") ? "text-green-600" : "text-red-500"}`}>{scrapeMsg}</span>}
+          <button onClick={findPhone} disabled={scraping} className="px-3 min-h-[44px] py-1.5 bg-status-warm text-white text-xs font-medium rounded-lg hover:bg-status-warm disabled:opacity-50 transition-colors">{scraping ? "Scanning..." : "🔍 Find Phone"}</button>
+          {scrapeMsg && <span className={`text-xs font-medium ${scrapeMsg.startsWith("Found") ? "text-brand-dark" : "text-status-lost"}`}>{scrapeMsg}</span>}
         </div>
       </div>
       <div className="border-b px-4 overflow-x-auto flex-shrink-0"><div className="flex min-w-max">{(["details","calls","notes","meeting","email","replies","bookings","onboarding","activity"] as const).map((t) => (<button key={t} onClick={() => setTab(t)} className={`px-3 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t ? "border-brand text-brand" : "border-transparent text-gray-500 hover:text-gray-700"}`}>{t === "details" ? "Details" : t === "calls" ? "Calls" : t === "notes" ? "Notes" : t === "meeting" ? "Meeting" : t === "email" ? "📧 Email" : t === "replies" ? "💬 Replies" : t === "bookings" ? "📅 Bookings" : t === "onboarding" ? "🎓 Onboarding" : "📊 Activity"}</button>))}</div></div>
@@ -554,25 +554,25 @@ function DetailsTab({ lead, updateLead, showScript, setShowScript, showPositioni
         ))}
       </div>
       {(lead.short_description || lead.employees || lead.annual_revenue || lead.founded_year || lead.technologies) && (
-        <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-3">
-          <div className="font-semibold text-sm text-slate-800">Company Profile</div>
-          {lead.short_description && <p className="text-sm text-slate-700 leading-relaxed">{lead.short_description}</p>}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+          <div className="font-semibold text-sm text-gray-800">Company Profile</div>
+          {lead.short_description && <p className="text-sm text-gray-700 leading-relaxed">{lead.short_description}</p>}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {lead.employees && <div><div className="text-xs text-gray-400 uppercase tracking-wide">Employees</div><div className="text-sm text-gray-900">{lead.employees}</div></div>}
             {lead.annual_revenue && <div><div className="text-xs text-gray-400 uppercase tracking-wide">Annual Revenue</div><div className="text-sm text-gray-900">{lead.annual_revenue}</div></div>}
             {lead.founded_year && <div><div className="text-xs text-gray-400 uppercase tracking-wide">Founded</div><div className="text-sm text-gray-900">{lead.founded_year}</div></div>}
           </div>
-          {lead.technologies && <div><div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Technologies</div><div className="flex flex-wrap gap-1">{lead.technologies.split(",").slice(0,12).map((t: string) => <span key={t} className="text-xs bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">{t.trim()}</span>)}</div></div>}
-          {(lead.facebook_url || lead.twitter_url) && <div className="flex gap-3">{lead.facebook_url && <a href={lead.facebook_url} target="_blank" rel="noreferrer" className="text-xs text-blue-600 hover:underline">Facebook</a>}{lead.twitter_url && <a href={lead.twitter_url} target="_blank" rel="noreferrer" className="text-xs text-sky-600 hover:underline">Twitter / X</a>}</div>}
+          {lead.technologies && <div><div className="text-xs text-gray-400 uppercase tracking-wide mb-1">Technologies</div><div className="flex flex-wrap gap-1">{lead.technologies.split(",").slice(0,12).map((t: string) => <span key={t} className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">{t.trim()}</span>)}</div></div>}
+          {(lead.facebook_url || lead.twitter_url) && <div className="flex gap-3">{lead.facebook_url && <a href={lead.facebook_url} target="_blank" rel="noreferrer" className="text-xs text-brand-dark hover:underline">Facebook</a>}{lead.twitter_url && <a href={lead.twitter_url} target="_blank" rel="noreferrer" className="text-xs text-sky-600 hover:underline">Twitter / X</a>}</div>}
         </div>
       )}
       <div><label className="text-xs text-gray-400 uppercase tracking-wide">Next Follow-Up</label><input type="date" value={lead.next_follow_up_at ? lead.next_follow_up_at.split("T")[0] : ""} onChange={(e: any) => updateLead(lead.id, { next_follow_up_at: e.target.value ? `${e.target.value}T09:00:00` : undefined })} className="block w-full text-sm border rounded-lg px-3 py-2 mt-1 focus:outline-none focus:ring-2 focus:ring-brand/30" /></div>
 
-      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4"><button onClick={() => setShowGatekeeper(!showGatekeeper)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-orange-900 text-sm">🚪 Gatekeeper Scripts</span><span className="text-orange-600 text-xs flex-shrink-0">{showGatekeeper ? "Hide" : "Show"}</span></button>{showGatekeeper && <div className="mt-3 space-y-2">{GATEKEEPER_SCRIPTS.map((g, i) => <div key={i} className="rounded-lg bg-white/70 border border-orange-100 p-3"><div className="text-xs font-bold text-orange-700 mb-1">{g.situation}</div><div className="text-sm text-gray-900 font-medium italic mb-1">&ldquo;{g.line}&rdquo;</div>{(g as any).note && <div className="text-xs text-gray-400">{(g as any).note}</div>}</div>)}</div>}</div>
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4"><button onClick={() => setShowScript(!showScript)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-amber-900 text-sm">📋 Call Script</span><span className="text-amber-600 text-xs flex-shrink-0">{showScript ? "Hide" : "Show"}</span></button>{showScript && <div className="mt-3 space-y-2">{GUIDED_QUESTIONS.map((q: string, i: number) => <div key={i} className="flex gap-2 text-sm"><span className="text-amber-600 font-bold flex-shrink-0">{i+1}.</span><span className="text-amber-900">{q}</span></div>)}</div>}</div>
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4"><button onClick={() => setShowPositioning(!showPositioning)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-blue-900 text-sm">💬 Positioning Lines</span><span className="text-blue-600 text-xs flex-shrink-0">{showPositioning ? "Hide" : "Show"}</span></button>{showPositioning && <div className="mt-3 space-y-1.5">{POSITIONING_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-blue-800 italic">&ldquo;{line}&rdquo;</div>)}</div>}</div>
-      <div className="bg-violet-50 border border-violet-200 rounded-lg p-4"><button onClick={() => setShowTieDowns(!showTieDowns)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-violet-900 text-sm">🎯 Tie-Downs</span><span className="text-violet-600 text-xs flex-shrink-0">{showTieDowns ? "Hide" : "Show"}</span></button>{showTieDowns && <div className="mt-3 space-y-2">{TIE_DOWN_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-violet-800">&ldquo;{line}&rdquo;</div>)}</div>}</div>
-      <div className="bg-rose-50 border border-rose-200 rounded-lg p-4"><button onClick={() => setShowObjections(!showObjections)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-rose-900 text-sm">🛡️ Objection Rebuttals</span><span className="text-rose-600 text-xs flex-shrink-0">{showObjections ? "Hide" : "Show"}</span></button>{showObjections && <div className="mt-3 space-y-3">{OBJECTION_REBUTTALS.map((item: any, i: number) => <div key={i} className="rounded-lg bg-white/70 border border-rose-100 p-3"><div className="text-xs font-semibold uppercase tracking-wide text-rose-700">{item.objection}</div><div className="text-sm text-rose-900 mt-1">&ldquo;{item.rebuttal}&rdquo;</div></div>)}</div>}</div>
+      <div className="bg-status-warm/10 border border-status-warm/20 rounded-lg p-4"><button onClick={() => setShowGatekeeper(!showGatekeeper)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-status-warm text-sm">🚪 Gatekeeper Scripts</span><span className="text-status-warm text-xs flex-shrink-0">{showGatekeeper ? "Hide" : "Show"}</span></button>{showGatekeeper && <div className="mt-3 space-y-2">{GATEKEEPER_SCRIPTS.map((g, i) => <div key={i} className="rounded-lg bg-white/70 border border-status-warm/20 p-3"><div className="text-xs font-bold text-status-warm mb-1">{g.situation}</div><div className="text-sm text-gray-900 font-medium italic mb-1">&ldquo;{g.line}&rdquo;</div>{(g as any).note && <div className="text-xs text-gray-400">{(g as any).note}</div>}</div>)}</div>}</div>
+      <div className="bg-status-warm/10 border border-status-warm/20 rounded-lg p-4"><button onClick={() => setShowScript(!showScript)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-status-warm text-sm">📋 Call Script</span><span className="text-status-warm text-xs flex-shrink-0">{showScript ? "Hide" : "Show"}</span></button>{showScript && <div className="mt-3 space-y-2">{GUIDED_QUESTIONS.map((q: string, i: number) => <div key={i} className="flex gap-2 text-sm"><span className="text-status-warm font-bold flex-shrink-0">{i+1}.</span><span className="text-status-warm">{q}</span></div>)}</div>}</div>
+      <div className="bg-brand-light border border-brand/20 rounded-lg p-4"><button onClick={() => setShowPositioning(!showPositioning)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-brand-dark text-sm">💬 Positioning Lines</span><span className="text-brand-dark text-xs flex-shrink-0">{showPositioning ? "Hide" : "Show"}</span></button>{showPositioning && <div className="mt-3 space-y-1.5">{POSITIONING_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-brand-dark italic">&ldquo;{line}&rdquo;</div>)}</div>}</div>
+      <div className="bg-brand-light border border-brand/20 rounded-lg p-4"><button onClick={() => setShowTieDowns(!showTieDowns)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-brand-dark text-sm">🎯 Tie-Downs</span><span className="text-brand-dark text-xs flex-shrink-0">{showTieDowns ? "Hide" : "Show"}</span></button>{showTieDowns && <div className="mt-3 space-y-2">{TIE_DOWN_LINES.map((line: string, i: number) => <div key={i} className="text-sm text-brand-dark">&ldquo;{line}&rdquo;</div>)}</div>}</div>
+      <div className="bg-status-lost/10 border border-status-lost/20 rounded-lg p-4"><button onClick={() => setShowObjections(!showObjections)} className="flex items-center justify-between w-full text-left gap-3"><span className="font-semibold text-status-lost text-sm">🛡️ Objection Rebuttals</span><span className="text-status-lost text-xs flex-shrink-0">{showObjections ? "Hide" : "Show"}</span></button>{showObjections && <div className="mt-3 space-y-3">{OBJECTION_REBUTTALS.map((item: any, i: number) => <div key={i} className="rounded-lg bg-white/70 border border-status-lost/20 p-3"><div className="text-xs font-semibold uppercase tracking-wide text-status-lost">{item.objection}</div><div className="text-sm text-status-lost mt-1">&ldquo;{item.rebuttal}&rdquo;</div></div>)}</div>}</div>
     </div>
   );
 }
@@ -596,7 +596,7 @@ function CallsTab({ lead, callLogs, addCallLog }: any) {
         <div><label className="text-xs text-gray-500">Follow-Up</label><input type="date" value={followUp} onChange={(e: any) => setFollowUp(e.target.value)} className="block w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div>
         <button onClick={handleSubmit} className="w-full py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Save Call Log</button>
       </div>
-      <div><div className="font-semibold text-sm text-gray-900 mb-2">Call History</div>{callLogs.length === 0 ? <div className="text-sm text-gray-400 text-center py-6">No calls logged yet</div> : <div className="space-y-2">{callLogs.map((log: CallLog) => <div key={log.id} className="bg-gray-50 rounded-lg p-3"><div className="flex items-start justify-between gap-3"><span className="text-xs font-medium text-gray-900">{log.outcome}</span><span className="text-xs text-gray-400">{fmt(log.called_at)} {fmtTime(log.called_at)}</span></div>{log.notes && <div className="text-sm text-gray-600 mt-1 break-words">{log.notes}</div>}{log.pain_point && <div className="text-xs text-red-600 mt-1">Pain: {log.pain_point}</div>}{log.current_software && <div className="text-xs text-blue-600 mt-1">Software: {log.current_software}</div>}</div>)}</div>}</div>
+      <div><div className="font-semibold text-sm text-gray-900 mb-2">Call History</div>{callLogs.length === 0 ? <div className="text-sm text-gray-400 text-center py-6">No calls logged yet</div> : <div className="space-y-2">{callLogs.map((log: CallLog) => <div key={log.id} className="bg-gray-50 rounded-lg p-3"><div className="flex items-start justify-between gap-3"><span className="text-xs font-medium text-gray-900">{log.outcome}</span><span className="text-xs text-gray-400">{fmt(log.called_at)} {fmtTime(log.called_at)}</span></div>{log.notes && <div className="text-sm text-gray-600 mt-1 break-words">{log.notes}</div>}{log.pain_point && <div className="text-xs text-status-lost mt-1">Pain: {log.pain_point}</div>}{log.current_software && <div className="text-xs text-brand-dark mt-1">Software: {log.current_software}</div>}</div>)}</div>}</div>
     </div>
   );
 }
@@ -625,14 +625,14 @@ function MeetingTab({ lead, appointments, bookMeeting }: any) {
       <div className="bg-gray-50 rounded-lg p-4 space-y-3">
         <div className="font-semibold text-sm text-gray-900">Send Calendly Link</div>
         <p className="text-xs text-gray-500">They pick their own time — no back and forth.</p>
-        <p className="text-xs text-amber-600">Tip: Copy first, then hit Text and paste into Google Voice.</p>
+        <p className="text-xs text-status-warm">Tip: Copy first, then hit Text and paste into Google Voice.</p>
         <div className="bg-white border rounded-lg p-3 flex items-center justify-between gap-2"><span className="text-sm text-brand font-medium truncate">{CALENDLY_LINK}</span><button onClick={copyLink} className="flex-shrink-0 px-3 py-1 bg-gray-100 text-gray-700 text-xs font-medium rounded-md hover:bg-gray-200">{copied ? "✓ Copied!" : "Copy"}</button></div>
-        {(lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) ? <div className="rounded-lg bg-red-100 p-3 text-sm font-bold text-red-800">Contact blocked. This lead is on the Do Not Contact list.</div> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{lead.phone && lead.phone !== "N/A" && <button onClick={sendSMS} className="py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">📱 Text via Google Voice</button>}<button onClick={sendEmail} className="py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">✉️ Email via Outlook</button></div>}
-        {linkSent && <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-center text-sm text-amber-800">✓ Link sent — mark as Booked once they confirm</div>}
+        {(lead.opt_out || lead.status === "Do Not Contact" || lead.bounced || lead.complained) ? <div className="rounded-lg bg-status-lost/10 p-3 text-sm font-bold text-status-lost">Contact blocked. This lead is on the Do Not Contact list.</div> : <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{lead.phone && lead.phone !== "N/A" && <button onClick={sendSMS} className="py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">📱 Text via Google Voice</button>}<button onClick={sendEmail} className="py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors">✉️ Email via Outlook</button></div>}
+        {linkSent && <div className="bg-status-warm/10 border border-status-warm/20 rounded-lg p-2 text-center text-sm text-status-warm">✓ Link sent — mark as Booked once they confirm</div>}
       </div>
-      {!lead.meeting_booked && <div className="bg-gray-50 rounded-lg p-4 space-y-3"><div className="font-semibold text-sm text-gray-900">Confirm Meeting</div><p className="text-xs text-gray-500">Once they book via Calendly, enter the date.</p><div><label className="text-xs text-gray-500">Date</label><input type="date" value={confirmDate} onChange={(e: any) => setConfirmDate(e.target.value)} className="block w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div><button onClick={confirmBooked} disabled={!confirmDate} className="w-full py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50">✅ Mark as Booked</button></div>}
-      {lead.meeting_booked && <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center"><div className="text-2xl mb-2">🎯</div><div className="text-green-800 font-semibold">Meeting Booked!</div>{lead.meeting_date && <div className="text-sm text-green-600 mt-1">{fmt(lead.meeting_date)}</div>}<div className="text-xs text-green-600 mt-2">via Calendly</div></div>}
-      {appointments.length > 0 && <div><div className="font-semibold text-sm text-gray-900 mb-2">History</div><div className="space-y-2">{appointments.map((a: Appointment) => <div key={a.id} className="bg-green-50 border border-green-200 rounded-lg p-3"><div className="text-sm font-medium text-green-900">{a.meeting_date}</div>{a.notes && <div className="text-xs text-green-700 mt-1">{a.notes}</div>}</div>)}</div></div>}
+      {!lead.meeting_booked && <div className="bg-gray-50 rounded-lg p-4 space-y-3"><div className="font-semibold text-sm text-gray-900">Confirm Meeting</div><p className="text-xs text-gray-500">Once they book via Calendly, enter the date.</p><div><label className="text-xs text-gray-500">Date</label><input type="date" value={confirmDate} onChange={(e: any) => setConfirmDate(e.target.value)} className="block w-full border rounded-lg px-3 py-2 text-sm mt-1" /></div><button onClick={confirmBooked} disabled={!confirmDate} className="w-full py-2.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand disabled:opacity-50">✅ Mark as Booked</button></div>}
+      {lead.meeting_booked && <div className="bg-brand-light border border-brand/20 rounded-lg p-4 text-center"><div className="text-2xl mb-2">🎯</div><div className="text-brand-dark font-semibold">Meeting Booked!</div>{lead.meeting_date && <div className="text-sm text-brand-dark mt-1">{fmt(lead.meeting_date)}</div>}<div className="text-xs text-brand-dark mt-2">via Calendly</div></div>}
+      {appointments.length > 0 && <div><div className="font-semibold text-sm text-gray-900 mb-2">History</div><div className="space-y-2">{appointments.map((a: Appointment) => <div key={a.id} className="bg-brand-light border border-brand/20 rounded-lg p-3"><div className="text-sm font-medium text-brand-dark">{a.meeting_date}</div>{a.notes && <div className="text-xs text-brand-dark mt-1">{a.notes}</div>}</div>)}</div></div>}
     </div>
   );
 }
@@ -796,22 +796,22 @@ function DialerPanel({
   const outcomeColors: Record<string, string> = {
     "No answer":             "bg-gray-100 text-gray-700 border-gray-200",
     "Left voicemail":        "bg-gray-100 text-gray-700 border-gray-200",
-    "Spoke with gatekeeper": "bg-orange-100 text-orange-800 border-orange-200",
-    "Spoke with owner":      "bg-blue-100 text-blue-800 border-blue-200",
-    "Callback requested":    "bg-yellow-100 text-yellow-800 border-yellow-200",
-    "Not interested":        "bg-red-100 text-red-800 border-red-200",
-    "Interested":            "bg-emerald-100 text-emerald-800 border-emerald-200",
-    "Booked meeting":        "bg-green-100 text-green-900 border-green-300",
+    "Spoke with gatekeeper": "bg-status-warm/10 text-status-warm border-status-warm/20",
+    "Spoke with owner":      "bg-brand-light text-brand-dark border-brand/20",
+    "Callback requested":    "bg-status-warm/10 text-status-warm border-status-warm/20",
+    "Not interested":        "bg-status-lost/10 text-status-lost border-status-lost/20",
+    "Interested":            "bg-brand-light text-brand-dark border-brand/20",
+    "Booked meeting":        "bg-brand-light text-brand-dark border-brand/20",
   };
   const outcomeSelected: Record<string, string> = {
     "No answer":             "bg-gray-600 text-white border-gray-600",
     "Left voicemail":        "bg-gray-600 text-white border-gray-600",
-    "Spoke with gatekeeper": "bg-orange-500 text-white border-orange-500",
-    "Spoke with owner":      "bg-blue-600 text-white border-blue-600",
-    "Callback requested":    "bg-yellow-500 text-white border-yellow-500",
-    "Not interested":        "bg-red-500 text-white border-red-500",
-    "Interested":            "bg-emerald-600 text-white border-emerald-600",
-    "Booked meeting":        "bg-green-600 text-white border-green-600",
+    "Spoke with gatekeeper": "bg-status-warm text-white border-status-warm/20",
+    "Spoke with owner":      "bg-brand text-white border-brand/20",
+    "Callback requested":    "bg-status-warm text-white border-status-warm/20",
+    "Not interested":        "bg-status-lost text-white border-status-lost/20",
+    "Interested":            "bg-brand text-white border-brand/20",
+    "Booked meeting":        "bg-brand text-white border-brand/20",
   };
 
   return (
@@ -820,7 +820,7 @@ function DialerPanel({
       {/* ── Top bar ── */}
       <div className="bg-white border-b px-4 sm:px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white text-sm font-bold">⚡</span>
           </div>
           <div className="min-w-0">
@@ -831,7 +831,7 @@ function DialerPanel({
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="hidden sm:flex items-center gap-2">
             <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div className="h-full bg-purple-500 rounded-full transition-all duration-300" style={{ width: `${((index + 1) / queueIds.length) * 100}%` }} />
+              <div className="h-full bg-brand rounded-full transition-all duration-300" style={{ width: `${((index + 1) / queueIds.length) * 100}%` }} />
             </div>
             <span className="text-xs text-gray-400">{Math.round(((index + 1) / queueIds.length) * 100)}%</span>
           </div>
@@ -844,7 +844,7 @@ function DialerPanel({
 
           {/* ── STEP 1: Who you're calling ── */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="bg-purple-600 px-5 py-2.5 flex items-center justify-between">
+            <div className="bg-brand px-5 py-2.5 flex items-center justify-between">
               <span className="text-white font-bold text-sm">STEP 1 — Review the lead</span>
               <span className={`text-xs px-2 py-0.5 rounded-full font-medium bg-white/20 text-white`}>{currentLead.status}</span>
             </div>
@@ -859,7 +859,7 @@ function DialerPanel({
                 </div>
               </div>
               {currentLead.current_software && (
-                <div className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-700 text-sm px-3 py-1 rounded-full border border-blue-100 mb-3">
+                <div className="inline-flex items-center gap-1.5 bg-brand-light text-brand-dark text-sm px-3 py-1 rounded-full border border-brand/20 mb-3">
                   <span className="font-medium">Currently uses:</span> {currentLead.current_software}
                 </div>
               )}
@@ -875,13 +875,13 @@ function DialerPanel({
 
           {/* ── STEP 2: Make the call ── */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="bg-green-600 px-5 py-2.5">
+            <div className="bg-brand px-5 py-2.5">
               <span className="text-white font-bold text-sm">STEP 2 — Make the call</span>
             </div>
             <div className="p-5">
               {isCurrentScraping ? (
                 <div className="flex items-center gap-3 py-2">
-                  <div className="w-5 h-5 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                  <div className="w-5 h-5 border-2 border-status-warm/20 border-t-transparent rounded-full animate-spin flex-shrink-0" />
                   <div>
                     <div className="font-medium text-gray-800 text-sm">Finding phone number…</div>
                     <div className="text-xs text-gray-400">This takes about 30 seconds. It will appear automatically.</div>
@@ -892,7 +892,7 @@ function DialerPanel({
                   <div className="text-3xl font-bold text-gray-900 tracking-wide mb-3">{currentLead.phone}</div>
                   <div className="flex gap-3 flex-wrap">
                     <a href={`https://voice.google.com/u/0/calls?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors text-base shadow-sm">
+                      className="flex items-center gap-2 px-6 py-3 bg-brand text-white font-bold rounded-xl hover:bg-brand transition-colors text-base shadow-sm">
                       📞 Click to Call
                     </a>
                     <a href={`https://voice.google.com/u/0/messages?a=nc,${currentLead.phone.replace(/\D/g, "")}`} target="_blank" rel="noreferrer"
@@ -904,7 +904,7 @@ function DialerPanel({
                 </div>
               ) : (
                 <div className="flex items-center gap-3 py-2">
-                  <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0 text-red-500">✕</div>
+                  <div className="w-8 h-8 bg-status-lost/10 rounded-full flex items-center justify-center flex-shrink-0 text-status-lost">✕</div>
                   <div>
                     <div className="font-medium text-gray-700 text-sm">No phone number found</div>
                     <div className="text-xs text-gray-400">Click Skip to move to the next lead.</div>
@@ -915,19 +915,19 @@ function DialerPanel({
           </div>
 
           {/* ── Gatekeeper scripts — always visible ── */}
-          <div className="bg-orange-50 rounded-2xl border border-orange-200 overflow-hidden">
+          <div className="bg-status-warm/10 rounded-2xl border border-status-warm/20 overflow-hidden">
             <button onClick={() => setShowGK(!showGK)} className="flex items-center justify-between w-full px-5 py-3 text-left">
               <div>
-                <div className="font-bold text-orange-900 text-sm">🚪 If Someone Else Answers (Gatekeeper)</div>
-                <div className="text-orange-700 text-xs mt-0.5">Use these lines to get to the owner — tap to {showGK ? "hide" : "show"}</div>
+                <div className="font-bold text-status-warm text-sm">🚪 If Someone Else Answers (Gatekeeper)</div>
+                <div className="text-status-warm text-xs mt-0.5">Use these lines to get to the owner — tap to {showGK ? "hide" : "show"}</div>
               </div>
-              <span className="text-orange-400 text-lg">{showGK ? "▲" : "▼"}</span>
+              <span className="text-status-warm text-lg">{showGK ? "▲" : "▼"}</span>
             </button>
             {showGK && (
               <div className="px-5 pb-5 space-y-2">
                 {GATEKEEPER_SCRIPTS.map((g, i) => (
-                  <div key={i} className="bg-white rounded-xl border border-orange-100 p-3.5">
-                    <div className="text-xs font-bold text-orange-700 mb-1.5">{g.situation}</div>
+                  <div key={i} className="bg-white rounded-xl border border-status-warm/20 p-3.5">
+                    <div className="text-xs font-bold text-status-warm mb-1.5">{g.situation}</div>
                     <div className="text-sm text-gray-900 font-medium italic mb-1">&ldquo;{g.line}&rdquo;</div>
                     {(g as any).note && <div className="text-xs text-gray-400">{(g as any).note}</div>}
                   </div>
@@ -938,7 +938,7 @@ function DialerPanel({
 
           {/* ── STEP 3: What happened ── */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-            <div className="bg-blue-600 px-5 py-2.5">
+            <div className="bg-brand px-5 py-2.5">
               <span className="text-white font-bold text-sm">STEP 3 — What happened on the call?</span>
             </div>
             <div className="p-5 space-y-4">
@@ -993,7 +993,7 @@ function DialerPanel({
                   Skip (don't log)
                 </button>
                 <button onClick={logAndNext}
-                  className="flex-1 py-3 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition-colors text-base shadow-sm">
+                  className="flex-1 py-3 bg-brand text-white font-bold rounded-xl hover:bg-brand transition-colors text-base shadow-sm">
                   {index + 1 >= queueIds.length ? "✓ Save & Finish" : "✓ Save & Next Lead →"}
                 </button>
               </div>
@@ -1016,12 +1016,12 @@ function DialerPanel({
                     </div>
                     <div className="flex-shrink-0 text-xs font-medium">
                       {scrapeStatus[lead.id] === "scraping" ? (
-                        <span className="text-amber-600 flex items-center gap-1">
-                          <div className="w-2.5 h-2.5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-status-warm flex items-center gap-1">
+                          <div className="w-2.5 h-2.5 border-2 border-status-warm/20 border-t-transparent rounded-full animate-spin" />
                           Finding #
                         </span>
                       ) : lead.phone && lead.phone !== "N/A" ? (
-                        <span className="text-green-600">✓ Ready</span>
+                        <span className="text-brand-dark">✓ Ready</span>
                       ) : scrapeStatus[lead.id] === "failed" ? (
                         <span className="text-gray-400">No number</span>
                       ) : (
@@ -1063,7 +1063,7 @@ function ImportModal({ onClose, onImport }: { onClose: () => void; onImport: (le
         <div className="space-y-3">
           <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleFile} title="Upload CSV file" placeholder="Choose a file" className="block w-full text-sm border rounded-lg px-3 py-2 min-h-[44px]" />
           <textarea value={csvText} onChange={(e) => setCsvText(e.target.value)} rows={6} placeholder="business_name,owner_name,phone..." className="block w-full border rounded-lg px-3 py-2 text-sm font-mono resize-none" />
-          {result && <div className={`text-sm p-3 rounded-lg ${result.includes("Error") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{result}</div>}
+          {result && <div className={`text-sm p-3 rounded-lg ${result.includes("Error") ? "bg-status-lost/10 text-status-lost" : "bg-brand-light text-brand-dark"}`}>{result}</div>}
           <button onClick={handleImport} disabled={!csvText.trim()} className="w-full py-2.5 min-h-[44px] bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark disabled:opacity-50">Import Leads</button>
         </div>
       </div>
@@ -1155,14 +1155,14 @@ function EmailTab({ lead, updateLead }: { lead: Lead; updateLead: (id: string, u
 
   return (
     <div className="space-y-4">
-      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-        <div className="font-semibold text-blue-900">Email #{nextNum} of 3</div>
-        <div className="text-sm text-blue-700 mt-1">Sent: {lead.email_sent_count || 0}</div>
-        {summary?.lead_score && <div className="text-sm text-blue-700 mt-1">Score: {summary.lead_score}/100</div>}
+      <div className="bg-brand-light p-4 rounded-lg border border-brand/20">
+        <div className="font-semibold text-brand-dark">Email #{nextNum} of 3</div>
+        <div className="text-sm text-brand-dark mt-1">Sent: {lead.email_sent_count || 0}</div>
+        {summary?.lead_score && <div className="text-sm text-brand-dark mt-1">Score: {summary.lead_score}/100</div>}
       </div>
 
       {!summary && (
-        <button onClick={generateSummary} disabled={generating} className="w-full py-2 px-4 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+        <button onClick={generateSummary} disabled={generating} className="w-full py-2 px-4 bg-brand text-white rounded-lg hover:bg-brand disabled:opacity-50">
           {generating ? "Generating AI Summary..." : "🤖 Generate Summary"}
         </button>
       )}
@@ -1171,21 +1171,21 @@ function EmailTab({ lead, updateLead }: { lead: Lead; updateLead: (id: string, u
         <div className="space-y-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
           <div className="text-sm"><strong>Pain Point:</strong> {summary.main_pain_point}</div>
           <div className="text-sm"><strong>Message:</strong> {summary.recommended_first_message}</div>
-          <button onClick={generateSummary} disabled={generating} className="text-xs text-blue-600 hover:underline">
+          <button onClick={generateSummary} disabled={generating} className="text-xs text-brand-dark hover:underline">
             Regenerate
           </button>
         </div>
       )}
 
       {lead.email ? (
-        <button onClick={sendEmail} disabled={loading || !canSend} className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+        <button onClick={sendEmail} disabled={loading || !canSend} className="w-full py-2 px-4 bg-brand text-white rounded-lg hover:bg-brand disabled:opacity-50">
           {loading ? "Sending..." : nextNum > 3 ? "All emails sent" : `Send Email ${nextNum} → ${lead.email}`}
         </button>
       ) : (
         <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded">No email address</div>
       )}
       {lead.email && !canSend && nextNum <= 3 && (
-        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 p-3 rounded">
+        <div className="text-sm text-status-warm bg-status-warm/10 border border-status-warm/20 p-3 rounded">
           Email is blocked until this is an unsuppressed HVAC lead with a real AI score above 50 and an outreach-eligible status.
         </div>
       )}
@@ -1200,12 +1200,12 @@ function EmailTab({ lead, updateLead }: { lead: Lead; updateLead: (id: string, u
                 <div className="text-xs text-gray-500">{fmt(log.sent_at)} {fmtTime(log.sent_at)}</div>
               </div>
               <div className="flex flex-wrap gap-1.5">
-                {log.status === "sent" && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">📤 Sent</span>}
-                {log.delivered_at && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">✓ Delivered</span>}
-                {log.opened_at && <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">👁️ Opened</span>}
-                {log.clicked_at && <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">🔗 Clicked</span>}
-                {log.bounced_at && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">⚠️ Bounced</span>}
-                {log.complained_at && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">🚫 Complained</span>}
+                {log.status === "sent" && <span className="text-xs px-2 py-0.5 rounded-full bg-brand-light text-brand-dark font-medium">📤 Sent</span>}
+                {log.delivered_at && <span className="text-xs px-2 py-0.5 rounded-full bg-brand-light text-brand-dark font-medium">✓ Delivered</span>}
+                {log.opened_at && <span className="text-xs px-2 py-0.5 rounded-full bg-status-warm/10 text-status-warm font-medium">👁️ Opened</span>}
+                {log.clicked_at && <span className="text-xs px-2 py-0.5 rounded-full bg-brand-light text-brand-dark font-medium">🔗 Clicked</span>}
+                {log.bounced_at && <span className="text-xs px-2 py-0.5 rounded-full bg-status-lost/10 text-status-lost font-medium">⚠️ Bounced</span>}
+                {log.complained_at && <span className="text-xs px-2 py-0.5 rounded-full bg-status-lost/10 text-status-lost font-medium">🚫 Complained</span>}
               </div>
               {log.message_body && <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded line-clamp-2">{log.message_body}</div>}
             </div>
@@ -1267,9 +1267,9 @@ function ActivityTab({ lead, callLogs, notes, appointments }: any) {
                 </div>
                 {activity.type === "email" && (
                   <div className="flex gap-1">
-                    {activity.data.delivered_at && <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded">✓</span>}
-                    {activity.data.opened_at && <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">👁️</span>}
-                    {activity.data.clicked_at && <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">🔗</span>}
+                    {activity.data.delivered_at && <span className="text-xs px-1.5 py-0.5 bg-brand-light text-brand-dark rounded">✓</span>}
+                    {activity.data.opened_at && <span className="text-xs px-1.5 py-0.5 bg-status-warm/10 text-status-warm rounded">👁️</span>}
+                    {activity.data.clicked_at && <span className="text-xs px-1.5 py-0.5 bg-brand-light text-brand-dark rounded">🔗</span>}
                   </div>
                 )}
               </div>
@@ -1309,10 +1309,10 @@ function RepliesTab({ lead }: { lead: Lead }) {
 
   return (
     <div className="space-y-4">
-      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 space-y-3">
-        <div className="font-semibold text-blue-900">Classify a Reply</div>
+      <div className="bg-brand-light p-4 rounded-lg border border-brand/20 space-y-3">
+        <div className="font-semibold text-brand-dark">Classify a Reply</div>
         <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Paste the email reply from the prospect..." rows={4} className="w-full border rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300" />
-        <button onClick={classifyReply} disabled={classifying || !replyText.trim()} className="w-full py-2 px-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
+        <button onClick={classifyReply} disabled={classifying || !replyText.trim()} className="w-full py-2 px-4 bg-brand text-white rounded-lg hover:bg-brand disabled:opacity-50 text-sm font-medium">
           {classifying ? "Classifying..." : "🤖 Classify Reply"}
         </button>
       </div>
@@ -1349,20 +1349,20 @@ function RepliesTab({ lead }: { lead: Lead }) {
 function BookingsTab({ lead }: { lead: Lead }) {
   return (
     <div className="space-y-3">
-      <div className={`p-4 rounded-lg border ${lead.meeting_booked ? "bg-green-50 border-green-200" : "bg-yellow-50 border-yellow-200"}`}>
+      <div className={`p-4 rounded-lg border ${lead.meeting_booked ? "bg-brand-light border-brand/20" : "bg-status-warm/10 border-status-warm/20"}`}>
         {lead.meeting_booked ? (
           <>
-            <div className="font-semibold text-green-900">✓ Booked</div>
+            <div className="font-semibold text-brand-dark">✓ Booked</div>
             {lead.meeting_date && (
-              <div className="text-sm text-green-700 mt-2">
+              <div className="text-sm text-brand-dark mt-2">
                 {new Date(lead.meeting_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
               </div>
             )}
           </>
         ) : (
           <>
-            <div className="font-semibold text-yellow-900">Not Booked</div>
-            <a href={CALENDLY_LINK} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-2 inline-block">
+            <div className="font-semibold text-status-warm">Not Booked</div>
+            <a href={CALENDLY_LINK} target="_blank" rel="noopener noreferrer" className="text-sm text-brand-dark hover:underline mt-2 inline-block">
               Send booking link →
             </a>
           </>
@@ -1375,9 +1375,9 @@ function BookingsTab({ lead }: { lead: Lead }) {
 function OnboardingTab({ lead }: { lead: Lead }) {
   return (
     <div className="space-y-3">
-      <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
-        <div className="font-semibold text-amber-900">Onboarding</div>
-        <div className="text-sm text-amber-700 mt-2">Available after meeting is booked</div>
+      <div className="bg-status-warm/10 p-4 rounded-lg border border-status-warm/20">
+        <div className="font-semibold text-status-warm">Onboarding</div>
+        <div className="text-sm text-status-warm mt-2">Available after meeting is booked</div>
       </div>
     </div>
   );

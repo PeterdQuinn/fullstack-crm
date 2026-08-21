@@ -24,12 +24,12 @@ const RANGE_LABELS: Record<Range, string> = {
 
 // Distinct color per terminal status so the bars read at a glance.
 const BAR_COLOR: Record<string, string> = {
-  Won: "bg-green-500",
-  Lost: "bg-red-500",
+  Won: "bg-brand",
+  Lost: "bg-status-lost",
   "Do Not Contact": "bg-gray-400",
-  "Bad Data": "bg-amber-500",
-  "Bad Email": "bg-orange-500",
-  "No Response": "bg-blue-400",
+  "Bad Data": "bg-status-warm",
+  "Bad Email": "bg-status-warm",
+  "No Response": "bg-brand",
 };
 
 export default function ReportsPage() {
