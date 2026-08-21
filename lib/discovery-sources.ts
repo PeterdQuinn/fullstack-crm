@@ -215,10 +215,12 @@ export async function searchOverpass(opts: {
   const query = opts.latitude != null && opts.longitude != null && opts.radiusMeters
     ? buildOverpassRadiusQuery(osmFilters, opts.latitude, opts.longitude, opts.radiusMeters, limit)
     : buildOverpassQuery(osmFilters, city, limit);
-  let lastFailure = "";
-  for (const endpoint of OVERPASS_ENDPOINTS) {
+  // Mirrors are queried in PARALLEL and the first usable answer wins. Run
+  // sequentially, one busy server burns the whole time budget and both aborts
+  // land after the route has nothing left to return.
+  const attempt = async (endpoint: string): Promise<DiscoveredLead[]> => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
+    const timer = setTimeout(() => controller.abort(), 20000);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
@@ -229,11 +231,7 @@ export async function searchOverpass(opts: {
         body: new URLSearchParams({ data: query }).toString(),
         signal: controller.signal,
       });
-      if (!res.ok) {
-        console.error(`Overpass error ${res.status} for ${niche}/${city} via ${endpoint}`);
-        lastFailure = `OpenStreetMap returned ${res.status}${res.status === 504 ? " (server busy)" : ""}`;
-        continue;
-      }
+      if (!res.ok) throw new Error(`OpenStreetMap returned ${res.status}${res.status === 504 ? " (server busy)" : ""}`);
       const data = await res.json();
       return (data.elements || [])
         .map((el: any): DiscoveredLead => {
@@ -250,14 +248,20 @@ export async function searchOverpass(opts: {
           };
         })
         .filter((l: DiscoveredLead) => l.business_name); // drop unnamed OSM nodes
-    } catch (error) {
-      console.error(`Overpass request failed (${niche}/${city}) via ${endpoint}:`, error);
-      lastFailure = `OpenStreetMap request failed: ${error instanceof Error ? error.message : "unknown error"}`;
-      continue;
     } finally {
       clearTimeout(timer);
     }
+  };
+
+  try {
+    return await Promise.any(OVERPASS_ENDPOINTS.map(attempt));
+  } catch (error) {
+    const reasons = error instanceof AggregateError
+      ? error.errors.map((e) => (e instanceof Error ? e.message : String(e)))
+      : [error instanceof Error ? error.message : "unknown error"];
+    console.error(`Overpass failed on all mirrors (${niche}/${city}):`, reasons.join("; "));
+    opts.onError?.(`OpenStreetMap unavailable — ${reasons[0] || "all mirrors failed"}`);
+    return [];
   }
-  opts.onError?.(`${lastFailure || "OpenStreetMap unavailable"} — all ${OVERPASS_ENDPOINTS.length} mirrors failed`);
-  return [];
 }
+

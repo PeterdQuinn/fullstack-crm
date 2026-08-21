@@ -13,7 +13,9 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export const GOOGLE_PLACES_WEEKLY_CAP = 20;
+// Cost guard, not a Google limit. Text Search bills ~$32/1000 requests, so the
+// default 100/week is roughly $3/week. Override with GOOGLE_PLACES_WEEKLY_CAP.
+export const GOOGLE_PLACES_WEEKLY_CAP = Number(process.env.GOOGLE_PLACES_WEEKLY_CAP) || 100;
 
 // Bucket key = the UTC-Monday date of the current week. Rolls over every Monday.
 function currentWeekKey(now = new Date()): string {
