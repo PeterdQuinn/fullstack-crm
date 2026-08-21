@@ -72,7 +72,7 @@ export default function DiscoveryDashboard() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto p-4 sm:p-6">
         {/* Header */}
         <div className="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
@@ -85,9 +85,9 @@ export default function DiscoveryDashboard() {
           <button
             onClick={runDiscovery}
             disabled={discovering}
-            className="w-full sm:w-auto min-h-[44px] px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-semibold"
+            className="w-full sm:w-auto min-h-[44px] rounded-xl border border-gray-200 bg-white px-5 py-3 text-sm font-semibold text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-50"
           >
-            {discovering ? "🔍 Discovering..." : "🚀 Auto Discovery"}
+            {discovering ? "✈️ Discovering..." : "✈️ Auto Discovery"}
           </button>
         </div>
 
@@ -105,10 +105,10 @@ export default function DiscoveryDashboard() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full text-left px-4 py-3 rounded-lg font-semibold transition text-sm ${
+                className={`w-full text-left px-4 py-3 rounded-xl font-semibold transition text-sm ${
                   activeTab === tab.id
-                    ? "bg-indigo-600 text-white shadow-lg"
-                    : "bg-white text-gray-700 hover:bg-gray-50 border border-gray-200"
+                    ? "bg-brand text-white shadow-sm"
+                    : "border border-gray-200 bg-white text-gray-700 hover:bg-gray-50"
                 }`}
               >
                 {tab.label}
@@ -124,13 +124,13 @@ export default function DiscoveryDashboard() {
                     onClick={() => setSelectedLead(lead)}
                     className={`w-full text-left p-3 min-h-[44px] text-xs rounded transition ${
                       selectedLead?.id === lead.id
-                        ? "bg-indigo-100 border-l-2 border-indigo-600"
+                        ? "bg-brand-light border-l-2 border-brand"
                         : "hover:bg-gray-100 border-l-2 border-transparent"
                     }`}
                   >
                     <p className="font-semibold text-gray-900">{lead.business_name}</p>
                     <p className="text-gray-500">{lead.city}, {lead.state}</p>
-                    {lead.email && <p className="text-green-600">✓ Email</p>}
+                    {lead.email && <p className="text-brand">✓ Email</p>}
                   </button>
                 ))}
               </div>
@@ -138,7 +138,7 @@ export default function DiscoveryDashboard() {
           </div>
 
           {/* RIGHT: CONTENT */}
-          <div className="md:col-span-3 bg-white rounded-lg shadow-lg p-5 sm:p-8">
+          <div className="md:col-span-3 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-8">
             {selectedLead ? (
               <>
                 <h2 className="text-3xl font-bold mb-6 text-gray-900">{selectedLead.business_name}</h2>
@@ -152,7 +152,7 @@ export default function DiscoveryDashboard() {
                       </div>
                       <div>
                         <label className="text-sm font-semibold text-gray-500">Email</label>
-                        <p className="text-lg text-blue-600 break-words">{selectedLead.email || "Not found"}</p>
+                        <p className="text-lg text-brand break-words">{selectedLead.email || "Not found"}</p>
                       </div>
                       <div>
                         <label className="text-sm font-semibold text-gray-500">City</label>
@@ -167,7 +167,7 @@ export default function DiscoveryDashboard() {
                 )}
 
                 {activeTab === "source" && (
-                  <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-6">
                     <p className="text-sm text-gray-600">Source: <span className="font-semibold">Google Business / Yelp</span></p>
                     <p className="text-sm text-gray-600 mt-2">Rating: <span className="font-semibold">{selectedLead.rating || "N/A"}⭐</span></p>
                     <p className="text-sm text-gray-600 mt-2">Discovered: <span className="font-semibold">Today</span></p>
@@ -176,21 +176,21 @@ export default function DiscoveryDashboard() {
 
                 {activeTab === "enrichment" && (
                   <div className="space-y-3">
-                    <div className={`p-3 rounded ${selectedLead.email ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}`}>
+                    <div className={`p-3 rounded ${selectedLead.email ? "bg-brand-light border border-brand/20" : "bg-status-lost/10 border border-status-lost/20"}`}>
                       <p className="text-sm font-semibold">{selectedLead.email ? "✓ Email Found" : "✗ Email Missing"}</p>
                     </div>
-                    <div className={`p-3 rounded ${selectedLead.phone ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}`}>
+                    <div className={`p-3 rounded ${selectedLead.phone ? "bg-brand-light border border-brand/20" : "bg-status-lost/10 border border-status-lost/20"}`}>
                       <p className="text-sm font-semibold">{selectedLead.phone ? "✓ Phone Found" : "✗ Phone Missing"}</p>
                     </div>
                   </div>
                 )}
 
                 {activeTab === "email" && (
-                  <div className="bg-green-50 p-6 rounded-lg border border-green-200">
-                    <p className="text-sm text-gray-600">Status: <span className="font-semibold text-green-600">Ready for Outreach</span></p>
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-6">
+                    <p className="text-sm text-gray-600">Status: <span className="font-semibold text-brand">Ready for Outreach</span></p>
                     <p className="text-sm text-gray-600 mt-2">Emails Sent: <span className="font-semibold">0/3</span></p>
                     {selectedLead.email && (
-                      <button className="mt-4 px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold">
+                      <button className="mt-4 rounded-xl bg-brand px-6 py-2 font-semibold text-white shadow-sm transition-colors hover:bg-brand-dark">
                         Send Email 1
                       </button>
                     )}
@@ -198,7 +198,7 @@ export default function DiscoveryDashboard() {
                 )}
 
                 {activeTab === "scoring" && (
-                  <div className="bg-purple-50 p-6 rounded-lg border border-purple-200">
+                  <div className="rounded-xl border border-gray-200 bg-gray-50 p-6">
                     <p className="text-sm text-gray-600">Lead Score: <span className="font-semibold">Pending</span></p>
                     <p className="text-sm text-gray-600 mt-2">Status: Leads will be auto-scored and emailed once imported</p>
                   </div>

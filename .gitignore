@@ -19,3 +19,4 @@ supabase/.temp/
 .score-test-build/
 .ai-healthcheck-build/
 prod.env
+.env*

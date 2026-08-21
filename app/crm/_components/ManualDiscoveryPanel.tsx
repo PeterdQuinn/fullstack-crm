@@ -115,7 +115,7 @@ export default function ManualDiscoveryPanel({
       {collapsible && (
         <button
           onClick={() => setOpen(!open)}
-          className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 font-bold text-blue-900"
+          className="flex min-h-[48px] w-full items-center justify-between rounded-xl border border-gray-200 bg-white px-4 font-bold text-gray-900 hover:bg-gray-50"
         >
           <span className="flex items-center gap-2">
             <Search size={19} />
@@ -126,7 +126,7 @@ export default function ManualDiscoveryPanel({
       )}
 
       {showForm && (
-        <div className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 ${collapsible ? "mt-3" : ""}`}>
+        <div className={`rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5 ${collapsible ? "mt-3" : ""}`}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Input label="City" value={form.city} onChange={(value) => setForm({ ...form, city: value })} />
             <Input
@@ -188,21 +188,21 @@ export default function ManualDiscoveryPanel({
             />
           </div>
 
-          <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+          <div className="mt-4 rounded-xl bg-brand-light p-3 text-sm text-brand-dark">
             <strong>Search summary:</strong> HVAC businesses within {form.radiusMiles} miles of {form.city},{" "}
             {form.state}
             {form.zip ? ` near ZIP ${form.zip}` : ""}. Save no more than {form.limit}. Nothing will be contacted.
           </div>
 
           {working && progressStages[progress] && (
-            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
               <div className="flex items-center justify-between gap-3">
-                <span className="font-semibold text-blue-900">{progressStages[progress]}</span>
-                <span className="text-sm text-blue-700">{elapsed} seconds</span>
+                <span className="font-semibold text-gray-900">{progressStages[progress]}</span>
+                <span className="text-sm text-gray-500">{elapsed} seconds</span>
               </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-blue-100">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-200">
                 <div
-                  className="h-full bg-blue-600 transition-all"
+                  className="h-full bg-brand transition-all"
                   style={{ width: `${((progress + 1) / progressStages.length) * 100}%` }}
                 />
               </div>
@@ -212,13 +212,13 @@ export default function ManualDiscoveryPanel({
           <button
             onClick={run}
             disabled={working}
-            className="mt-4 min-h-[48px] w-full rounded-lg bg-blue-700 px-5 font-bold text-white disabled:opacity-60"
+            className="mt-4 min-h-[48px] w-full rounded-xl bg-brand px-5 font-bold text-white shadow-sm transition-colors hover:bg-brand-dark disabled:opacity-60"
           >
             {working ? "Discovery running" : "Start Manual Discovery"}
           </button>
 
           {error && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
+            <div className="mt-4 rounded-xl border border-gray-200 bg-status-lost/10 p-3 text-sm font-semibold text-status-lost">
               {error}
             </div>
           )}
@@ -227,7 +227,7 @@ export default function ManualDiscoveryPanel({
             <>
               <div
                 className={`mt-4 rounded-lg p-3 text-sm font-semibold ${
-                  result.searchArea?.exactRadiusApplied ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"
+                  result.searchArea?.exactRadiusApplied ? "bg-brand-light text-brand-dark" : "bg-status-warm/10 text-status-warm"
                 }`}
               >
                 {result.searchArea?.exactRadiusApplied
@@ -235,7 +235,7 @@ export default function ManualDiscoveryPanel({
                   : "Coordinate lookup failed. City boundary search was used."}
               </div>
               {result.sourceErrors && result.sourceErrors.length > 0 && (
-                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+                <div className="mt-4 rounded-xl border border-gray-200 bg-status-lost/10 p-3 text-sm text-status-lost">
                   <div className="flex items-center gap-2 font-bold">
                     <AlertTriangle size={17} />A data source failed, so results are incomplete
                   </div>
@@ -247,7 +247,7 @@ export default function ManualDiscoveryPanel({
                 </div>
               )}
               {!result.pipeline?.discovered && !result.sourceErrors?.length && (
-                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+                <div className="mt-4 rounded-xl border border-gray-200 bg-status-warm/10 p-3 text-sm font-semibold text-status-warm">
                   No businesses matched this search. Try a wider radius or looser quality rules.
                 </div>
               )}
@@ -272,12 +272,12 @@ export default function ManualDiscoveryPanel({
 
 function Input({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
-    <label className="text-sm font-semibold text-slate-700">
+    <label className="text-sm font-semibold text-gray-700">
       {label}
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 font-normal outline-none focus:border-blue-500"
+        className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-200 px-3 font-normal outline-none focus:border-brand"
       />
     </label>
   );
@@ -299,7 +299,7 @@ function NumberInput({
   onChange: (value: number) => void;
 }) {
   return (
-    <label className="text-sm font-semibold text-slate-700">
+    <label className="text-sm font-semibold text-gray-700">
       {label}
       <input
         type="number"
@@ -308,7 +308,7 @@ function NumberInput({
         max={max}
         step={step}
         onChange={(event) => onChange(Math.max(min, Math.min(max, Number(event.target.value))))}
-        className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 font-normal outline-none focus:border-blue-500"
+        className="mt-1 min-h-[44px] w-full rounded-lg border border-gray-200 px-3 font-normal outline-none focus:border-brand"
       />
     </label>
   );
@@ -316,7 +316,7 @@ function NumberInput({
 
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
   return (
-    <label className="flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-100 px-3 text-sm font-semibold">
+    <label className="flex min-h-[44px] items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-700">
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4" />
       {label}
     </label>
@@ -325,9 +325,9 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
 
 function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg bg-slate-50 p-3 text-center">
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-center">
       <div className="text-lg font-bold">{value}</div>
-      <div className="text-xs text-slate-500">{label}</div>
+      <div className="text-xs text-gray-500">{label}</div>
     </div>
   );
 }

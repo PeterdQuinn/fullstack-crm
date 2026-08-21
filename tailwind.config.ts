@@ -8,8 +8,19 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        brand: { DEFAULT: "#2D5F3A", light: "#E8F5E9", dark: "#1A3D24" },
-        gold: "#C49A3C",
+        // NY Jets official palette. `brand` is remapped to Gotham Green so every
+        // page that already uses brand/brand-light/brand-dark themes at once.
+        brand: { DEFAULT: "#125740", light: "#E6F2ED", dark: "#0A3A2A" },
+        jets: {
+          gotham: "#125740", // primary — deep modern green
+          kelly: "#009A44", // bright retro (accents/fills only, 3.4:1 on white)
+          "kelly-dark": "#00703C", // readable kelly for text on white (4.8:1)
+          stealth: "#0A0A0A", // secondary accents
+          streak: "#FFFFFF", // numbers, lettering, crisp contrast
+        },
+        // Accent slot, formerly gold. Kept as a token name so existing
+        // `text-gold` / `bg-gold` usages retheme without touching each page.
+        gold: "#00703C",
         slate: { 850: "#1A1A2E" },
         // Single source of truth for lead-status colors across the whole app.
         // Consumed via lib/status-colors.ts — do not invent per-page status colors.
