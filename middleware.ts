@@ -83,7 +83,8 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    "/",
+    // "/" is intentionally absent: the marketing landing page is public.
+    // The CRM and its private APIs below stay behind Basic Auth.
     "/crm",
     "/crm/:path*",
     "/api/admin/:path*",
