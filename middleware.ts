@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 
 // Single-user HTTP Basic Auth for the CRM UI and its private API surface.
 // Protected prefixes are defined in `config.matcher` below:
@@ -26,7 +27,7 @@ function requireAuth(): NextResponse {
   });
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Defensive: cron routes use CRON_SECRET and webhooks use signatures.
@@ -40,6 +41,13 @@ export function middleware(req: NextRequest) {
   // safe: it only ever sets opt_out=true for a single lead id (never reads out
   // data), which is the CAN-SPAM-required behavior.
   if (pathname === "/api/email/unsubscribe") {
+    return NextResponse.next();
+  }
+
+  // The /login form exchanges these same credentials for a signed cookie. The
+  // signature is verified here (not merely checked for presence), so this is
+  // the same trust level as the Basic header below — just a nicer transport.
+  if (await verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value)) {
     return NextResponse.next();
   }
 
