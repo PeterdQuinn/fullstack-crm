@@ -1,16 +1,17 @@
 # Full Stack CRM — Architecture
 
-A single-operator, AI-driven cold-outreach CRM. It finds HVAC contractors,
-researches them, drafts the outreach, sends it, classifies the replies, and
-books the meeting — with a human approval gate at every stage.
+A single-operator, AI-driven cold-outreach CRM. It finds local service
+businesses, researches them, drafts the outreach, sends it, classifies the
+replies, and books the meeting — with a human approval gate at every stage.
 
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
 | **Size** | ~13,200 lines across `app/` and `lib/` · 50 API routes · 12 CRM pages |
 | **Deploy** | Vercel, auto-deploy from `main` → `fullstack-crm-nine.vercel.app` |
-| **Auth** | HTTP Basic over the CRM and its private APIs; `CRON_SECRET` for cron; provider signatures for webhooks |
-| **Niche** | HVAC contractors (hardcoded in `discovery-sources.ts` / `hvac-signals.ts`) |
+| **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic still accepted as a second door; `CRON_SECRET` for cron; provider signatures for webhooks |
+| **Discovery niche** | HVAC (hardcoded in `discovery-sources.ts` / `hvac-signals.ts`) |
+| **Outreach markets** | Allowlist in `lib/outreach-markets.ts` — `hvac,landscaping` by default, `OUTREACH_MARKETS` to change. The copy stopped naming a trade in `11a356d`, so the gate is no longer pinned to HVAC. Live queue is currently 18 landscaping / 5 HVAC. |
 
 ---
 
@@ -81,10 +82,28 @@ Guardrails block approval without an email, off-niche leads, scores ≤ 50, and
 low-confidence research whose sources have not been ticked as reviewed.
 
 ### 5. Outreach
-A three-step email sequence through Resend, with open/click tracking, a shared
-footer carrying the mailing address, and one-click unsubscribe (public by
-design — it is clicked from the recipient's inbox). A scraped address is
-validated before use, guarding against invented emails.
+A three-step email sequence through Resend, with a shared footer carrying the
+mailing address, and one-click unsubscribe (public by design — it is clicked
+from the recipient's inbox). A scraped address is validated before use,
+guarding against invented emails.
+
+**Delivery feedback — what is and is not live.** The Resend webhook handles
+`delivered`, `bounced`, `complained`, `failed`, `opened` and `clicked`. Only the
+first four ever fire. Open and click tracking require a **tracking subdomain
+configured in Resend with a matching CNAME at the DNS provider**, and that has
+never been set up — no `track.` / `clicks.` / `link.` record exists on the
+sending domain. The handlers and the `opened_at` / `clicked_at` columns are
+built and waiting.
+
+The measured effect, as of 2026-08-24: **295 sent, 277 delivered (93.9%), 8
+bounced (2.7%), 0 opened, 0 clicked.** A 0% open rate across 277 delivered
+messages is a missing configuration, not reader behaviour — until the subdomain
+is set up there is no way to tell a message that was read from one that was
+ignored, and no copy decision can be evidence-based.
+
+*(This section previously stated open/click tracking was live. It never was —
+that one line made the gap look solved to every reader, including AI agents
+working on the repo.)*
 
 `lib/email-templates.ts` · `lib/email-sequence.ts` · `lib/resend.ts` · `lib/email-validation.ts`
 
@@ -120,6 +139,21 @@ Providers: Ollama, Groq, Gemini, Kimi, Anthropic, Kablewy. Free and cheap tiers
 sit at the head of each chain, paid providers at the tail. Model IDs are
 overridable per provider. `scripts/ai-health-check.mjs` probes every
 provider × chain pair with real calls.
+
+**Health as of 2026-08-24** (`npm run ai:health`, 11/22 pairs passing):
+
+| Provider | State |
+|---|---|
+| Ollama (`gpt-oss:120b-cloud`) | ✅ live, heads every chain |
+| Groq | ✅ live |
+| Gemini | ✅ live |
+| Kimi | ❌ HTTP 429, quota exhausted |
+| Anthropic | ❌ HTTP 400, credit balance too low |
+| Kablewy | ❌ `api.kablewy.com` is NXDOMAIN — permanently dead, removed from the chains |
+
+Every chain still has at least two healthy providers at its head, so the dead
+tail costs nothing in practice — it is only reached if all three working
+providers fail at once.
 
 ---
 
