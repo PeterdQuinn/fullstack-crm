@@ -45,6 +45,7 @@ const check = (name, ok, detail = "") => {
 // ── Routes migrated to tenantScope(). Add each one as its batch lands. ───────
 const MIGRATED = [
   // Batch 1 — crm/*
+  "app/api/crm/stats/route.ts",
   // Batch 2 — admin/*
   // Batch 3 — email/*
   // Batch 4 — cron/*

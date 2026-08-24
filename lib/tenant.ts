@@ -26,7 +26,19 @@ export function serviceClient(): SupabaseClient {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false } }
+    {
+      auth: { persistSession: false },
+      // Next caches supabase-js's INTERNAL fetch, so `export const dynamic =
+      // "force-dynamic"` on the route is not enough on its own — the client
+      // happily replays a cached response and the CRM shows counts that are
+      // minutes stale. Routes like crm/stats already pass this exact override;
+      // it has to live here too, or migrating them to tenantScope() would
+      // silently reintroduce the bug those routes were fixed for.
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, cache: "no-store" }),
+      },
+    }
   );
 }
 
@@ -49,10 +61,6 @@ export async function tenantForUser(userId: string): Promise<Tenant | null> {
 }
 
 /**
- * Every query through this helper is filtered by tenant_id. Reads and writes
- * both — an insert without the tenant stamped is the same leak as a read.
- */
-/**
  * Strip any caller-supplied tenant_id.
  *
  * The scope stamps the tenant itself. If a patch were allowed to carry its own
@@ -65,6 +73,26 @@ function stripTenantId<T extends Record<string, unknown>>(row: T): Omit<T, "tena
   return rest as Omit<T, "tenant_id">;
 }
 
+/**
+ * supabase-js infers row types from a *literal* table name. `tenantScope` takes
+ * a widened `string`, so inference collapses to `GenericStringError[]` and every
+ * caller's `.data` becomes unusable — `lead.status` stops type-checking even
+ * though the query is correct.
+ *
+ * The client is constructed without a `Database` generic, so the schema is
+ * already `any` and no real type information exists to lose. Widening the
+ * builder restores exactly the ergonomics routes had before the migration.
+ * Replacing this with generated Supabase types is the proper fix and is worth
+ * doing once the routes are migrated — it would catch column typos across all
+ * 38 of them.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ScopedBuilder = any;
+
+/**
+ * Every query through this helper is filtered by tenant_id. Reads and writes
+ * both — an insert without the tenant stamped is the same leak as a read.
+ */
 export function tenantScope(tenantId: string) {
   const db = serviceClient();
   const stamp = <T extends Record<string, unknown>>(rows: T | T[]) =>
@@ -76,8 +104,17 @@ export function tenantScope(tenantId: string) {
   return {
     from(table: string) {
       return {
-        select: (columns = "*") => db.from(table).select(columns).eq("tenant_id", tenantId),
-        insert: <T extends Record<string, unknown>>(rows: T | T[]) => db.from(table).insert(stamp(rows)),
+        /**
+         * `options` is passed straight through so `{ count: "exact", head: true }`
+         * keeps working. Without it every count query in the CRM would silently
+         * turn into a full row fetch and `.count` would come back null.
+         */
+        select: (
+          columns = "*",
+          options?: { count?: "exact" | "planned" | "estimated"; head?: boolean }
+        ): ScopedBuilder => db.from(table).select(columns, options).eq("tenant_id", tenantId),
+        insert: <T extends Record<string, unknown>>(rows: T | T[]): ScopedBuilder =>
+          db.from(table).insert(stamp(rows)),
         /**
          * `onConflict` mirrors supabase-js. The tenant is stamped on every row,
          * so an upsert can create or update but never cross a tenant boundary.
@@ -85,10 +122,10 @@ export function tenantScope(tenantId: string) {
         upsert: <T extends Record<string, unknown>>(
           rows: T | T[],
           options?: { onConflict?: string; ignoreDuplicates?: boolean }
-        ) => db.from(table).upsert(stamp(rows), options),
-        update: <T extends Record<string, unknown>>(patch: T) =>
+        ): ScopedBuilder => db.from(table).upsert(stamp(rows), options),
+        update: <T extends Record<string, unknown>>(patch: T): ScopedBuilder =>
           db.from(table).update(stripTenantId(patch)).eq("tenant_id", tenantId),
-        delete: () => db.from(table).delete().eq("tenant_id", tenantId),
+        delete: (): ScopedBuilder => db.from(table).delete().eq("tenant_id", tenantId),
       };
     },
   };
