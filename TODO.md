@@ -99,12 +99,20 @@ real calls before reporting done. Do not apply migrations or deploy unasked.
 
 **Decision (2026-08-23): Supabase branch first, never straight at prod.**
 
-- [ ] **BLOCKED** — needs `npx supabase login` (interactive browser auth) or
-      `SUPABASE_ACCESS_TOKEN`. Project ref `opqzcdukaaoejrvtzdum`, already linked.
-      No Docker on this machine, so a local stack is not an option.
+- [x] **APPLIED 2026-08-24** via the Supabase dashboard SQL editor (project ref
+      `opqzcdukaaoejrvtzdum`). Verified from the outside, not taken on trust.
 - [x] Verified: routes touch 10 tables, migration covers 12. **No gaps.**
-- [ ] Verify backfill ran before `NOT NULL` landed (368 leads must all get a `tenant_id`)
-- [ ] Confirm founding tenant row exists, `is_founding = true`, and owns all existing rows
+- [x] Backfill verified: **2,552 rows across 12 tables, zero orphans**
+      (leads 368, lead_socials 687, status_audit_log 339, lead_ai_summaries 315,
+      lead_research_facts 294, outreach_log 295, follow_up_tasks 208, call_logs 32,
+      lead_notes 9, lead_discovery_config 5, appointments 0, cron_failures 0)
+- [x] `NOT NULL` enforced — insert without `tenant_id` returns `23502`, no row created
+- [x] Founding tenant `a9a24e70-13bc-4f0d-b5db-d74e36e18be1` "Full Stack Services",
+      `is_founding = true`, company/active
+- [x] RLS on and live isolation green — `npm run test:tenant:live` 4/4
+- [x] **Production unaffected**: app reads via service role (bypasses RLS) and no
+      component uses the anon key, so the CRM behaved identically. Queue verified
+      at 23 leads after the migration.
 - [ ] Add an **atomic** `reserve_usage()` Postgres function — see the warning in
       `lib/tenant.ts`. The JS version is read-then-write and races.
 - [ ] Spot-check `current_tenant_id()` returns the right tenant for a test user
