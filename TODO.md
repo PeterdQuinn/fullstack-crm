@@ -1,7 +1,7 @@
 # SaaS Conversion — Goal & TODO
 
 > **Read this first.** Brief for whoever picks this up, including a fresh AI agent.
-> Last verified: 2026-08-21. Branch `saas-multi-tenant`, base commit `e55e330`.
+> Last verified: 2026-08-23. Branch `saas-multi-tenant`, rebased onto `main` @ `a5e230e`.
 
 ## What this app is
 
@@ -49,39 +49,90 @@ real calls before reporting done. Do not apply migrations or deploy unasked.
 ## DONE
 
 - [x] Landing page with full pricing
-- [x] Login + session auth (`lib/session.ts`, `app/api/auth/*`, middleware gate)
+- [x] Login + session auth — `lib/session.ts`, `app/api/auth/*`, middleware gate.
+      **Shipped to production** 2026-08-23 (`04e3df9`), verified 7/7 against prod.
 - [x] HVAC research intelligence
+- [x] Outreach market gate widened to an allowlist (`lib/outreach-markets.ts`).
+      Four separate gates were pinned to HVAC — send-batch, automation, the
+      workspace queue, and the Send button. Sendable queue went **1 → 24**.
+- [x] Scraped-address repair + transient-DNS deferral (`lib/email-validation.ts`);
+      5 wrongly-condemned leads requeued, `Bad Email` 27 → 22
+- [x] Test harness repaired — compiled with no path alias and no strict mode, so
+      it had been failing since 2026-08-20. `npm test` 88/0.
 - [x] Tenant schema written — `supabase/migrations/011_multi_tenant.sql` (**not applied**)
 - [x] `lib/tenant.ts` — `tenantScope()`, `tenantSecrets()`, `reserveUsage()`, `PLAN_LIMITS`
-- [x] **All work committed** — was local-only, now on branch `saas-multi-tenant` @ `e55e330`
-- [x] **Route survey complete** (2026-08-21) — findings in step 2 below
-- [x] **Provider chain tested with real calls** (2026-08-21) — results at bottom
+- [x] **Route survey complete** — findings in step 2 below
+- [x] **Phase 0 complete** (2026-08-23) — branch rebased onto `main`; env parity
+      audited; dead Kablewy provider dropped from the chains
+- [x] **Batch 0 complete** (2026-08-23) — see step 2
 
 ---
 
-## 1. Apply the tenant migration
+## Phase 0 — housekeeping ✅
 
-`011_multi_tenant.sql` is written but **not applied**.
+- [x] Rebase `saas-multi-tenant` onto `main`. The branch carried the *old*
+      Supabase login that `main` has since replaced; the 5 overlapping files were
+      byte-identical so the rebase was clean.
+- [x] Audit `.env.local` vs Vercel production. **They had diverged both ways.**
+- [x] Drop Kablewy from all chains — `api.kablewy.com` is NXDOMAIN, permanently dead.
+- [ ] **Add `OWNER_ALERT_EMAIL` to Vercel production.** It is read by
+      `app/api/cron/automation/route.ts` but **not set in prod**, so cron failure
+      alerts have never sent. Silent failures. One `vercel env add` away.
+- [ ] Mirror the Kablewy removal in the Vercel `*_PROVIDERS` vars
+- [ ] Decide on Kimi (429 quota) and Anthropic (no credit) — restore or remove
 
+### Env divergence found
+
+| Variable | Local | Prod | Note |
+|---|---|---|---|
+| `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_MAILBOX` | ✗ | ✓ | Reply polling works in prod; absent locally |
+| `GROQ_API_KEY` | as `Groq_API_KEY` | ✓ | Code reads both cases — untidy, not broken |
+| `COHERE` / `MISTRAL` / `CEREBRAS` / `TOGETHER` / `HF` | ✗ | ✓ | Prod-only, unused by current chains |
+| `OWNER_ALERT_EMAIL` | ✓ | **✗** | **Failure alerts dead in prod** |
+| `KABLEWY_*`, `Kimi_API_KEY`, `GEMINI_MODEL` | ✓ | ✗ | Local-only |
+
+---
+
+## Phase 1 — tenant isolation ← the big one
+
+### 1. Apply the tenant migration
+
+**Decision (2026-08-23): Supabase branch first, never straight at prod.**
+
+- [ ] **BLOCKED** — needs `npx supabase login` (interactive browser auth) or
+      `SUPABASE_ACCESS_TOKEN`. Project ref `opqzcdukaaoejrvtzdum`, already linked.
+      No Docker on this machine, so a local stack is not an option.
 - [x] Verified: routes touch 10 tables, migration covers 12. **No gaps.**
-      (`appointments, call_logs, cron_failures, follow_up_tasks, lead_ai_summaries,
-      lead_notes, lead_research_facts, lead_socials, leads, outreach_log`)
-- [ ] Test on a Supabase branch or DB copy first, never straight at prod
-- [ ] Verify backfill ran before `NOT NULL` landed (357 leads must all get a `tenant_id`)
-- [ ] Confirm founding tenant row exists and owns all existing rows
+- [ ] Verify backfill ran before `NOT NULL` landed (368 leads must all get a `tenant_id`)
+- [ ] Confirm founding tenant row exists, `is_founding = true`, and owns all existing rows
+- [ ] Add an **atomic** `reserve_usage()` Postgres function — see the warning in
+      `lib/tenant.ts`. The JS version is read-then-write and races.
 - [ ] Spot-check `current_tenant_id()` returns the right tenant for a test user
 
----
+### 2. Batch 0 — foundations ✅
 
-## 2. Migrate the API routes to `tenantScope()`  ← the big one
+- [x] `.upsert()` added to `tenantScope()` (7 calls in 5 files needed it)
+- [x] **`update()` hardened** — it did not strip a caller-supplied `tenant_id`, so
+      a request body echoed into a patch could move a row into another tenant.
+      The `.eq("tenant_id")` filter does not catch this: it selects which rows
+      change, not what they become.
+- [x] `requireTenant(req)` + `founderTenant()` + `assertTenantActive()`
+- [x] `lib/tenant-token.ts` — HMAC-signed tenant tokens for the session-less
+      routes (**decision: signed token, not payload lookup**). No expiry by
+      design: CAN-SPAM requires unsubscribe links to keep working.
+- [x] `scripts/tenant-leak-test.mjs` + `npm run test:tenant` / `test:tenant:live`
+- [x] Wired into `npm test`
+- [ ] ~~ESLint rule~~ — **deviation:** the repo has no ESLint setup and adding one
+      is new tooling. The equivalent guard lives in the leak-test harness, which
+      already asserts no module-scope `createClient` and no direct
+      `@supabase/supabase-js` import in any migrated route.
 
-### Survey findings (2026-08-21)
+### 3. Migrate the API routes to `tenantScope()`
 
 | Fact | Value |
 |---|---|
 | Routes total / touching Supabase | 52 / 38 |
 | Shared query helper | **None** — 38 identical hand-rolled imports |
-| `createClient(` per file | exactly 1, uniform shape |
 | **Built at module scope (col 0)** | **38 / 38** |
 | Built inside a handler | **0** |
 | `.rpc()` calls | **0** — nothing escapes the wrapper |
@@ -91,34 +142,19 @@ at file top-level is built once per warm lambda and shared across requests from
 different tenants. No request context exists at construction time, so it cannot be
 tenant-scoped where it sits. All 38 must move inside the handler. Not a find-and-replace.
 
-**Gaps in `tenantScope()` to close first:**
-- [ ] No `.upsert()` — needed by 7 calls in 5 files (`crm/research-center`,
-      `admin/bulk-score-and-clean`, `ai/summarize`, `cron/process-discovered-leads`)
-- [x] Chaining verified OK: `.single()` ×22, `.maybeSingle()` ×9, `.order()` ×17,
-      `.limit()` ×16, `.in()` ×10, `.or()` ×4 all chain off the builder
+Add each route to `MIGRATED` in `scripts/tenant-leak-test.mjs` as it lands; the
+harness prints remaining count and fails on regression.
 
-### Batches (leak test after each; red = stop, do not start the next)
-
-- [ ] **Batch 0** — add `upsert` to `tenantScope()`; `requireTenant(req)` helper;
-      build leak-test harness; ESLint rule banning `@supabase/supabase-js`
-      imports outside `lib/` so fixed routes can't regress
 - [ ] **Batch 1** — `crm/*` — 17 routes, 16 writes — tenant from session
 - [ ] **Batch 2** — `admin/*` — 11 routes, 3 writes — session + role check
-- [ ] **Batch 3** — `email/*` — 8 routes, 9 writes — ⚠️ mixed, see decision below
+- [ ] **Batch 3** — `email/*` — 8 routes, 9 writes — signed token for tracking/unsubscribe
 - [ ] **Batch 4** — `cron/*` — 8 routes, 17 writes — loop per tenant
-- [ ] **Batch 5** — `webhooks/resend` — 1 route, 8 writes — tenant from payload
+- [ ] **Batch 5** — `webhooks/resend` — 1 route, 8 writes — signed token in payload
 - [ ] **Batch 6** — `ai/*`, `appointments`, `scrape-phone` — 5 routes — session
 
-**BLOCKED — needs Peter's decision:** email tracking pixels, unsubscribe links, and
-the Resend webhook have no session. Either (a) encode a signed tenant token in every
-tracking/unsubscribe URL, or (b) resolve tenant from the lead/message ID in the
-payload. (b) is less work; (a) is harder to forge.
+### 4. Cross-tenant leak tests
 
----
-
-## 3. Cross-tenant leak tests
-
-Built in Batch 0, run after every batch.
+Run `npm run test:tenant:live` after every batch. Red = stop, do not start the next.
 
 - [ ] Two tenants seeded with data in each
 - [ ] Tenant A cannot read B's leads, summaries, facts, replies, bookings
@@ -128,7 +164,9 @@ Built in Batch 0, run after every batch.
 
 ---
 
-## 4. Stripe billing
+## Phase 2 — getting paid
+
+### 5. Stripe billing
 
 - [ ] `npm i stripe`
 - [ ] Prices: Solo $600/mo + $1,000 setup, Company $1,000/mo + $3,000 setup
@@ -137,11 +175,10 @@ Built in Batch 0, run after every batch.
 - [ ] Monthly vs annual-upfront toggle
 - [ ] Webhook `checkout.session.completed` → `setup_fee_paid`, `status = active`
 - [ ] `past_due` / `cancelled` → gate access on `tenants.status`
+      (`assertTenantActive()` already exists for this)
 - [ ] Setup fee one-time, non-refundable
 
----
-
-## 5. Signup + onboarding
+### 6. Signup + onboarding
 
 - [ ] `app/signup` — creates tenant + `tenant_members`, then Stripe Checkout
 - [ ] Apply `PLAN_LIMITS` from chosen plan
@@ -152,58 +189,67 @@ Built in Batch 0, run after every batch.
 
 ---
 
-## 6. Bring-your-own-AI wiring
+## Phase 3 — actually multi-tenant in behaviour
+
+### 7. Bring-your-own-AI wiring
 
 - [ ] `lib/ai-providers.ts` reads keys from `tenantSecrets()`, not `process.env`
-- [ ] Never fall back to our keys — fail loudly
+- [ ] Never fall back to our keys — fail loudly. A silent fallback puts our API
+      bill on their usage.
 - [ ] Per-tenant provider chain order in `tenant_configs`
 
----
-
-## 7. Auth cutover
+### 8. Auth cutover
 
 - [ ] Supabase Auth signup/login for tenant customers
-- [ ] Keep existing `APP_USERNAME` / `APP_PASSWORD` session login working
+- [x] Existing `APP_USERNAME` / `APP_PASSWORD` session login kept working
 - [ ] Decide whether Basic Auth stays as founder-only back door
 - [ ] Gate `/crm/*` on tenant `status`
 
----
+### 9. Metering enforcement
 
-## 8. Metering enforcement
-
-- [ ] `reserveUsage()` before discovery runs and before sends
+- [ ] `reserveUsage()` before discovery runs and before sends — **only after** the
+      atomic Postgres version exists
 - [ ] `releaseUsage()` when work doesn't happen
 - [ ] Surface remaining quota in dashboard
 - [ ] **Set real caps** — placeholder: Solo 500/1,000, Company 2,500/5,000
 
 ---
 
-## 9. Open product decisions
+## Open product decisions
 
 - [ ] Final monthly volume caps per tier
 - [ ] Confirm Company seat count (5 is a starting point)
 - [ ] Founding-customer discount for first 2–3 clients for a case study?
-- [ ] Batch 3/5 tenant resolution — signed token vs payload lookup (see step 2)
+- [x] ~~Batch 3/5 tenant resolution~~ — **decided: signed token in the URL**
+- [ ] **Two send ceilings**: `MANUAL_SEND_CAP = 100` vs `DAILY_SEND_CAP = 40`.
+      Manual sending can do 2.5× what automation can. Intended?
 
 ---
 
-## Provider chain — real test calls, 2026-08-21
+## Loose ends (not blocking SaaS)
 
-| Provider | Result | Evidence |
+- [ ] `border-[#125740]/30/15` — double opacity modifier, Tailwind drops it
+      entirely so the border renders invisible. 16 occurrences in `app/page.tsx`,
+      `app/login/page.tsx`, `app/_landing/Reveal.tsx`.
+- [ ] 3 requeued leads (Mondragon, Airtron, Modern HVAC) have no AI score and
+      need the scoring phase before they enter the queue
+- [ ] 22 leads still in `Bad Email` — believed genuinely dead, worth one look
+- [ ] `app/page.tsx` landing rewrite is still branch-only, not on `main`
+
+---
+
+## Verified state, 2026-08-23
+
+| Subsystem | Status | Evidence |
 |---|---|---|
-| **Gemini** | ✅ **LIVE** http 200 | Returned "OK"; second call "7*6?" → **42** |
-| **Ollama** | ✅ **LIVE** http 200, 573ms | `gpt-oss:120b-cloud` returned "OK" |
-| Anthropic | ❌ http 400 | "Your credit balance is too low" |
-| Kablewy | ❌ fetch failed | `api.kablewy.com` → **NXDOMAIN** |
-| Groq | ⚠️ untested | **No `GROQ_API_KEY` in `.env.local`** — prod only? |
-| Kimi | ⚠️ untested | No `KIMI_API_KEY`/`MOONSHOT_API_KEY` locally |
+| Login / auth | ✅ working | 7/7 prod checks with real credentials |
+| Email sending | ✅ working | 2 real sends today, `status=sent` via Resend |
+| Reply polling | ✅ working | `HTTP 200 {"scanned":11,"matched":0}` — reads the real mailbox |
+| Send caps | ✅ correct | By Phoenix day: 28 / 40 / 100 / 100 — both caps held exactly |
+| CAN-SPAM gate | ✅ passing | `blockedReason: null`, real street address set |
+| AI providers | ⚠️ degraded | 11/22 pairs; every chain has ≥2 healthy (Ollama, Groq, Gemini) |
+| Cron failure alerts | ❌ dead | `OWNER_ALERT_EMAIL` unset in prod |
+| Multi-tenancy | ❌ not built | no `tenant_id` in the live DB, no signup, no Stripe |
 
-**Corrections to the old TODO:**
-- Gemini is **not** revoked. The local key answered 200 twice. If prod is 401ing,
-  prod holds a different, stale key — a working provider is sitting idle.
-- Groq has no local key at all, yet was believed to be carrying the app.
-  **Local and prod env have diverged.** Reconcile before trusting either.
-
-- [ ] Compare `.env.local` vs Vercel prod env for `GEMINI_API_KEY` and `GROQ_API_KEY`
-- [ ] Drop Kablewy from the chains (domain is dead)
-- [ ] Drop or refund Anthropic in the chains until credit is restored
+**Provider detail:** Gemini ✅, Ollama ✅ (`gpt-oss:120b-cloud`), Groq ✅,
+Anthropic ❌ credit balance too low, Kimi ❌ 429 quota, Kablewy ❌ NXDOMAIN (removed).
