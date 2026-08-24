@@ -20,6 +20,12 @@ create table if not exists tenants (
   stripe_customer_id text unique,
   stripe_subscription_id text unique,
   setup_fee_paid boolean not null default false,
+  -- The tenant that owns everything created before multi-tenancy existed.
+  -- Explicit rather than "the oldest row": the operator's own login has no
+  -- Supabase user and so no tenant_members row, and lib/tenant.ts resolves it
+  -- through this flag. Row age is not a safe identifier once real customers
+  -- exist and rows can be backdated, restored, or reordered.
+  is_founding boolean not null default false,
   -- Seats / caps are per-plan and enforced in app code against these numbers.
   seat_limit integer not null default 1,
   niche_limit integer not null default 1,
@@ -104,14 +110,27 @@ begin
 end $$;
 
 -- ── Backfill: existing data belongs to the founding tenant ──────────────────
-insert into tenants (name, plan, status, setup_fee_paid, seat_limit, niche_limit, inbox_limit)
-select 'Full Stack Services', 'company', 'active', true, 5, 5, 5
+insert into tenants (name, plan, status, setup_fee_paid, seat_limit, niche_limit, inbox_limit, is_founding)
+select 'Full Stack Services', 'company', 'active', true, 5, 5, 5, true
 where not exists (select 1 from tenants);
+
+-- Exactly one founding tenant, enforced by the database rather than by
+-- convention. A second one would make founderTenant() ambiguous and could hand
+-- the operator's session another customer's data.
+create unique index if not exists idx_tenants_single_founding
+  on tenants (is_founding) where is_founding;
 
 do $$
 declare owner_tenant uuid; t text;
 begin
-  select id into owner_tenant from tenants order by created_at asc limit 1;
+  select id into owner_tenant from tenants where is_founding order by created_at asc limit 1;
+  -- Pre-existing database with tenants but none flagged: adopt the oldest, so
+  -- re-running this migration after a partial apply cannot orphan the backfill.
+  if owner_tenant is null then
+    update tenants set is_founding = true
+    where id = (select id from tenants order by created_at asc limit 1);
+    select id into owner_tenant from tenants where is_founding limit 1;
+  end if;
   if owner_tenant is null then return; end if;
 
   foreach t in array array[
