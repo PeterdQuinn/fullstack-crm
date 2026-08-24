@@ -254,6 +254,46 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
+        // b2. Never stack a follow-up on a touch that never arrived.
+        //
+        // Belt and braces alongside the email.failed webhook case: if that event
+        // is missed, delayed, or Resend changes its shape, the only remaining
+        // evidence of a non-delivery is `delivered_at` staying null. Sending
+        // touch N+1 on top of an undelivered touch N wastes a daily send slot
+        // and keeps mailing an address the provider already refused.
+        //
+        // The 6h grace exists because delivery events are not instant — the
+        // azcpg send was logged at 00:52:26 and its sibling's delivered_at
+        // landed 45 seconds later, but a slow receiving server can take much
+        // longer. Only a send old enough to have been delivered by now counts.
+        const { data: lastTouch } = await supabase
+          .from("outreach_log")
+          .select("status, sent_at, delivered_at")
+          .eq("lead_id", lead.id)
+          .eq("channel", "email")
+          .eq("direction", "outbound")
+          .order("sent_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastTouch) {
+          const ageMs = Date.now() - new Date(lastTouch.sent_at).getTime();
+          const undelivered = !lastTouch.delivered_at && ageMs > 6 * 60 * 60 * 1000;
+          if (lastTouch.status === "failed" || undelivered) {
+            const why = lastTouch.status === "failed"
+              ? "previous email failed at the provider"
+              : "previous email was never confirmed delivered";
+            const { error: skipError } = await supabase
+              .from("follow_up_tasks")
+              .update({ status: "skipped", notes: `Skipped: ${why}`, completed_at: new Date().toISOString() })
+              .eq("id", task.id);
+            if (skipError) throw new Error(`Undelivered-touch task update failed: ${skipError.message}`);
+            console.warn(`Skipped ${lead.business_name}: ${why}`);
+            results.skipped++;
+            continue;
+          }
+        }
+
         // c. Build the email via the shared renderer (subject + body + footer)
         const { subject, html, bodyText } = renderOutreachEmail({
           leadId: lead.id,

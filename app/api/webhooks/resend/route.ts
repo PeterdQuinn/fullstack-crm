@@ -169,6 +169,62 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      // Resend accepted the API call but never delivered the message. The common
+      // cause is the address sitting on the account's suppression list from an
+      // earlier bounce or complaint — Resend silently refuses rather than
+      // bouncing again.
+      //
+      // Without this case a suppressed send is indistinguishable from a
+      // successful one: `delivered_at` stays null, nothing reads that, the lead
+      // keeps status "Email 1 Sent", and the scheduler mails the same dead
+      // address again three days later. Observed on info@azcpg.com, which was
+      // suppressed by Resend and still had a follow-up queued for 2026-08-27.
+      case "email.failed": {
+        const payload = event.data as Record<string, unknown> | undefined;
+        const reason = String(payload?.reason ?? payload?.error ?? payload?.message ?? "").toLowerCase();
+
+        // Same discipline as lib/email-validation's transient DNS handling: only
+        // an authoritative failure may be terminal. "Bad Email" is a one-way
+        // door — nothing retries it — so a rate limit or provider blip must
+        // never send a live prospect through it.
+        const terminal =
+          /suppress|invalid|does not exist|no such|unknown recipient|blocked|rejected|not found/.test(reason);
+
+        await requireDb(supabase
+          .from("outreach_log")
+          .update({ status: terminal ? "failed" : "failed_retryable" })
+          .eq("id", log.id), "Failed-send log update failed");
+
+        if (!terminal) {
+          // Leave the lead and its queued tasks untouched: the address may be
+          // perfectly good and the next touch can still land.
+          console.warn(`Resend reported a retryable failure for lead ${log.lead_id}: ${reason || "no reason given"}`);
+          break;
+        }
+
+        const before = await captureStatusBeforeSuppression();
+        await requireDb(supabase
+          .from("leads")
+          .update({
+            // Reuses the existing `bounced` flag deliberately rather than adding
+            // a parallel suppression column: every eligibility query in the app
+            // already excludes on it, and a suppressed address IS undeliverable.
+            bounced: true,
+            status: "Bad Email",
+            ...(before ? { status_before_suppression: before } : {}),
+          })
+          .eq("id", log.lead_id), "Failed-send suppression failed");
+        await cancelPendingColdEmailTasks(log.lead_id);
+        await logStatusChange({
+          leadId: log.lead_id,
+          from: before ?? null,
+          to: "Bad Email",
+          source: "automation",
+          reason: `Resend did not deliver: ${reason || "suppressed"}`,
+        });
+        break;
+      }
+
       default:
         return NextResponse.json({ received: true, handled: false, type: event.type });
     }

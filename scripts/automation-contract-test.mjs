@@ -244,6 +244,15 @@ check("follow-up cron reports per-task failures", read("app/api/cron/process-fol
 const followupRoute = read("app/api/cron/process-followups/route.ts");
 check("follow-ups share the daily send cap", followupRoute.includes("DAILY_SEND_CAP") && followupRoute.includes("remainingToday"));
 check("follow-ups reject unsafe addresses", followupRoute.includes("checkMailability(lead.email)"));
+// A send Resend never delivered must not get a follow-up stacked on top of it.
+check("follow-ups skip an undelivered previous touch", followupRoute.includes("previous email was never confirmed delivered"));
+check("follow-ups skip after a provider failure", followupRoute.includes('lastTouch.status === "failed"'));
+const resendWebhook = read("app/api/webhooks/resend/route.ts");
+check("webhook handles a failed/suppressed send", resendWebhook.includes('case "email.failed"'));
+check("suppressed send suppresses the lead", resendWebhook.includes("Failed-send suppression failed"));
+// Terminal vs transient: "Bad Email" is a one-way door, so a rate limit or
+// provider blip must never send a live prospect through it.
+check("retryable provider failure does not condemn the lead", resendWebhook.includes("failed_retryable"));
 // A DNS timeout must not be recorded as a dead prospect: "Bad Email" is
 // terminal and nothing ever retries it.
 check("follow-ups defer on transient DNS failure", followupRoute.includes("mailability.transient"));
