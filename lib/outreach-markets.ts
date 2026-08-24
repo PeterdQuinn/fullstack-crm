@@ -15,9 +15,20 @@
 
 const DEFAULT_MARKETS = "hvac,landscaping";
 
-/** Lowercased market names the current copy is approved for. */
+/**
+ * Lowercased market names the current copy is approved for.
+ *
+ * Read from both env names on purpose. The send routes run on the server and
+ * see OUTREACH_MARKETS; the lead workspace gates its Send button in the browser,
+ * where a non-NEXT_PUBLIC_ var is undefined. Without the public name a custom
+ * allowlist would apply on the server while the UI silently kept the default,
+ * so the button and the API would disagree. Set BOTH when customising, or
+ * neither to take the default.
+ */
 export const APPROVED_MARKETS: readonly string[] = (
-  process.env.OUTREACH_MARKETS || DEFAULT_MARKETS
+  process.env.OUTREACH_MARKETS ||
+  process.env.NEXT_PUBLIC_OUTREACH_MARKETS ||
+  DEFAULT_MARKETS
 )
   .split(",")
   .map((m) => m.trim().toLowerCase())

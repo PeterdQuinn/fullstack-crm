@@ -8,6 +8,7 @@ import {
 import { PRELOADED_LEADS } from "@/lib/leads-data";
 import { getStatusStyle } from "@/lib/status-colors";
 import { computeLeadKpis } from "@/lib/lead-stats";
+import { marketApproved } from "@/lib/outreach-markets";
 
 const COMPANY_PHONE = "(602) 845-9242";
 const COMPANY_PHONE_RAW = "+16028459242";
@@ -1078,7 +1079,9 @@ function EmailTab({ lead, updateLead }: { lead: Lead; updateLead: (id: string, u
   const [outreachLogs, setOutreachLogs] = useState<any[]>([]);
   const nextNum = (lead.email_sent_count || 0) + 1;
   const sendableStatuses: LeadStatus[] = ["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"];
-  const isHvac = `${lead.industry || lead.niche || ""}`.trim().toLowerCase() === "hvac";
+  // Was pinned to "hvac", which left the Send button disabled for every lead
+  // the API would now accept. Same allowlist the server enforces.
+  const inApprovedMarket = marketApproved(lead);
   const canSend = Boolean(
     lead.email &&
     summary?.lead_score > 50 &&
@@ -1086,7 +1089,7 @@ function EmailTab({ lead, updateLead }: { lead: Lead; updateLead: (id: string, u
     !lead.opt_out &&
     !lead.bounced &&
     !lead.complained &&
-    isHvac &&
+    inApprovedMarket &&
     nextNum <= 3
   );
 

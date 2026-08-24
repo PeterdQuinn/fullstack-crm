@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { renderOutreachEmail } from "@/lib/email-templates";
 import { sendBlockedReason } from "@/lib/email-templates";
+import { marketApproved } from "@/lib/outreach-markets";
 import { MANUAL_SEND_CAP } from "@/lib/email-sequence";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 
@@ -52,7 +53,10 @@ export async function GET() {
       .lt("email_sent_count", 3)
       .is("archived_at", null)
       .gt("lead_ai_summaries.lead_score", 50)
-      .or("industry.ilike.HVAC,niche.ilike.HVAC")
+      // Market gate is applied in JS below (lib/outreach-markets.ts), not here.
+      // This used to be `.or("industry.ilike.HVAC,niche.ilike.HVAC")`, which
+      // meant the workspace never listed a lead that send-batch would happily
+      // mail. Filtering in one place keeps the queue and the send agreeing.
       .in("status", [
         "Ready for Outreach",
         "Email 1 Sent",
@@ -67,7 +71,7 @@ export async function GET() {
     // Render each lead's ready-to-send email server-side (single source of
     // truth in lib/email-templates) so the manual queue shows exactly what the
     // send phase would produce — subject + body + copy-paste text.
-    const rendered = (data || []).map((lead: any) => {
+    const rendered = (data || []).filter(marketApproved).map((lead: any) => {
       const summary = Array.isArray(lead.lead_ai_summaries)
         ? lead.lead_ai_summaries[0]
         : lead.lead_ai_summaries;
