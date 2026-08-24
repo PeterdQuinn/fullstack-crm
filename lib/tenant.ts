@@ -210,17 +210,18 @@ export type UsageMetric = "leads_discovered" | "emails_sent" | "places_requests"
  * its cap, so the caller skips the work entirely rather than paying for it.
  * Mirrors the existing DB-enforced Google quota pattern.
  *
- * ⚠️ NOT ATOMIC. This reads the counter, then writes it back. Two concurrent
- * requests can both read `used = cap - 1` and both write `cap`, so a tenant can
- * overshoot by roughly the number of in-flight requests. That is tolerable for
- * discovery (a few extra Places calls) and NOT tolerable for `emails_sent`,
- * where the overshoot is real mail against a paid cap.
+ * Atomic: the decision happens inside Postgres via `reserve_usage()`
+ * (013_atomic_reserve_usage.sql), which is a single `UPDATE ... WHERE used <
+ * cap`. Concurrent callers serialise on the row lock and the loser sees zero
+ * rows updated, which is the "at cap" answer.
  *
- * The fix is a Postgres function doing `UPDATE ... SET used = used + 1 WHERE
- * used < cap RETURNING used`, which decides the race inside the database. That
- * belongs in the migration that creates tenant_usage; until then, do not rely
- * on this as the only send-side limit — the existing DAILY_SEND_CAP count in
- * lib/automation.ts still applies and is checked separately.
+ * The previous JS version read the counter and then wrote it back, so two
+ * in-flight requests could both read `used = cap - 1` and both write `cap`.
+ * Harmless for discovery; not harmless for `emails_sent`, where the overshoot
+ * is real mail against a paid cap and against sender reputation.
+ *
+ * Falls back to the old read-then-write path if the function is not present, so
+ * this keeps working on a database where 013 has not been applied yet.
  */
 export async function reserveUsage(
   tenantId: string,
@@ -229,29 +230,47 @@ export async function reserveUsage(
   periodKey: string = new Date().toISOString().slice(0, 7)
 ): Promise<boolean> {
   const db = serviceClient();
-  const { data, error } = await db
+
+  const { data, error } = await db.rpc("reserve_usage", {
+    p_tenant_id: tenantId,
+    p_metric: metric,
+    p_cap: cap,
+    p_period_key: periodKey,
+  });
+
+  if (!error) return data === true;
+
+  // 42883 = undefined_function: 013 has not been applied to this database.
+  // Fall back to the old read-then-write path rather than blocking all work.
+  // It can overshoot under concurrency — see the note above — so apply 013.
+  if ((error as { code?: string }).code !== "42883") {
+    // Fail closed on a real error: if the counter cannot be moved, do not
+    // spend the resource.
+    return false;
+  }
+  console.warn("reserve_usage() missing — apply 013_atomic_reserve_usage.sql. Using the racy fallback.");
+
+  const { data: row, error: readError } = await db
     .from("tenant_usage")
     .select("id, used, cap")
     .eq("tenant_id", tenantId)
     .eq("period_key", periodKey)
     .eq("metric", metric)
     .maybeSingle();
+  if (readError) return false;
 
-  // Fail closed: if the counter cannot be read, do not spend the resource.
-  if (error) return false;
-
-  if (!data) {
+  if (!row) {
     const { error: insertError } = await db
       .from("tenant_usage")
       .insert({ tenant_id: tenantId, period_key: periodKey, metric, used: 1, cap });
     return !insertError;
   }
-  if ((data.used ?? 0) >= (data.cap ?? cap)) return false;
+  if ((row.used ?? 0) >= (row.cap ?? cap)) return false;
 
   const { error: updateError } = await db
     .from("tenant_usage")
-    .update({ used: (data.used ?? 0) + 1, updated_at: new Date().toISOString() })
-    .eq("id", data.id);
+    .update({ used: (row.used ?? 0) + 1, updated_at: new Date().toISOString() })
+    .eq("id", row.id);
   return !updateError;
 }
 

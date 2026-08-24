@@ -1,7 +1,7 @@
 # SaaS Conversion — Goal & TODO
 
 > **Read this first.** Brief for whoever picks this up, including a fresh AI agent.
-> Last verified: 2026-08-23. Branch `saas-multi-tenant`, rebased onto `main` @ `a5e230e`.
+> Last verified: 2026-08-24. Branch `saas-multi-tenant`, rebased onto `main` @ `e94fa83`.
 
 ## What this app is
 
@@ -113,9 +113,22 @@ real calls before reporting done. Do not apply migrations or deploy unasked.
 - [x] **Production unaffected**: app reads via service role (bypasses RLS) and no
       component uses the anon key, so the CRM behaved identically. Queue verified
       at 23 leads after the migration.
-- [ ] Add an **atomic** `reserve_usage()` Postgres function — see the warning in
-      `lib/tenant.ts`. The JS version is read-then-write and races.
+- [x] **`012_tenant_id_default.sql` — APPLIED, urgent fix.** 011 made `tenant_id`
+      NOT NULL and *every* INSERT in the app omits it, so all writes failed with
+      23502. Reads were fine (service role bypasses RLS) which is why the first
+      verification missed it. Worst case was `outreach_log`: Resend accepts the
+      mail, then the log insert throws — prospect mailed, no CRM record, cap
+      counter lost, no follow-up. `012` defaults `tenant_id` to the founding
+      tenant. **Temporary** — drop the defaults after Batches 1–6 (DROP block is
+      in the file), or a route that forgets its tenant writes silently.
+- [x] **`013_atomic_reserve_usage.sql` written** — `reserve_usage()` /
+      `release_usage()` as a single `UPDATE ... WHERE used < cap`. `reserveUsage`
+      now calls the RPC and falls back to the old racy path only if 013 is not
+      applied (42883). **NOT YET APPLIED — run it.**
 - [ ] Spot-check `current_tenant_id()` returns the right tenant for a test user
+- [ ] Generated Supabase types — `tenantScope()` widens the query builder to
+      `any` because a non-literal table name kills inference. Generated types
+      would restore it and catch column typos across all 37 routes.
 
 ### 2. Batch 0 — foundations ✅
 
@@ -153,7 +166,12 @@ tenant-scoped where it sits. All 38 must move inside the handler. Not a find-and
 Add each route to `MIGRATED` in `scripts/tenant-leak-test.mjs` as it lands; the
 harness prints remaining count and fails on regression.
 
-- [ ] **Batch 1** — `crm/*` — 17 routes, 16 writes — tenant from session
+- [x] **Batch 1 reference implementation** — `app/api/crm/stats/route.ts`.
+      Exposed two defects that would have shipped across all 38: `serviceClient()`
+      had no no-store fetch (Next caches supabase-js's internal fetch, so
+      migrating would have silently reintroduced the stale-counts bug), and
+      `select()` dropped its options argument, losing `{ count: "exact" }`.
+- [ ] **Batch 1** — `crm/*` — 15 routes left, 18 writes — tenant from session
 - [ ] **Batch 2** — `admin/*` — 11 routes, 3 writes — session + role check
 - [ ] **Batch 3** — `email/*` — 8 routes, 9 writes — signed token for tracking/unsubscribe
 - [ ] **Batch 4** — `cron/*` — 8 routes, 17 writes — loop per tenant
@@ -234,15 +252,41 @@ Run `npm run test:tenant:live` after every batch. Red = stop, do not start the n
 
 ---
 
+## Running the business today — the part that makes money
+
+Verified 2026-08-24. None of this is SaaS work; it is what the tool needs to
+earn.
+
+- [ ] **Resend tracking subdomain + GoDaddy CNAME.** 295 sent, 277 delivered,
+      **0 opens ever recorded**. The webhook handlers and the `opened_at` /
+      `clicked_at` columns exist; Resend simply never emits the events without a
+      tracking subdomain. Until this resolves, no copy or targeting decision can
+      be evidence-based. *(As of 2026-08-24 no tracking CNAME resolves on the
+      domain — re-check `dig +short track.fullstackservicesllc.net CNAME`.)*
+- [ ] **168 leads have a phone and no email** — 51% of the live database, and
+      unmailable. Enrich for addresses, or work them through the call queue?
+- [ ] **85 leads sit at `Email 3 Sent`** with no defined next motion. The
+      sequence ends and nothing happens. Call, break-up email, re-engage window?
+- [ ] **Discovery cadence vs send capacity.** 100 sends/day available, discovery
+      runs Mondays only. The queue drains in a day or two and then idles.
+- [ ] **Two send ceilings** — `MANUAL_SEND_CAP = 100` vs `DAILY_SEND_CAP = 40`.
+      Manual does 2.5x automation. Intended?
+
+---
+
 ## Loose ends (not blocking SaaS)
 
-- [ ] `border-[#125740]/30/15` — double opacity modifier, Tailwind drops it
-      entirely so the border renders invisible. 16 occurrences in `app/page.tsx`,
-      `app/login/page.tsx`, `app/_landing/Reveal.tsx`.
-- [ ] 3 requeued leads (Mondragon, Airtron, Modern HVAC) have no AI score and
-      need the scoring phase before they enter the queue
-- [ ] 22 leads still in `Bad Email` — believed genuinely dead, worth one look
-- [ ] `app/page.tsx` landing rewrite is still branch-only, not on `main`
+- [x] ~~`border-[#125740]/30/15`~~ — 11 double-opacity classes fixed; prod HTML
+      now serves 0 (was 47 on `/`, 2 on `/login`)
+- [x] ~~3 unscored leads~~ — Mondragon 85, Airtron 72, MODERN HVAC 85, Reliant 92.
+      Sendable queue 23 → 27.
+- [x] ~~`Bad Email` review~~ — of the 15 not marked by a real bounce, **zero**
+      have a live MX. Genuinely dead. The 4 that looked recoverable had all
+      hard-bounced, and a bounce outranks an MX record.
+- [x] ~~landing rewrite branch-only~~ — shipped to `main` in `e94fa83`
+- [ ] Vercel `*_PROVIDERS` still name Kablewy. Harmless: prod holds no
+      `KABLEWY_API`, and `lib/ai-providers.ts` skips any provider without a key.
+      Left alone rather than overwrite Sensitive vars that cannot be read back.
 
 ---
 
