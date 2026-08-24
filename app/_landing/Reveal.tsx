@@ -73,7 +73,7 @@ export function PipelineRail() {
                     ? "border-[#8A6516]/35 bg-[#8A6516]/10 text-[#8A6516]"
                     : live
                       ? "border-[#125740] bg-[#125740]/10 text-[#0E7A45]"
-                      : "border-[#125740]/30/15 bg-white text-[#4F6058]"
+                      : "border-[#125740]/15 bg-white text-[#4F6058]"
                 }`}
               >
                 {stage}

@@ -59,7 +59,7 @@ export default function LoginPage() {
       </header>
 
       <div className="flex flex-1 items-center justify-center px-5 pb-20 sm:px-8">
-        <div className="w-full max-w-md rounded-2xl border border-[#125740]/30/15 bg-white p-6 sm:p-8">
+        <div className="w-full max-w-md rounded-2xl border border-[#125740]/15 bg-white p-6 sm:p-8">
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl" style={{ fontFamily: "var(--font-display)" }}>
             Sign in
           </h1>
@@ -85,7 +85,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  className="mt-2 min-h-[48px] w-full rounded-xl border border-[#125740]/30/25 bg-[#F7F9F8] px-4 font-normal text-[#0B1F17] outline-none transition-colors placeholder:text-[#4F6058]/60 focus:border-[#125740]"
+                  className="mt-2 min-h-[48px] w-full rounded-xl border border-[#125740]/25 bg-[#F7F9F8] px-4 font-normal text-[#0B1F17] outline-none transition-colors placeholder:text-[#4F6058]/60 focus:border-[#125740]"
                 placeholder="••••••••"
               />
             </label>
