@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
-import { rejectionReason } from "@/lib/email-validation";
+import { checkMailability } from "@/lib/email-validation";
 import { DAILY_SEND_CAP } from "@/lib/automation";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { nextFollowUpAt } from "@/lib/email-sequence";
@@ -217,7 +217,27 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        const badAddress = await rejectionReason(lead.email);
+        const mailability = await checkMailability(lead.email);
+
+        // Temporary DNS failure: leave the lead and the task alone so the next
+        // run retries. Only an authoritative "no" is allowed to be terminal.
+        if (!mailability.ok && mailability.transient) {
+          console.warn(`Deferring ${lead.business_name}: ${lead.email} — ${mailability.reason}`);
+          results.skipped++;
+          continue;
+        }
+
+        // Repair scraper artefacts before sending, and persist the correction.
+        if (mailability.ok && mailability.email !== lead.email) {
+          const { error: repairError } = await supabase
+            .from("leads")
+            .update({ email: mailability.email, updated_at: new Date().toISOString() })
+            .eq("id", lead.id);
+          if (repairError) throw new Error(`Address repair failed before send: ${repairError.message}`);
+          lead.email = mailability.email;
+        }
+
+        const badAddress = mailability.ok ? null : mailability.reason;
         if (badAddress) {
           const { error: badLeadError } = await supabase
             .from("leads")

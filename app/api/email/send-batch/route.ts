@@ -3,7 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
 import { renderEditedOutreachEmail, renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { logStatusChange } from "@/lib/audit";
-import { rejectionReason } from "@/lib/email-validation";
+import { checkMailability } from "@/lib/email-validation";
+import { marketRejectionReason } from "@/lib/outreach-markets";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { MANUAL_SEND_CAP, nextFollowUpAt } from "@/lib/email-sequence";
 
@@ -64,12 +65,9 @@ export async function POST(req: NextRequest) {
         { status: 409 }
       );
     }
-    const market = `${lead.industry || lead.niche || ""}`.trim().toLowerCase();
-    if (market !== "hvac") {
-      return NextResponse.json(
-        { error: "This outreach template is approved for HVAC leads only" },
-        { status: 409 }
-      );
+    const wrongMarket = marketRejectionReason(lead);
+    if (wrongMarket) {
+      return NextResponse.json({ error: wrongMarket }, { status: 409 });
     }
 
     const emailNum = (lead.email_sent_count || 0) + 1;
@@ -79,15 +77,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, sent: 0, blocked }, { status: 409 });
     }
 
-    const badAddress = await rejectionReason(lead.email);
-    if (badAddress) {
+    const mailability = await checkMailability(lead.email);
+
+    // A resolver blip is not a dead prospect. Report it and leave the lead's
+    // status untouched so the next attempt can succeed; marking "Bad Email"
+    // here is terminal and there is no path back from it.
+    if (!mailability.ok && mailability.transient) {
+      return NextResponse.json(
+        { error: `Could not verify ${lead.email} right now (${mailability.reason}). Try again shortly.`, totalSent: 0 },
+        { status: 503 }
+      );
+    }
+
+    if (!mailability.ok) {
       const { error: badEmailError } = await supabase
         .from("leads")
         .update({ status: "Bad Email", updated_at: new Date().toISOString() })
         .eq("id", lead.id);
       if (badEmailError) throw new Error(`Email rejected and lead update failed: ${badEmailError.message}`);
-      await logStatusChange({ leadId: lead.id, from: lead.status, to: "Bad Email", source: "owner", reason: badAddress });
-      return NextResponse.json({ error: `Email address rejected: ${badAddress}`, totalSent: 0 }, { status: 409 });
+      await logStatusChange({ leadId: lead.id, from: lead.status, to: "Bad Email", source: "owner", reason: mailability.reason });
+      return NextResponse.json({ error: `Email address rejected: ${mailability.reason}`, totalSent: 0 }, { status: 409 });
+    }
+
+    // The stored address had a scraper artefact (a `www.` prefix, a trailing
+    // "%20", a glued-on page name). Persist the repair rather than quietly
+    // mailing an address the workspace still shows as broken.
+    if (mailability.email !== lead.email) {
+      const { error: repairError } = await supabase
+        .from("leads")
+        .update({ email: mailability.email, updated_at: new Date().toISOString() })
+        .eq("id", lead.id);
+      if (repairError) throw new Error(`Address repair failed before send: ${repairError.message}`);
+      lead.email = mailability.email;
     }
 
     const approved = renderOutreachEmail({

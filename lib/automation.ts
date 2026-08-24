@@ -2,10 +2,11 @@ import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
+import { marketApproved } from "@/lib/outreach-markets";
 import { nextFollowUpAt } from "@/lib/email-sequence";
 import { logStatusChange } from "@/lib/audit";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
-import { rejectionReason } from "@/lib/email-validation";
+import { checkMailability } from "@/lib/email-validation";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -373,11 +374,11 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     // send however many qualify — no per-day tracking, no forced count.
     // Candidate query, shared by both passes below. `email` is required here,
     // so phone-only leads are never even considered for a send.
-    const candidates = (hvacOnly: boolean, limit: number) => {
-      let q = supabase
+    const candidates = (limit: number) => {
+      const q = supabase
         .from("leads")
         .select(
-          "id, business_name, email, city, state, status, owner_name, industry, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
+          "id, business_name, email, city, state, status, owner_name, industry, niche, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
         )
         .eq("opt_out", false)
         .eq("bounced", false)
@@ -390,7 +391,11 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         // directly contradicting the reply automation that just moved it there.
         .in("status", SENDABLE_STATUSES as unknown as string[])
         .is("archived_at", null);
-      q = hvacOnly ? q.eq("industry", "HVAC") : q.or("industry.is.null,industry.neq.HVAC");
+      // The market gate is applied in JS, not here: approved markets can sit in
+      // either `industry` or `niche` (discovery fills only `niche` for some
+      // sources) and PostgREST's `in.` is case-sensitive, so "Landscaping" would
+      // slip past a filter written for "landscaping". Over-fetch and narrow
+      // below, where `marketApproved` does a case-insensitive check on both.
       return q.limit(limit);
     };
 
@@ -419,13 +424,16 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       return { phase, sent: 0, skipped: 0, emailed: [], cappedAt: DAILY_SEND_CAP, sentToday: alreadySent } as any;
     }
 
-    // HVAC ONLY. The touch-1 copy opens "most HVAC shops are paying $300–500 a
-    // month", which reads as a mistake to a plumber or a lead with no industry
-    // set. There is no fall-through to other industries by design — the 23
-    // non-HVAC emailable leads need their own copy before they can be mailed.
+    // APPROVED MARKETS ONLY (lib/outreach-markets.ts). This used to be pinned to
+    // HVAC because the touch-1 copy opened "most HVAC shops are paying $300–500
+    // a month". Commit 11a356d replaced that with copy that never names a trade,
+    // so the allowlist now covers every market the current sequence reads
+    // correctly for. It is still an allowlist: a lead whose market is unset or
+    // unapproved is skipped, never mailed generic copy by accident.
     const fetchLimit = Math.min(SEND_CAP_PER_RUN, remainingToday);
-    const { data: hvacLeads } = await candidates(true, fetchLimit);
-    const leads = hvacLeads || [];
+    // Over-fetch so the in-JS market filter still has `fetchLimit` to work with.
+    const { data: pool } = await candidates(fetchLimit * 5);
+    const leads = (pool || []).filter(marketApproved).slice(0, fetchLimit);
 
     let sent = 0;
     let skipped = 0;
@@ -454,15 +462,31 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       // first live batch traced entirely to fabricated addresses (`@2x.png`
       // image refs, Sentry hosts, percent-encoded fragments). Mark them so the
       // lead is excluded permanently rather than retried next run.
-      const badAddress = await rejectionReason(lead.email);
-      if (badAddress) {
-        console.warn(`Skipping ${lead.business_name}: ${lead.email} — ${badAddress}`);
+      const mailability = await checkMailability(lead.email);
+
+      // A resolver blip must not condemn a lead: skip this run and retry next.
+      if (!mailability.ok && mailability.transient) {
+        console.warn(`Deferring ${lead.business_name}: ${lead.email} — ${mailability.reason}`);
+        skipped++;
+        continue;
+      }
+
+      if (!mailability.ok) {
+        console.warn(`Skipping ${lead.business_name}: ${lead.email} — ${mailability.reason}`);
         await supabase.from("leads")
           .update({ status: "Bad Email", updated_at: new Date().toISOString() })
           .eq("id", lead.id);
-        await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: "Bad Email", source: "automation", reason: badAddress });
+        await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: "Bad Email", source: "automation", reason: mailability.reason });
         skipped++;
         continue;
+      }
+
+      // Persist a repaired address so what we mail matches what the CRM shows.
+      if (mailability.email !== lead.email) {
+        await supabase.from("leads")
+          .update({ email: mailability.email, updated_at: new Date().toISOString() })
+          .eq("id", lead.id);
+        lead.email = mailability.email;
       }
 
       const emailNum = (lead.email_sent_count || 0) + 1;

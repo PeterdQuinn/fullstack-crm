@@ -16,9 +16,66 @@ for (const line of read(".env.local").split(/\r?\n/)) {
 }
 
 fs.rmSync(out, { recursive: true, force: true });
-execFileSync("npx", ["tsc", "lib/email-validation.ts", "lib/email-templates.ts", "lib/email-sequence.ts", "lib/lead-stats.ts", "lib/research-evidence.ts",
-  "--outDir", out, "--module", "esnext", "--target", "es2022", "--moduleResolution", "bundler",
-  "--skipLibCheck"], { cwd: root, stdio: "inherit" });
+
+// Compile through a real tsconfig rather than bare CLI flags. Two reasons, both
+// of which have already broken this test:
+//   - `@/lib/...` imports need the project's path alias. research-evidence.ts
+//     started importing @/lib/hvac-signals and the flag-only build could not
+//     resolve it, so `npm test` failed on a file that compiles fine in the app.
+//   - without `strict`, discriminated unions in lib/ do not narrow, so this
+//     harness reported type errors the real build does not have.
+// Matching tsconfig.json here means the test checks the code as it actually
+// ships instead of a weaker dialect of it.
+const tsconfigPath = path.join(root, ".automation-contract-tsconfig.json");
+fs.writeFileSync(
+  tsconfigPath,
+  JSON.stringify(
+    {
+      compilerOptions: {
+        outDir: out,
+        module: "esnext",
+        target: "es2022",
+        moduleResolution: "bundler",
+        skipLibCheck: true,
+        strict: true,
+        baseUrl: ".",
+        paths: { "@/*": ["./*"] },
+      },
+      files: [
+        "lib/email-validation.ts",
+        "lib/email-templates.ts",
+        "lib/email-sequence.ts",
+        "lib/lead-stats.ts",
+        "lib/research-evidence.ts",
+        // Imported by research-evidence.ts; must be emitted or the rewrite
+        // below would point at a file that does not exist.
+        "lib/hvac-signals.ts",
+      ],
+    },
+    null,
+    2
+  )
+);
+try {
+  execFileSync("npx", ["tsc", "--project", tsconfigPath], { cwd: root, stdio: "inherit" });
+} finally {
+  fs.rmSync(tsconfigPath, { force: true });
+}
+
+// tsc type-checks path aliases but does not rewrite them in the emitted JS, so
+// `import ... from "@/lib/hvac-signals"` survives into the output and Node's ESM
+// loader treats it as a bare package name. Rewrite aliases to relative
+// specifiers (and add the .js extension Node requires) so the modules below can
+// actually be imported.
+for (const file of fs.readdirSync(out).filter((f) => f.endsWith(".js"))) {
+  const target = path.join(out, file);
+  const src = fs.readFileSync(target, "utf8");
+  const rewritten = src.replace(
+    /(\bfrom\s*["'])@\/lib\/([^"']+)(["'])/g,
+    (_m, head, mod, tail) => `${head}./${mod}.js${tail}`
+  );
+  if (rewritten !== src) fs.writeFileSync(target, rewritten);
+}
 
 const emailValidation = await import(`file://${path.join(out, "email-validation.js")}`);
 const emailTemplates = await import(`file://${path.join(out, "email-templates.js")}`);
@@ -135,7 +192,10 @@ const researchRoute = read("app/api/crm/research-center/route.ts");
 const discoveryPipeline = read("lib/discovery-pipeline.ts");
 check("Research Center never contacts a lead", !researchCenter.includes("send-batch") && !researchCenter.includes("mark-dm-sent"));
 check("manual discovery has a hard result limit", discoveryPipeline.includes("Math.min(Number(options.limit) || 10, 25)"));
-check("manual discovery supports location and quality rules", researchCenter.includes("minimumRating") && researchCenter.includes("minimumReviews") && researchCenter.includes("requireWebsite"));
+// The discovery controls moved out of dm-queue into their own component; this
+// check followed the behaviour, not the old file path.
+const discoveryPanel = read("app/crm/_components/ManualDiscoveryPanel.tsx");
+check("manual discovery supports location and quality rules", discoveryPanel.includes("minimumRating") && discoveryPanel.includes("minimumReviews") && discoveryPanel.includes("requireWebsite"));
 check("manual discovery applies an exact radius when coordinates resolve", discoveryPipeline.includes("geocodeSearchArea") && discoveryPipeline.includes("radiusMeters"));
 check("selected AI research remains manual", researchCenter.includes("Run AI Research") && researchRoute.includes('action === "research"'));
 check("research transfers are explicit", researchRoute.includes('action === "approve_email"') && researchRoute.includes('action === "move_calls"'));
@@ -156,7 +216,13 @@ check("legacy endpoint cannot silently bulk send", selectedSendRoute.includes("b
 check("selected-lead send uses manual daily cap", selectedSendRoute.includes("MANUAL_SEND_CAP") && selectedSendRoute.includes("phoenixDayStartIso"));
 check("manual followup send closes its pending task", selectedSendRoute.includes("Sent manually from Email Workspace") && selectedSendRoute.includes('task_type", `send_email_${emailNum}`'));
 check("selected-lead send rejects unsafe statuses", selectedSendRoute.includes('["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"]'));
-check("selected-lead send is HVAC-only", selectedSendRoute.includes('market !== "hvac"'));
+// Was 'market !== "hvac"'. The outreach copy stopped naming a trade in 11a356d,
+// so the gate became an allowlist in lib/outreach-markets.ts. What must hold is
+// that a gate still exists and still fails closed — not that it names one trade.
+const outreachMarkets = read("lib/outreach-markets.ts");
+check("selected-lead send is restricted to approved markets", selectedSendRoute.includes("marketRejectionReason"));
+check("approved markets are an allowlist, not a passthrough", outreachMarkets.includes("APPROVED_MARKETS.includes"));
+check("a lead with no market is never mailed", outreachMarkets.includes("APPROVED_MARKETS.includes(leadMarket(lead))"));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
 
 check("reply polling fails when mailbox config is missing", read("app/api/cron/poll-replies/route.ts").includes("{ status: 503 }"));
@@ -177,7 +243,11 @@ check("cron reports partial phase failures", read("app/api/cron/automation/route
 check("follow-up cron reports per-task failures", read("app/api/cron/process-followups/route.ts").includes("results.errors.length === 0 ? 200 : 500"));
 const followupRoute = read("app/api/cron/process-followups/route.ts");
 check("follow-ups share the daily send cap", followupRoute.includes("DAILY_SEND_CAP") && followupRoute.includes("remainingToday"));
-check("follow-ups reject unsafe addresses", followupRoute.includes("rejectionReason(lead.email)"));
+check("follow-ups reject unsafe addresses", followupRoute.includes("checkMailability(lead.email)"));
+// A DNS timeout must not be recorded as a dead prospect: "Bad Email" is
+// terminal and nothing ever retries it.
+check("follow-ups defer on transient DNS failure", followupRoute.includes("mailability.transient"));
+check("selected-lead send defers on transient DNS failure", selectedSendRoute.includes("mailability.transient"));
 check("follow-ups reject stale tasks", followupRoute.includes("Skipped stale task"));
 check("follow-ups reject non-sequence statuses", followupRoute.includes("followUpStatuses.has(lead.status)"));
 
