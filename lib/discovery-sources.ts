@@ -218,9 +218,24 @@ export async function searchOverpass(opts: {
   // Mirrors are queried in PARALLEL and the first usable answer wins. Run
   // sequentially, one busy server burns the whole time budget and both aborts
   // land after the route has nothing left to return.
-  const attempt = async (endpoint: string): Promise<DiscoveredLead[]> => {
+  // Overpass answers 429/502/503/504 when it is busy, which happens often and
+  // clears in seconds. A single shot per mirror threw all of it away: on
+  // 2026-08-24 every public mirror (overpass-api.de, kumi, private.coffee,
+  // osm.jp) returned 502/504 simultaneously, and the run reported "results are
+  // incomplete" when waiting two seconds would have worked.
+  //
+  // Retry inside each mirror, bounded by a shared wall-clock budget so a busy
+  // server still cannot eat the route's 60s limit (Places runs alongside this
+  // and the pipeline still has to clean and import whatever comes back).
+  const TOTAL_BUDGET_MS = 30_000;
+  const PER_ATTEMPT_MS = 11_000;
+  const BACKOFF_MS = [0, 1_500, 4_000];
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
+  const TRANSIENT = new Set([429, 502, 503, 504]);
+
+  const once = async (endpoint: string): Promise<DiscoveredLead[]> => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 20000);
+    const timer = setTimeout(() => controller.abort(), PER_ATTEMPT_MS);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
@@ -231,7 +246,13 @@ export async function searchOverpass(opts: {
         body: new URLSearchParams({ data: query }).toString(),
         signal: controller.signal,
       });
-      if (!res.ok) throw new Error(`OpenStreetMap returned ${res.status}${res.status === 504 ? " (server busy)" : ""}`);
+      if (!res.ok) {
+        const err = new Error(
+          `OpenStreetMap returned ${res.status}${TRANSIENT.has(res.status) ? " (server busy)" : ""}`
+        );
+        (err as Error & { transient?: boolean }).transient = TRANSIENT.has(res.status);
+        throw err;
+      }
       const data = await res.json();
       return (data.elements || [])
         .map((el: any): DiscoveredLead => {
@@ -253,14 +274,49 @@ export async function searchOverpass(opts: {
     }
   };
 
+  /** One mirror, retried while it is only busy and the budget allows. */
+  const attempt = async (endpoint: string): Promise<DiscoveredLead[]> => {
+    let last: unknown;
+    for (let i = 0; i < BACKOFF_MS.length; i++) {
+      if (i > 0) {
+        // An abort is a timeout, which is the same "busy" signal as a 504.
+        const retryable =
+          (last as { transient?: boolean } | undefined)?.transient === true ||
+          (last as { name?: string } | undefined)?.name === "AbortError";
+        if (!retryable) break;
+        if (Date.now() + BACKOFF_MS[i] + PER_ATTEMPT_MS > deadline) break;
+        await new Promise((r) => setTimeout(r, BACKOFF_MS[i]));
+      }
+      try {
+        return await once(endpoint);
+      } catch (error) {
+        last = error;
+      }
+    }
+    throw last;
+  };
+
   try {
     return await Promise.any(OVERPASS_ENDPOINTS.map(attempt));
   } catch (error) {
     const reasons = error instanceof AggregateError
       ? error.errors.map((e) => (e instanceof Error ? e.message : String(e)))
       : [error instanceof Error ? error.message : "unknown error"];
-    console.error(`Overpass failed on all mirrors (${niche}/${city}):`, reasons.join("; "));
-    opts.onError?.(`OpenStreetMap unavailable — ${reasons[0] || "all mirrors failed"}`);
+    console.error(
+      `Overpass failed on all ${OVERPASS_ENDPOINTS.length} mirrors after retries (${niche}/${city}):`,
+      reasons.join("; ")
+    );
+
+    // Distinguish "come back in a minute" from "something is actually wrong".
+    // Every mirror being busy at once is common and self-healing; the previous
+    // message read like a permanent fault and gave no next step.
+    const unique = Array.from(new Set(reasons));
+    const allBusy = unique.length > 0 && unique.every((r) => /\(server busy\)|abort/i.test(r));
+    opts.onError?.(
+      allBusy
+        ? `OpenStreetMap is busy on every mirror right now (retried ${BACKOFF_MS.length}x). Google Places results are unaffected — re-run discovery in a minute for the OSM half.`
+        : `OpenStreetMap unavailable — ${unique.join("; ") || "all mirrors failed"}`
+    );
     return [];
   }
 }

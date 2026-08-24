@@ -197,6 +197,14 @@ check("manual discovery has a hard result limit", discoveryPipeline.includes("Ma
 const discoveryPanel = read("app/crm/_components/ManualDiscoveryPanel.tsx");
 check("manual discovery supports location and quality rules", discoveryPanel.includes("minimumRating") && discoveryPanel.includes("minimumReviews") && discoveryPanel.includes("requireWebsite"));
 check("manual discovery applies an exact radius when coordinates resolve", discoveryPipeline.includes("geocodeSearchArea") && discoveryPipeline.includes("radiusMeters"));
+// Overpass 429/502/503/504 are "busy, come back", not "no results". Every public
+// mirror returned 502/504 simultaneously on 2026-08-24 and a single shot per
+// mirror threw the whole OSM half of discovery away.
+const discoverySources = read("lib/discovery-sources.ts");
+check("Overpass retries a busy mirror", discoverySources.includes("BACKOFF_MS") && discoverySources.includes("TRANSIENT"));
+check("Overpass retries are bounded by a wall-clock budget", discoverySources.includes("TOTAL_BUDGET_MS"));
+check("a busy Overpass reports as temporary, not broken", discoverySources.includes("busy on every mirror right now"));
+check("Overpass still degrades to empty rather than throwing", discoverySources.includes("return [];"));
 check("selected AI research remains manual", researchCenter.includes("Run AI Research") && researchRoute.includes('action === "research"'));
 check("research transfers are explicit", researchRoute.includes('action === "approve_email"') && researchRoute.includes('action === "move_calls"'));
 check("research findings preserve source review", researchCenter.includes("Open every source") && researchRoute.includes("sourceCandidates") && researchRoute.includes("new Map"));
