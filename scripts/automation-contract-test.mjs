@@ -249,6 +249,10 @@ check("follow-ups skip an undelivered previous touch", followupRoute.includes("p
 check("follow-ups skip after a provider failure", followupRoute.includes('lastTouch.status === "failed"'));
 const resendWebhook = read("app/api/webhooks/resend/route.ts");
 check("webhook handles a failed/suppressed send", resendWebhook.includes('case "email.failed"'));
+// A re-run of the daily digest must not 500 and fail the cron workflow.
+const digestRoute = read("app/api/cron/daily-digest/route.ts");
+check("daily digest tolerates a repeat run", digestRoute.includes("alreadySent"));
+check("daily digest only swallows idempotency errors", digestRoute.includes("if (!/idempotency key/i.test(message)) throw sendError;"));
 check("suppressed send suppresses the lead", resendWebhook.includes("Failed-send suppression failed"));
 // Terminal vs transient: "Bad Email" is a one-way door, so a rate limit or
 // provider blip must never send a live prospect through it.

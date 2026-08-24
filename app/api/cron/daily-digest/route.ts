@@ -138,10 +138,31 @@ export async function POST(req: NextRequest) {
     });
 
     const subject = `CRM Daily Summary — ${dateLabel}`;
-    await sendEmail(DIGEST_TO, subject, html, undefined, `crm-digest-${dateLabel}`);
+
+    // One digest per day, and a second attempt is a no-op rather than an error.
+    //
+    // The idempotency key is per-day but the body carries a moving time window,
+    // so Resend rejects any re-run with "this idempotency key has been used ...
+    // but the request payload differs". That surfaced as a 500, which fails the
+    // GitHub Actions step and makes a healthy pipeline look broken — a workflow
+    // retry, a manual trigger, or `npm run verify:live` was enough to cause it.
+    //
+    // A second run means today's digest already went out, which is the outcome
+    // the job exists to produce. Report it as success and say so, rather than
+    // erroring over work that is already done.
+    let alreadySent = false;
+    try {
+      await sendEmail(DIGEST_TO, subject, html, undefined, `crm-digest-${dateLabel}`);
+    } catch (sendError) {
+      const message = sendError instanceof Error ? sendError.message : String(sendError);
+      if (!/idempotency key/i.test(message)) throw sendError;
+      alreadySent = true;
+      console.log(`Daily digest for ${dateLabel} was already sent; skipping duplicate.`);
+    }
 
     return NextResponse.json({
       success: true,
+      alreadySent,
       sent_to: DIGEST_TO,
       window: { start: startIso, end: endIso },
       metrics: {
