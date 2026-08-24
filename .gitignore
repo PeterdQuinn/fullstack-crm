@@ -20,3 +20,7 @@ supabase/.temp/
 .ai-healthcheck-build/
 prod.env
 .env*
+
+# Temp output from scripts/automation-contract-test.mjs (removed on success,
+# left behind when a run fails partway).
+.automation-contract-build/
