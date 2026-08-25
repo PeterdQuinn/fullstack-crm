@@ -146,7 +146,8 @@ Check them with `npm run ai:health`.
 ## Internet Intelligence (Firecrawl)
 
 Set `FIRECRAWL_API_KEY` in the server environment. `FIRECRAWL_API_KEYS` is also
-accepted as a comma-separated rotation list. A manual **Run AI Research** action
+accepted as a comma-separated rotation list, and the legacy spelling
+`FIRE_CRAWL_API_KEY` is supported. A manual **Run AI Research** action
 uses Firecrawl Search and Map to collect dated BBB/licensing, reputation,
 hiring, expansion, advertising, technology and website-footprint evidence.
 Migration `014_internet_intelligence.sql` stores observations and the separate

@@ -144,7 +144,7 @@ const internetScores = internetIntelligence.scoreInternetIntelligence([
   { category: "expansion", signal: "New location", value: "Opened a second branch", sourceLabel: "News", sourceUrl: "https://example.com/news", observedAt: new Date().toISOString(), confidence: "medium", growthDirection: 1 },
 ], { business_name: "Example HVAC", website: "example.com", google_review_count: 250, technologies: "CallRail" });
 check("internet intelligence separates footprint from growth", internetScores.footprintScore > 0 && internetScores.momentumScore >= 25 && internetScores.momentumLabel === "growing");
-check("Firecrawl supports deployment and key rotation env names", read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEYS"));
+check("Firecrawl supports deployment and key rotation env names", read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRE_CRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEYS"));
 check("internet observations are dated and append-only", read("supabase/migrations/014_internet_intelligence.sql").includes("observed_at") && !read("supabase/migrations/014_internet_intelligence.sql").includes("unique(lead_id"));
 
 const stats = leadStats.computeLeadDashboardStats([

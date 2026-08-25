@@ -46,7 +46,7 @@ const HIRING = /\b(hiring|jobs?|careers?|technician|installer|dispatcher|comfort
 const EXPANSION = /\b(new location|opened|opening|expanding|expansion|now serving|second location|branch)\b/i;
 
 function keys(): string[] {
-  return [process.env.FIRECRAWL_API_KEY, process.env.FIRECRAWL_API_KEYS, process.env.FIRECRAWL_KEY]
+  return [process.env.FIRECRAWL_API_KEY, process.env.FIRE_CRAWL_API_KEY, process.env.FIRECRAWL_API_KEYS, process.env.FIRECRAWL_KEY]
     .flatMap((value) => String(value || "").split(/[\s,]+/))
     .map((value) => value.trim()).filter(Boolean);
 }
