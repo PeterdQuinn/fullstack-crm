@@ -30,7 +30,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 ```
 
-5. Also run every file in `supabase/migrations/` in order (001 → 007)
+5. Also run every file in `supabase/migrations/` in order (001 → 014)
 6. Restart `npm run dev` and open **/crm/discovery** to pull your first HVAC leads
 
 ---
@@ -142,3 +142,14 @@ overridable per task via `CLASSIFIER_PROVIDERS`, `SCORING_PROVIDERS`,
 `DRAFT_PROVIDERS`, `CLEANUP_PROVIDERS`.
 
 Check them with `npm run ai:health`.
+
+## Internet Intelligence (Firecrawl)
+
+Set `FIRECRAWL_API_KEY` in the server environment. `FIRECRAWL_API_KEYS` is also
+accepted as a comma-separated rotation list. A manual **Run AI Research** action
+uses Firecrawl Search and Map to collect dated BBB/licensing, reputation,
+hiring, expansion, advertising, technology and website-footprint evidence.
+Migration `014_internet_intelligence.sql` stores observations and the separate
+0–100 footprint / -100–100 growth-momentum scores. Firecrawl failures degrade
+to the existing deterministic website and Google signals rather than blocking
+research.

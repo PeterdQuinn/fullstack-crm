@@ -47,6 +47,7 @@ fs.writeFileSync(
         "lib/email-sequence.ts",
         "lib/lead-stats.ts",
         "lib/research-evidence.ts",
+        "lib/internet-intelligence.ts",
         // Imported by research-evidence.ts; must be emitted or the rewrite
         // below would point at a file that does not exist.
         "lib/hvac-signals.ts",
@@ -82,6 +83,7 @@ const emailTemplates = await import(`file://${path.join(out, "email-templates.js
 const emailSequence = await import(`file://${path.join(out, "email-sequence.js")}`);
 const leadStats = await import(`file://${path.join(out, "lead-stats.js")}`);
 const researchEvidence = await import(`file://${path.join(out, "research-evidence.js")}`);
+const internetIntelligence = await import(`file://${path.join(out, "internet-intelligence.js")}`);
 
 let passed = 0;
 let failed = 0;
@@ -137,6 +139,13 @@ const evidenceFacts = researchEvidence.buildResearchFacts({ address: "Mesa, AZ",
 check("research address removes duplicate city values", researchEvidence.cleanResearchAddress({ address: "Mesa, AZ", city: "Mesa", state: "AZ" }) === "Mesa, AZ");
 check("website technology is not labeled operating software", evidenceFacts.find(f => f.field_name === "website_technologies")?.label === "Website technology" && evidenceFacts.find(f => f.field_name === "current_software")?.certainty === "not_found");
 check("single source research is not labeled verified", evidenceFacts.find(f => f.field_name === "industry")?.certainty === "single_source");
+const internetScores = internetIntelligence.scoreInternetIntelligence([
+  { category: "hiring", signal: "Now hiring technicians", value: "Three openings", sourceLabel: "Careers", sourceUrl: "https://example.com/careers", observedAt: new Date().toISOString(), confidence: "high", growthDirection: 1 },
+  { category: "expansion", signal: "New location", value: "Opened a second branch", sourceLabel: "News", sourceUrl: "https://example.com/news", observedAt: new Date().toISOString(), confidence: "medium", growthDirection: 1 },
+], { business_name: "Example HVAC", website: "example.com", google_review_count: 250, technologies: "CallRail" });
+check("internet intelligence separates footprint from growth", internetScores.footprintScore > 0 && internetScores.momentumScore >= 25 && internetScores.momentumLabel === "growing");
+check("Firecrawl supports deployment and key rotation env names", read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEYS"));
+check("internet observations are dated and append-only", read("supabase/migrations/014_internet_intelligence.sql").includes("observed_at") && !read("supabase/migrations/014_internet_intelligence.sql").includes("unique(lead_id"));
 
 const stats = leadStats.computeLeadDashboardStats([
   { status: "Call Needed", phone: "6025550100" },

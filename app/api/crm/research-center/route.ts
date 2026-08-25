@@ -4,6 +4,7 @@ import { generateLeadSummary } from "@/lib/grok";
 import { logStatusChange } from "@/lib/audit";
 import { looksLikeRealEmail } from "@/lib/email-validation";
 import { buildResearchFacts } from "@/lib/research-evidence";
+import { researchInternetPresence, type InternetObservation } from "@/lib/internet-intelligence";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,13 +50,32 @@ export async function GET() {
       list.push({ ...row, value: row.field_value });
       factsByLead.set(row.lead_id, list);
     }
+    const { data: intelligenceRows, error: intelligenceError } = leadIds.length
+      ? await supabase.from("lead_internet_intelligence").select("*").in("lead_id", leadIds)
+      : { data: [], error: null };
+    const { data: observationRows } = leadIds.length && !intelligenceError
+      ? await supabase.from("lead_internet_observations").select("*").in("lead_id", leadIds).order("observed_at", { ascending: false }).limit(1000)
+      : { data: [] };
+    const intelligenceByLead = new Map((intelligenceRows || []).map((row: any) => [row.lead_id, row]));
+    const observationsByLead = new Map<string, any[]>();
+    for (const row of observationRows || []) {
+      const list = observationsByLead.get(row.lead_id) || [];
+      if (list.length < 30) list.push(row);
+      observationsByLead.set(row.lead_id, list);
+    }
 
     return NextResponse.json((data || []).map((lead: any) => {
       const researchFacts = factsByLead.get(lead.id) || buildResearchFacts(lead);
+      const intelligence = intelligenceByLead.get(lead.id) as any;
+      if (intelligence) researchFacts.unshift(
+        { field_name: "internet_footprint", label: "Internet footprint", value: `${intelligence.footprint_score}/100`, certainty: "ai_inference", source_label: "Dated internet observations", source_url: null, source_count: (observationsByLead.get(lead.id) || []).length, researched_at: intelligence.researched_at },
+        { field_name: "growth_momentum", label: "Growth momentum", value: `${intelligence.momentum_score > 0 ? "+" : ""}${intelligence.momentum_score} — ${intelligence.momentum_label}. ${intelligence.summary}`, certainty: "ai_inference", source_label: "Deterministic signal score", source_url: null, source_count: (observationsByLead.get(lead.id) || []).filter((item: any) => item.growth_direction !== 0).length, researched_at: intelligence.researched_at },
+      );
       const sourceCandidates = [
         lead.website ? { label: "Company website", url: lead.website } : null,
         ...(lead.lead_socials || []).filter((item: any) => item.is_active && item.url).map((item: any) => ({ label: item.platform, url: item.url })),
         ...researchFacts.filter((fact: any) => fact.source_url).map((fact: any) => ({ label: fact.source_label || fact.label, url: fact.source_url })),
+        ...(observationsByLead.get(lead.id) || []).map((item: any) => ({ label: `${item.category}: ${item.signal}`, url: item.source_url })),
       ].filter(Boolean) as Array<{ label: string; url: string }>;
       const sources = [...new Map(sourceCandidates.map((source) => [source.url, source])).values()];
       return {
@@ -63,6 +83,9 @@ export async function GET() {
         ai_summary: Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] || null : lead.lead_ai_summaries,
         research_facts: researchFacts,
         evidence_storage_ready: !factsError,
+        internet_intelligence: intelligence || null,
+        internet_observations: observationsByLead.get(lead.id) || [],
+        internet_storage_ready: !intelligenceError,
         sources,
       };
     }));
@@ -96,6 +119,9 @@ async function selectedResearch(lead: any) {
   // Signals ride along so the summary prompt can cite the contractor's own site.
   const enriched = { ...lead, ...updates, hvac_signals: scraped.hvac_signals };
   const researchFacts = buildResearchFacts(enriched, scraped);
+  const { data: previousRows } = await supabase.from("lead_internet_observations").select("*").eq("lead_id", lead.id).order("observed_at", { ascending: false }).limit(200);
+  const previous: InternetObservation[] = (previousRows || []).map((row: any) => ({ category: row.category, signal: row.signal, value: row.value, numericValue: row.numeric_value == null ? undefined : Number(row.numeric_value), sourceLabel: row.source_label, sourceUrl: row.source_url, confidence: row.confidence, growthDirection: row.growth_direction, observedAt: row.observed_at }));
+  const internet = await researchInternetPresence(enriched, previous);
   const summary = await generateLeadSummary(enriched);
   const { error: summaryError } = await supabase.from("lead_ai_summaries").upsert({
     lead_id: lead.id,
@@ -130,6 +156,9 @@ async function selectedResearch(lead: any) {
   const evidenceWarning = factsError
     ? `Research saved, but its evidence was not stored. Apply migration 010 to enable evidence storage. (${factsError.message})`
     : null;
+  const { error: observationError } = internet.observations.length ? await supabase.from("lead_internet_observations").insert(internet.observations.map((item) => ({ lead_id: lead.id, category: item.category, signal: item.signal, value: item.value, numeric_value: item.numericValue ?? null, source_label: item.sourceLabel, source_url: item.sourceUrl, confidence: item.confidence, growth_direction: item.growthDirection, observed_at: item.observedAt }))) : { error: null };
+  const { error: intelligenceError } = await supabase.from("lead_internet_intelligence").upsert({ lead_id: lead.id, footprint_score: internet.footprintScore, momentum_score: internet.momentumScore, momentum_label: internet.momentumLabel, summary: internet.summary, provider: internet.provider, credits_used: internet.creditsUsed, researched_at: new Date().toISOString() });
+  const internetWarning = observationError || intelligenceError ? `Internet intelligence was calculated but not stored. Apply migration 014. (${observationError?.message || intelligenceError?.message})` : internet.warning || null;
 
   const socialCandidates = [
     ["facebook", scraped.facebook_url], ["instagram", scraped.instagram_url],
@@ -141,7 +170,7 @@ async function selectedResearch(lead: any) {
     if (!existing) await supabase.from("lead_socials").insert({ lead_id: lead.id, platform, url, is_active: true });
   }
   await logStatusChange({ leadId: lead.id, from: lead.status, to: "Scored", source: "owner", reason: "Manual AI research completed" });
-  return { summary, evidenceWarning };
+  return { summary, evidenceWarning: [evidenceWarning, internetWarning].filter(Boolean).join(" ") || null };
 }
 
 export async function POST(req: NextRequest) {

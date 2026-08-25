@@ -76,6 +76,10 @@ const REQUIRED_COLUMNS = [
   ["status_audit_log", "old_status", "002/006"],
   ["status_audit_log", "new_status", "002/006"],
   ["status_audit_log", "reason", "002/006"],
+  ["lead_internet_observations", "observed_at", "014"],
+  ["lead_internet_observations", "growth_direction", "014"],
+  ["lead_internet_intelligence", "footprint_score", "014"],
+  ["lead_internet_intelligence", "momentum_score", "014"],
 ];
 
 for (const [table, column, mig] of REQUIRED_COLUMNS) {

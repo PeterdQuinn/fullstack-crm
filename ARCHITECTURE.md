@@ -81,6 +81,12 @@ Nothing reaches a contact without a decision: **Approve for Email**,
 Guardrails block approval without an email, off-niche leads, scores ≤ 50, and
 low-confidence research whose sources have not been ticked as reviewed.
 
+Research also builds a dated internet-intelligence history through Firecrawl.
+Grouped searches cover BBB/licensing/reputation, hiring, geographic expansion,
+advertising and technology adoption; a site map measures web footprint. The UI
+shows separate footprint and growth-momentum scores. Growth remains an explicit
+inference backed by source links and repeat observations, never a revenue fact.
+
 ### 5. Outreach
 A three-step email sequence through Resend, with a shared footer carrying the
 mailing address, and one-click unsubscribe (public by design — it is clicked
