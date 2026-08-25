@@ -116,8 +116,15 @@ const PETER_SIGNATURE = [
   "fullstackservicesllc.net",
 ];
 
-function messageParagraphs(emailNum: number, ownerName: string, company: string): string[] {
+function messageParagraphs(emailNum: number, ownerName: string, company: string, verifiedDetail?: string): string[] {
   if (emailNum === 1) {
+    if (verifiedDetail) return [
+      `Hi ${ownerName},`,
+      `I noticed this while researching ${company}: ${verifiedDetail}`,
+      `Growth usually makes missed calls, estimate follow-up, scheduling, and repeated data entry more expensive. I'm Peter Quinn, owner of Full Stack Services LLC. I build focused systems around those operational gaps instead of forcing a business into another disconnected subscription.`,
+      `Is that creating any friction for the team today? If it is, I can show you a practical way to tighten it up in a short call.`,
+      ...PETER_SIGNATURE,
+    ];
     return [
       `Hi ${ownerName},`,
       `If ${company} stopped paying its software subscriptions tomorrow, how much of the system running the business would it still own?`,
@@ -154,13 +161,15 @@ export function renderOutreachEmail(opts: {
   leadId?: string | null;
   /** Lead's owner_name. Blank/missing renders the "there" fallback. */
   ownerName?: string | null;
+  /** A source-verified company fact; omitted when research is not strong enough. */
+  verifiedDetail?: string | null;
 }): RenderedOutreachEmail {
   const company = opts.businessName;
   const emailNum = Math.min((opts.emailSentCount || 0) + 1, 3);
   const ownerName = (opts.ownerName || "").trim() || "there";
 
   const subject = SUBJECTS[emailNum](company);
-  const paragraphs = messageParagraphs(emailNum, ownerName, company);
+  const paragraphs = messageParagraphs(emailNum, ownerName, company, opts.verifiedDetail?.trim());
   const html =
     `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color:#222; font-size:15px; line-height:1.6;">` +
     paragraphs.map((paragraph) => `<p style="margin:0 0 16px;">${esc(paragraph)}</p>`).join("") +

@@ -30,7 +30,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 ```
 
-5. Also run every file in `supabase/migrations/` in order (001 → 014)
+5. Also run every file in `supabase/migrations/` in order (001 → 015)
 6. Restart `npm run dev` and open **/crm/discovery** to pull your first HVAC leads
 
 ---

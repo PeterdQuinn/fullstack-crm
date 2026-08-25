@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { buildCallPreparation, type InternetObservation } from "@/lib/internet-intelligence";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -44,9 +45,20 @@ export async function GET() {
 
     if (error) throw error;
 
+    const leadIds = (data || []).map((lead: any) => lead.id);
+    const [{ data: intelligence }, { data: evidence }] = leadIds.length ? await Promise.all([
+      supabase.from("lead_internet_intelligence").select("lead_id, footprint_score, momentum_score, momentum_label, summary").in("lead_id", leadIds),
+      supabase.from("lead_internet_observations").select("*").in("lead_id", leadIds).order("observed_at", { ascending: false }).limit(1000),
+    ]) : [{ data: [] }, { data: [] }] as any;
+    const intelligenceByLead = new Map((intelligence || []).map((row: any) => [row.lead_id, row]));
+    const evidenceByLead = new Map<string, any[]>();
+    for (const row of evidence || []) { const list = evidenceByLead.get(row.lead_id) || []; if (list.length < 30) list.push(row); evidenceByLead.set(row.lead_id, list); }
+
     const now = Date.now();
-    const rows = (data || []).map((lead: any) => ({
-      ...lead,
+    const rows = (data || []).map((lead: any) => {
+      const internet = intelligenceByLead.get(lead.id) as any;
+      const observations: InternetObservation[] = (evidenceByLead.get(lead.id) || []).map((row: any) => ({ category: row.category, signal: row.signal, value: row.value, sourceLabel: row.source_label, sourceUrl: row.source_url, observedAt: row.observed_at, confidence: row.confidence, growthDirection: row.growth_direction, identityScore: row.identity_score, matchReasons: row.match_reasons, evidenceType: row.evidence_type, publishedAt: row.published_at, corroborationCount: row.corroboration_count }));
+      return ({ ...lead,
       ai_summary: Array.isArray(lead.lead_ai_summaries) ? lead.lead_ai_summaries[0] || null : lead.lead_ai_summaries,
       call_logs: [...(lead.call_logs || [])]
         .sort((a: any, b: any) => new Date(b.called_at).getTime() - new Date(a.called_at).getTime())
@@ -54,7 +66,9 @@ export async function GET() {
       lead_notes: [...(lead.lead_notes || [])]
         .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         .slice(0, 5),
-    }));
+      internet_intelligence: internet || null,
+      call_preparation: buildCallPreparation(lead, observations, internet?.momentum_label),
+    }); });
 
     rows.sort((a: any, b: any) => {
       const aDue = a.next_follow_up_at ? new Date(a.next_follow_up_at).getTime() : Number.POSITIVE_INFINITY;
@@ -63,7 +77,8 @@ export async function GET() {
       const bOverdue = bDue <= now ? 0 : 1;
       if (aOverdue !== bOverdue) return aOverdue - bOverdue;
       if (aDue !== bDue) return aDue - bDue;
-      return (b.ai_summary?.lead_score || 0) - (a.ai_summary?.lead_score || 0);
+      const momentum = (b.internet_intelligence?.momentum_score || 0) - (a.internet_intelligence?.momentum_score || 0);
+      return momentum || (b.ai_summary?.lead_score || 0) - (a.ai_summary?.lead_score || 0);
     });
 
     return Response.json(rows);

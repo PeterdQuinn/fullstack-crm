@@ -5,6 +5,7 @@ import { sendBlockedReason } from "@/lib/email-templates";
 import { marketApproved } from "@/lib/outreach-markets";
 import { MANUAL_SEND_CAP } from "@/lib/email-sequence";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
+import { verifiedOutreachDetail } from "@/lib/internet-intelligence";
 
 // force-dynamic alone isn't enough — Next also caches the fetch() supabase-js
 // makes to PostgREST, so the queue would serve a stale snapshot (e.g. 0 ready
@@ -40,6 +41,9 @@ export async function GET() {
         lead_ai_summaries!inner(lead_score, confidence_level, main_pain_point,
           pain_reason, best_attack_angle, recommended_first_message,
           recommended_follow_up),
+        lead_internet_observations(category, signal, value, source_url, source_label,
+          observed_at, confidence, growth_direction, identity_score, match_reasons,
+          evidence_type, published_at, corroboration_count),
         follow_up_tasks(id, task_type, due_at, status),
         outreach_log(id, direction, message_type, subject, status, sent_at,
           delivered_at, opened_at, clicked_at, replied_at, bounced_at)`
@@ -80,6 +84,7 @@ export async function GET() {
         businessName: lead.business_name,
         ownerName: (lead as any).owner_name,
         emailSentCount: lead.email_sent_count || 0,
+        verifiedDetail: verifiedOutreachDetail((lead.lead_internet_observations || []).map((item: any) => ({ category: item.category, signal: item.signal, value: item.value, sourceLabel: item.source_label, sourceUrl: item.source_url, observedAt: item.observed_at, confidence: item.confidence, growthDirection: item.growth_direction, identityScore: item.identity_score, matchReasons: item.match_reasons, evidenceType: item.evidence_type, publishedAt: item.published_at, corroborationCount: item.corroboration_count }))),
       });
       const pendingTask = [...(lead.follow_up_tasks || [])]
         .filter((task: any) => task.status === "pending" && task.task_type === `send_email_${email.emailNum}`)

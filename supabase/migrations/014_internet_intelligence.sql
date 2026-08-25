@@ -10,6 +10,11 @@ create table if not exists lead_internet_observations (
   source_url text not null,
   confidence text not null check (confidence in ('high','medium','low')),
   growth_direction smallint not null default 0 check (growth_direction in (-1,0,1)),
+  identity_score integer check (identity_score between 0 and 100),
+  match_reasons jsonb not null default '[]'::jsonb,
+  evidence_type text not null default 'single_source' check (evidence_type in ('verified','single_source')),
+  published_at timestamptz,
+  corroboration_count integer not null default 1 check (corroboration_count >= 1),
   observed_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );

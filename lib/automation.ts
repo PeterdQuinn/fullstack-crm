@@ -7,6 +7,7 @@ import { nextFollowUpAt } from "@/lib/email-sequence";
 import { logStatusChange } from "@/lib/audit";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { checkMailability } from "@/lib/email-validation";
+import { verifiedOutreachDetail } from "@/lib/internet-intelligence";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -378,7 +379,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       const q = supabase
         .from("leads")
         .select(
-          "id, business_name, email, city, state, status, owner_name, industry, niche, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score)"
+          "id, business_name, email, city, state, status, owner_name, industry, niche, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score), lead_internet_observations(*)"
         )
         .eq("opt_out", false)
         .eq("bounced", false)
@@ -501,6 +502,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         businessName: lead.business_name,
         ownerName: (lead as any).owner_name,
         emailSentCount: lead.email_sent_count || 0,
+        verifiedDetail: verifiedOutreachDetail(((lead as any).lead_internet_observations || []).map((item: any) => ({ category: item.category, signal: item.signal, value: item.value, sourceLabel: item.source_label, sourceUrl: item.source_url, observedAt: item.observed_at, confidence: item.confidence, growthDirection: item.growth_direction, identityScore: item.identity_score, matchReasons: item.match_reasons, evidenceType: item.evidence_type, publishedAt: item.published_at, corroborationCount: item.corroboration_count }))),
       });
       const { subject, html, bodyText } = rendered;
 

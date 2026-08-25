@@ -7,6 +7,7 @@ import { checkMailability } from "@/lib/email-validation";
 import { marketRejectionReason } from "@/lib/outreach-markets";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { MANUAL_SEND_CAP, nextFollowUpAt } from "@/lib/email-sequence";
+import { verifiedOutreachDetail } from "@/lib/internet-intelligence";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
     // expand into a batch or mail a replied/booked/suppressed lead.
     const { data: lead, error } = await supabase
       .from("leads")
-      .select("id, business_name, email, owner_name, status, industry, niche, email_sent_count, next_follow_up_at, lead_ai_summaries!inner(lead_score)")
+      .select("id, business_name, email, owner_name, status, industry, niche, email_sent_count, next_follow_up_at, lead_ai_summaries!inner(lead_score), lead_internet_observations(*)")
       .eq("id", leadId)
       .eq("opt_out", false)
       .eq("bounced", false)
@@ -116,6 +117,7 @@ export async function POST(req: NextRequest) {
       businessName: lead.business_name,
       ownerName: lead.owner_name,
       emailSentCount: lead.email_sent_count || 0,
+      verifiedDetail: verifiedOutreachDetail((lead.lead_internet_observations || []).map((item: any) => ({ category: item.category, signal: item.signal, value: item.value, sourceLabel: item.source_label, sourceUrl: item.source_url, observedAt: item.observed_at, confidence: item.confidence, growthDirection: item.growth_direction, identityScore: item.identity_score, matchReasons: item.match_reasons, evidenceType: item.evidence_type, publishedAt: item.published_at, corroborationCount: item.corroboration_count }))),
     });
     const requestedSubject = typeof body.subject === "string" ? body.subject.trim() : "";
     const requestedMessage = typeof body.messageText === "string" ? body.messageText.trim() : "";

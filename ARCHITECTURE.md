@@ -86,6 +86,11 @@ Grouped searches cover BBB/licensing/reputation, hiring, geographic expansion,
 advertising and technology adoption; a site map measures web footprint. The UI
 shows separate footprint and growth-momentum scores. Growth remains an explicit
 inference backed by source links and repeat observations, never a revenue fact.
+Search results must pass an identity gate using company domain, name, phone,
+address, owner and geography. Accepted results are opened and reduced to dated
+fact sentences; authoritative or independently corroborated facts are marked
+verified. Those facts drive the Call Workspace preparation and personalize the
+first email. Weak matches and unsupported AI claims never enter outreach copy.
 
 ### 5. Outreach
 A three-step email sequence through Resend, with a shared footer carrying the

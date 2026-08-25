@@ -67,6 +67,8 @@ export async function GET() {
     return NextResponse.json((data || []).map((lead: any) => {
       const researchFacts = factsByLead.get(lead.id) || buildResearchFacts(lead);
       const intelligence = intelligenceByLead.get(lead.id) as any;
+      const internetFacts = (observationsByLead.get(lead.id) || []).filter((item: any) => item.identity_score >= 40).slice(0, 10).map((item: any, index: number) => ({ field_name: `internet_${item.category}_${index}`, label: item.signal, value: item.value, certainty: item.evidence_type === "verified" ? "verified" : "single_source", source_label: `${item.source_label}${item.corroboration_count > 1 ? ` (${item.corroboration_count} sources)` : ""}`, source_url: item.source_url, source_count: item.corroboration_count || 1, researched_at: item.published_at || item.observed_at }));
+      researchFacts.unshift(...internetFacts);
       if (intelligence) researchFacts.unshift(
         { field_name: "internet_footprint", label: "Internet footprint", value: `${intelligence.footprint_score}/100`, certainty: "ai_inference", source_label: "Dated internet observations", source_url: null, source_count: (observationsByLead.get(lead.id) || []).length, researched_at: intelligence.researched_at },
         { field_name: "growth_momentum", label: "Growth momentum", value: `${intelligence.momentum_score > 0 ? "+" : ""}${intelligence.momentum_score} — ${intelligence.momentum_label}. ${intelligence.summary}`, certainty: "ai_inference", source_label: "Deterministic signal score", source_url: null, source_count: (observationsByLead.get(lead.id) || []).filter((item: any) => item.growth_direction !== 0).length, researched_at: intelligence.researched_at },
@@ -120,7 +122,7 @@ async function selectedResearch(lead: any) {
   const enriched = { ...lead, ...updates, hvac_signals: scraped.hvac_signals };
   const researchFacts = buildResearchFacts(enriched, scraped);
   const { data: previousRows } = await supabase.from("lead_internet_observations").select("*").eq("lead_id", lead.id).order("observed_at", { ascending: false }).limit(200);
-  const previous: InternetObservation[] = (previousRows || []).map((row: any) => ({ category: row.category, signal: row.signal, value: row.value, numericValue: row.numeric_value == null ? undefined : Number(row.numeric_value), sourceLabel: row.source_label, sourceUrl: row.source_url, confidence: row.confidence, growthDirection: row.growth_direction, observedAt: row.observed_at }));
+  const previous: InternetObservation[] = (previousRows || []).map((row: any) => ({ category: row.category, signal: row.signal, value: row.value, numericValue: row.numeric_value == null ? undefined : Number(row.numeric_value), sourceLabel: row.source_label, sourceUrl: row.source_url, confidence: row.confidence, growthDirection: row.growth_direction, observedAt: row.observed_at, identityScore: row.identity_score, matchReasons: row.match_reasons, evidenceType: row.evidence_type, publishedAt: row.published_at, corroborationCount: row.corroboration_count }));
   const internet = await researchInternetPresence(enriched, previous);
   const summary = await generateLeadSummary(enriched);
   const { error: summaryError } = await supabase.from("lead_ai_summaries").upsert({
@@ -156,7 +158,7 @@ async function selectedResearch(lead: any) {
   const evidenceWarning = factsError
     ? `Research saved, but its evidence was not stored. Apply migration 010 to enable evidence storage. (${factsError.message})`
     : null;
-  const { error: observationError } = internet.observations.length ? await supabase.from("lead_internet_observations").insert(internet.observations.map((item) => ({ lead_id: lead.id, category: item.category, signal: item.signal, value: item.value, numeric_value: item.numericValue ?? null, source_label: item.sourceLabel, source_url: item.sourceUrl, confidence: item.confidence, growth_direction: item.growthDirection, observed_at: item.observedAt }))) : { error: null };
+  const { error: observationError } = internet.observations.length ? await supabase.from("lead_internet_observations").insert(internet.observations.map((item) => ({ lead_id: lead.id, category: item.category, signal: item.signal, value: item.value, numeric_value: item.numericValue ?? null, source_label: item.sourceLabel, source_url: item.sourceUrl, confidence: item.confidence, growth_direction: item.growthDirection, observed_at: item.observedAt, identity_score: item.identityScore ?? null, match_reasons: item.matchReasons || [], evidence_type: item.evidenceType || "single_source", published_at: item.publishedAt || null, corroboration_count: item.corroborationCount || 1 }))) : { error: null };
   const { error: intelligenceError } = await supabase.from("lead_internet_intelligence").upsert({ lead_id: lead.id, footprint_score: internet.footprintScore, momentum_score: internet.momentumScore, momentum_label: internet.momentumLabel, summary: internet.summary, provider: internet.provider, credits_used: internet.creditsUsed, researched_at: new Date().toISOString() });
   const internetWarning = observationError || intelligenceError ? `Internet intelligence was calculated but not stored. Apply migration 014. (${observationError?.message || intelligenceError?.message})` : internet.warning || null;
 

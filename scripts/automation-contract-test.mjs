@@ -144,6 +144,22 @@ const internetScores = internetIntelligence.scoreInternetIntelligence([
   { category: "expansion", signal: "New location", value: "Opened a second branch", sourceLabel: "News", sourceUrl: "https://example.com/news", observedAt: new Date().toISOString(), confidence: "medium", growthDirection: 1 },
 ], { business_name: "Example HVAC", website: "example.com", google_review_count: 250, technologies: "CallRail" });
 check("internet intelligence separates footprint from growth", internetScores.footprintScore > 0 && internetScores.momentumScore >= 25 && internetScores.momentumLabel === "growing");
+const matchedIdentity = internetIntelligence.identityMatch(
+  { business_name: "Example HVAC", website: "examplehvac.com", city: "Mesa", state: "AZ", phone: "602-555-0199" },
+  { title: "Example HVAC", description: "Serving Mesa AZ. Call 602-555-0199", url: "https://www.bbb.org/example-hvac" },
+);
+const rejectedIdentity = internetIntelligence.identityMatch(
+  { business_name: "Example HVAC", city: "Mesa", state: "AZ" },
+  { title: "Example Plumbing", description: "A company in Boston MA", url: "https://example.org" },
+);
+check("internet research accepts matched companies and rejects namesakes", matchedIdentity.accepted && matchedIdentity.score >= 40 && !rejectedIdentity.accepted);
+const corroborated = internetIntelligence.corroborateObservations([
+  { category: "hiring", signal: "Hiring activity", value: "Hiring technicians", sourceLabel: "Careers", sourceUrl: "https://example.com/careers", observedAt: new Date().toISOString(), confidence: "medium", growthDirection: 1 },
+  { category: "hiring", signal: "Hiring activity", value: "Technician openings", sourceLabel: "Jobs", sourceUrl: "https://jobs.example.org/example", observedAt: new Date().toISOString(), confidence: "medium", growthDirection: 1 },
+]);
+check("two independent sources corroborate an internet fact", corroborated.every(item => item.evidenceType === "verified" && item.corroborationCount === 2));
+const groundedEmail = emailTemplates.renderOutreachEmail({ leadId: "grounded", businessName: "Example HVAC", emailSentCount: 0, verifiedDetail: "The company is hiring three technicians." });
+check("first-touch email uses verified company evidence", groundedEmail.bodyText.includes("hiring three technicians") && groundedEmail.bodyText.includes("Is that creating any friction"));
 check("Firecrawl supports deployment and key rotation env names", read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRE_CRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEYS"));
 check("internet observations are dated and append-only", read("supabase/migrations/014_internet_intelligence.sql").includes("observed_at") && !read("supabase/migrations/014_internet_intelligence.sql").includes("unique(lead_id"));
 

@@ -80,6 +80,9 @@ const REQUIRED_COLUMNS = [
   ["lead_internet_observations", "growth_direction", "014"],
   ["lead_internet_intelligence", "footprint_score", "014"],
   ["lead_internet_intelligence", "momentum_score", "014"],
+  ["lead_internet_observations", "identity_score", "015"],
+  ["lead_internet_observations", "evidence_type", "015"],
+  ["lead_internet_observations", "corroboration_count", "015"],
 ];
 
 for (const [table, column, mig] of REQUIRED_COLUMNS) {

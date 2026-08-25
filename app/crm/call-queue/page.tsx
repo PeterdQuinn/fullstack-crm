@@ -57,6 +57,8 @@ interface Lead {
   ai_summary?: AISummary | null;
   call_logs?: CallHistory[];
   lead_notes?: LeadNote[];
+  internet_intelligence?: { footprint_score: number; momentum_score: number; momentum_label: string; summary: string } | null;
+  call_preparation?: { opener: string; questions: string[]; momentumLabel: string; verifiedSignals: Array<{ signal: string; value: string; sourceUrl: string }> };
 }
 
 function displayDate(value?: string) {
@@ -180,7 +182,7 @@ export default function CallQueuePage() {
                 <button key={lead.id} onClick={() => setSelectedId(lead.id)} className={`mb-2 w-full rounded-lg border p-3 text-left transition ${active ? "border-brand/20 bg-brand-light" : "border-transparent bg-gray-50 hover:border-gray-300"}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="font-semibold text-gray-900">{lead.business_name}</div>
-                    {lead.ai_summary?.lead_score != null && <span className="rounded-full bg-brand-light px-2 py-0.5 text-xs font-bold text-brand-dark">{lead.ai_summary.lead_score}</span>}
+                    <div className="flex gap-1">{lead.internet_intelligence && <span className="rounded-full bg-white px-2 py-0.5 text-xs font-bold capitalize text-brand-dark">{lead.internet_intelligence.momentum_label}</span>}{lead.ai_summary?.lead_score != null && <span className="rounded-full bg-brand-light px-2 py-0.5 text-xs font-bold text-brand-dark">{lead.ai_summary.lead_score}</span>}</div>
                   </div>
                   <div className="mt-1 text-sm text-gray-600">{name}</div>
                   <div className="mt-2 flex items-center justify-between gap-2 text-xs text-gray-500">
@@ -234,9 +236,12 @@ export default function CallQueuePage() {
               <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between"><h3 className="font-bold">Call Preparation</h3>{selected.ai_summary?.lead_score != null && <span className="rounded-lg bg-brand-light px-3 py-1 text-sm font-bold text-brand-dark">Score {selected.ai_summary.lead_score}</span>}</div>
                 <div className="space-y-4">
+                  {selected.internet_intelligence && <div className="grid grid-cols-2 gap-2"><Field label="Internet footprint" value={`${selected.internet_intelligence.footprint_score}/100`} /><Field label="Growth momentum" value={`${selected.internet_intelligence.momentum_score > 0 ? "+" : ""}${selected.internet_intelligence.momentum_score} — ${selected.internet_intelligence.momentum_label}`} /></div>}
+                  {!!selected.call_preparation?.verifiedSignals.length && <div><div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Verified evidence</div><div className="mt-2 space-y-2">{selected.call_preparation.verifiedSignals.map((signal, index) => <a key={`${signal.sourceUrl}-${index}`} href={signal.sourceUrl} target="_blank" rel="noreferrer" className="block rounded-lg bg-gray-50 p-3 text-sm leading-6 hover:bg-brand-light"><span className="font-semibold">{signal.signal}:</span> {signal.value}</a>)}</div></div>}
                   <div><div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Main pain point</div><p className="mt-1 text-sm leading-6">{selected.ai_summary?.main_pain_point || selected.pain_point || "Ask what slows down scheduling, dispatch, estimates, invoicing, or follow through."}</p></div>
                   <div><div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Best talking angle</div><p className="mt-1 text-sm leading-6">{selected.ai_summary?.best_attack_angle || "Focus on replacing recurring software costs with a system they own."}</p></div>
-                  <div className="rounded-lg border border-brand/20 bg-brand-light p-4"><div className="text-xs font-semibold uppercase tracking-wide text-brand-dark">Suggested opener</div><p className="mt-2 text-sm font-medium leading-6 text-brand-dark">{selected.ai_summary?.recommended_first_message || `Hi, this is Peter with Full Stack Services. I was looking at ${selected.business_name} and wanted to ask how you currently handle scheduling and daily operations.`}</p></div>
+                  <div className="rounded-lg border border-brand/20 bg-brand-light p-4"><div className="text-xs font-semibold uppercase tracking-wide text-brand-dark">Evidence-grounded opener</div><p className="mt-2 text-sm font-medium leading-6 text-brand-dark">{selected.call_preparation?.opener || selected.ai_summary?.recommended_first_message || `Hi, this is Peter with Full Stack Services. I was looking at ${selected.business_name} and wanted to ask how you currently handle scheduling and daily operations.`}</p></div>
+                  {!!selected.call_preparation?.questions.length && <div><div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Questions to confirm on the call</div><ul className="mt-2 space-y-2 text-sm leading-6">{selected.call_preparation.questions.map((question) => <li key={question}>• {question}</li>)}</ul></div>}
                 </div>
               </div>
 
