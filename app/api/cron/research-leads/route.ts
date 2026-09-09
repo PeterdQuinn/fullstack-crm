@@ -15,6 +15,18 @@ export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 async function run(req: NextRequest) {
+  // Middleware deliberately skips /api/cron, so every verb must check the
+  // secret here. POST also bypasses the pause gate in withAutomationRun, which
+  // makes an unguarded POST both a free Firecrawl spend and a way to run a
+  // stage the owner has switched off.
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
+  }
+  if (req.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => ({}));
   try {
     const research = await researchLeadsBatch(Number(body.batchSize) || 2);

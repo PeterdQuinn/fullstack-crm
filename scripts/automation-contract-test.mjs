@@ -243,6 +243,15 @@ check("silence with mailable leads is itself an alert",
   digest.includes("mailableNow") && digest.includes("nothing sent with"));
 check("a broken pipeline is never reported as a quiet day",
   digest.includes("d.quiet && !healthBanner"));
+// middleware.ts exempts /api/cron, so an unguarded verb on any cron route is
+// world-callable. research-leads shipped with an unauthenticated POST that also
+// bypassed the pause gate; this sweeps every route so it cannot happen again.
+for (const dir of fs.readdirSync("app/api/cron", { withFileTypes: true }).filter((d) => d.isDirectory())) {
+  const route = read(`app/api/cron/${dir.name}/route.ts`);
+  if (!route.includes("export async function POST")) continue;
+  const guarded = route.includes("CRON_SECRET") && route.includes("Unauthorized");
+  check(`cron POST requires the secret: ${dir.name}`, guarded);
+}
 check("internet research runs on a schedule, not only by hand",
   read("app/api/cron/research-leads/route.ts").includes("researchLeadsBatch") &&
   read(".github/workflows/cron.yml").includes("routes=research-leads"));
