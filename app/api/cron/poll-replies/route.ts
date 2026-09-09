@@ -26,14 +26,60 @@ export const dynamic = "force-dynamic";
 // classifier has been watched against genuine replies.
 const autopilot = () => process.env.REPLY_AUTOPILOT === "true";
 
-async function findLeadByEmail(address: string) {
-  const { data } = await supabase
-    .from("leads")
-    .select("id, business_name, status, email")
-    .ilike("email", address)
-    .is("archived_at", null)
-    .limit(1);
-  return data?.[0] ?? null;
+// Free providers: a shared domain says nothing about identity. Matching on
+// gmail.com paired a reply from peterdquinnsr@gmail.com to a lead whose address
+// was americancomfortservices@gmail.com — same domain, unrelated people.
+const PUBLIC_MAILBOX_DOMAINS = new Set([
+  "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "outlook.com", "hotmail.com",
+  "live.com", "msn.com", "aol.com", "icloud.com", "me.com", "mac.com", "proton.me",
+  "protonmail.com", "gmx.com", "mail.com", "zoho.com", "comcast.net", "verizon.net",
+  "sbcglobal.net", "att.net", "cox.net", "charter.net", "bellsouth.net",
+]);
+
+/** "Re: Question about Acme's software" -> "question about acme's software" */
+function normalizeSubject(subject: string | null | undefined): string {
+  return (subject || "").replace(/^\s*(?:re|fw|fwd)\s*:\s*/i, "").trim().toLowerCase();
+}
+
+// 57% of the list is a role inbox, so the reply that matters most is the one
+// least likely to come back from the address we mailed: we write to
+// info@acme.com and the owner answers from mike@acme.com. Exact-address
+// matching alone files that as "no lead matches" and the reply is lost.
+async function findLeadForReply(address: string, subject: string | null | undefined) {
+  const { data: exact } = await supabase
+    .from("leads").select("id, business_name, status, email")
+    .ilike("email", address).is("archived_at", null).limit(1);
+  if (exact?.[0]) return { lead: exact[0], matchedBy: "address" as const };
+
+  // Tier 2: the reply quotes a subject we actually sent. Strongest non-address
+  // signal there is — it can only exist if we mailed this thread.
+  const threadSubject = normalizeSubject(subject);
+  if (threadSubject) {
+    const { data: sent } = await supabase
+      .from("outreach_log").select("lead_id, subject")
+      .eq("direction", "outbound").eq("channel", "email")
+      .ilike("subject", threadSubject).limit(2);
+    // Only trust it when exactly one lead was sent that subject; the templates
+    // embed the company name, so a collision means we cannot tell them apart.
+    const leadIds = [...new Set((sent || []).map((r: any) => r.lead_id))];
+    if (leadIds.length === 1) {
+      const { data: byThread } = await supabase
+        .from("leads").select("id, business_name, status, email")
+        .eq("id", leadIds[0]).is("archived_at", null).limit(1);
+      if (byThread?.[0]) return { lead: byThread[0], matchedBy: "thread" as const };
+    }
+  }
+
+  // Tier 3: same company domain, and only for a domain the company owns.
+  const domain = address.split("@")[1]?.toLowerCase() || "";
+  if (domain && !PUBLIC_MAILBOX_DOMAINS.has(domain)) {
+    const { data: byDomain } = await supabase
+      .from("leads").select("id, business_name, status, email")
+      .ilike("email", `%@${domain}`).is("archived_at", null).limit(2);
+    if (byDomain?.length === 1) return { lead: byDomain[0], matchedBy: "domain" as const };
+  }
+
+  return null;
 }
 
 async function storedReply(messageId: string): Promise<{ id: string; status: string | null } | null> {
@@ -59,8 +105,9 @@ async function handle(msg: GraphMessage) {
   const from = (msg.from?.emailAddress?.address || "").trim().toLowerCase();
   if (!from) return { skipped: "no sender address" };
 
-  const lead = await findLeadByEmail(from);
-  if (!lead) return { skipped: `no lead matches ${from}` };
+  const match = await findLeadForReply(from, msg.subject);
+  if (!match) return { skipped: `no lead matches ${from}` };
+  const { lead, matchedBy } = match;
 
   // Graph ids are stable, so retries must not insert the inbound log twice.
   // Do not return early when the log already exists: the previous attempt may
@@ -108,16 +155,16 @@ async function handle(msg: GraphMessage) {
         from: lead.status ?? null,
         to: "Replied",
         source: "automation",
-        reason: `inbound reply classified ${category} (autopilot off)`,
+        reason: `inbound reply classified ${category} (autopilot off, matched by ${matchedBy})`,
       });
     }
     await markReplyProcessed(msg.id);
-    return { lead: lead.business_name, category, acted: false, resumed: Boolean(stored) };
+    return { lead: lead.business_name, matchedBy, category, acted: false, resumed: Boolean(stored) };
   }
 
   const action = await actOnReplyClassification(lead.id, category);
   await markReplyProcessed(msg.id);
-  return { lead: lead.business_name, category, acted: true, action, resumed: Boolean(stored) };
+  return { lead: lead.business_name, matchedBy, category, acted: true, action, resumed: Boolean(stored) };
 }
 
 async function handleGET(req: NextRequest) {

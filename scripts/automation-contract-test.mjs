@@ -362,6 +362,20 @@ check("named niches support optional configured market restrictions", outreachMa
 check("a lead with no market is never mailed", outreachMarkets.includes("Boolean(market) &&"));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
 
+// 57% of the list is a role inbox, so the reply that matters is the one least
+// likely to come back from the address we mailed. Exact-address matching alone
+// files an owner's personal reply as "no lead matches" and loses it.
+const pollRoute = read("app/api/cron/poll-replies/route.ts");
+check("reply matching falls back beyond the exact address",
+  pollRoute.includes("findLeadForReply") && pollRoute.includes('matchedBy: "thread"') && pollRoute.includes('matchedBy: "domain"'));
+check("a shared mail provider is never treated as identity",
+  pollRoute.includes("PUBLIC_MAILBOX_DOMAINS") && pollRoute.includes('"gmail.com"') &&
+  pollRoute.includes("!PUBLIC_MAILBOX_DOMAINS.has(domain)"));
+check("an ambiguous domain or thread match is refused",
+  pollRoute.includes("byDomain?.length === 1") && pollRoute.includes("leadIds.length === 1"));
+check("Re:/Fwd: prefixes are stripped before thread matching",
+  pollRoute.includes("normalizeSubject") && pollRoute.includes("(?:re|fw|fwd)"));
+check("how a reply matched is recorded for audit", pollRoute.includes("matched by ${matchedBy}"));
 check("reply polling fails when mailbox config is missing", read("app/api/cron/poll-replies/route.ts").includes("{ status: 503 }"));
 check(
   "stored replies resume unfinished processing",
