@@ -121,7 +121,7 @@ const ownershipFollowup = emailTemplates.renderOutreachEmail({
   emailSentCount: 1,
   followUp: "recommended_follow_up",
 });
-check("followup uses the honest software ownership message", ownershipFollowup.bodyText.includes("should be a business asset") && ownershipFollowup.bodyText.includes("own the tool they depend on"));
+check("followup uses the honest software ownership message", ownershipFollowup.bodyText.includes("what you pay every month") && ownershipFollowup.bodyText.includes("own none of it at the end"));
 check("outbound copy contains no unsupported case study claim", [0, 1, 2].every(emailSentCount => {
   const message = emailTemplates.renderOutreachEmail({ leadId: "claim-check", businessName: "Example HVAC", emailSentCount });
   return !/Austin|35%|case study/i.test(message.bodyText);
@@ -159,7 +159,7 @@ const corroborated = internetIntelligence.corroborateObservations([
 ]);
 check("two independent sources corroborate an internet fact", corroborated.every(item => item.evidenceType === "verified" && item.corroborationCount === 2));
 const groundedEmail = emailTemplates.renderOutreachEmail({ leadId: "grounded", businessName: "Example HVAC", emailSentCount: 0, verifiedDetail: "The company is hiring three technicians." });
-check("first-touch email uses verified company evidence", groundedEmail.bodyText.includes("hiring three technicians") && groundedEmail.bodyText.includes("Is that creating any friction"));
+check("first-touch email uses verified company evidence", groundedEmail.bodyText.includes("hiring three technicians") && groundedEmail.bodyText.includes("Is that pile something"));
 check("Firecrawl supports deployment and key rotation env names", read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRE_CRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEYS"));
 check("internet observations are dated and append-only", read("supabase/migrations/014_internet_intelligence.sql").includes("observed_at") && !read("supabase/migrations/014_internet_intelligence.sql").includes("unique(lead_id"));
 

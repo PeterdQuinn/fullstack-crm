@@ -105,9 +105,9 @@ function esc(s: string): string {
 }
 
 const SUBJECTS: Record<number, (company: string) => string> = {
-  1: (company) => `Does ${company} own the software it depends on?`,
-  2: (company) => `Stop renting the software that runs ${company}`,
-  3: (company) => `Should ${company} own its business software?`,
+  1: (company) => `Question about ${company}'s software`,
+  2: (company) => `The subscription math for ${company}`,
+  3: (company) => `Closing the loop`,
 };
 
 const PETER_SIGNATURE = [
@@ -117,19 +117,23 @@ const PETER_SIGNATURE = [
 ];
 
 function messageParagraphs(emailNum: number, ownerName: string, company: string, verifiedDetail?: string): string[] {
+  // Kept deliberately short. 352 sends of the previous long-form "own vs rent
+  // your software" copy produced zero replies of any kind. Length was not the
+  // only cause (SPF was hard-failing), but abstract copy with a call booking as
+  // the only call to action gives a cold reader nothing cheap to respond to.
   if (emailNum === 1) {
     if (verifiedDetail) return [
       `Hi ${ownerName},`,
-      `I noticed this while researching ${company}: ${verifiedDetail}`,
-      `Growth usually makes missed inquiries, customer follow-up, scheduling, and repeated data entry more expensive. I'm Peter Quinn, owner of Full Stack Services LLC. I build focused systems around those operational gaps instead of forcing a business into another disconnected subscription.`,
-      `Is that creating any friction for the team today? If it is, I can show you a practical way to tighten it up in a short call.`,
+      `Noticed this about ${company}: ${verifiedDetail}`,
+      `Usually when that happens the software stack grows faster than the business does — one subscription for scheduling, another for invoicing, another for customer records, none of them talking to each other.`,
+      `Is that pile something you're dealing with right now?`,
       ...PETER_SIGNATURE,
     ];
     return [
       `Hi ${ownerName},`,
-      `If ${company} stopped paying its software subscriptions tomorrow, how much of the system running the business would it still own?`,
-      `I'm Peter Quinn, owner of Full Stack Services LLC. I help businesses replace rented software with custom systems built around how they actually work. The business owns the system instead of paying forever for access to it.`,
-      `If owning your business software is worth exploring, let me know a good time for a short call.`,
+      `Quick question about ${company} — how many separate subscriptions does it take to run the day? Scheduling, invoicing, customer records, payments.`,
+      `I build one system that replaces that stack, and the business owns it outright instead of renting it monthly forever.`,
+      `Is the subscription pile worth a conversation?`,
       ...PETER_SIGNATURE,
     ];
   }
@@ -137,16 +141,18 @@ function messageParagraphs(emailNum: number, ownerName: string, company: string,
   if (emailNum === 2) {
     return [
       `Hi ${ownerName},`,
-      `The software that runs customer follow-up, invoicing, reporting, and day-to-day work should be a business asset, not a collection of bills that never ends.`,
-      `I help businesses build one system around their operation so they can own the tool they depend on. If you want to see what that could look like for ${company}, let me know a good time for a short call.`,
+      `Following up on my note about ${company}'s software.`,
+      `The simple version: add up what you pay every month for the tools that run the business. That number never stops, and you own none of it at the end.`,
+      `Want me to send a one-page breakdown of what building it once instead would look like?`,
       ...PETER_SIGNATURE,
     ];
   }
 
   return [
     `Hi ${ownerName},`,
-    `One last question. Does ${company} want to keep renting its business software, or would owning a system built for the way you work be worth a conversation?`,
-    `If ownership is worth exploring, I can walk you through the idea in one short call. If not, no problem.`,
+    `Last note from me — I'll leave you alone after this.`,
+    `If owning the software that runs ${company} instead of renting it is ever worth a conversation, just reply and I'll pick it up from there.`,
+    `Either way, good luck out there.`,
     ...PETER_SIGNATURE,
   ];
 }

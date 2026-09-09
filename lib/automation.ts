@@ -30,14 +30,18 @@ const SCRAPE_TIMEOUT_MS = 9000;
 // Batches of 10 reliably 504'd; 3 completes with headroom.
 const SCORE_BATCH = 3;
 // Max emails per run. Sends fewer if fewer qualify — never forces a number.
-const SEND_CAP_PER_RUN = 10;
+// 3 scheduled runs a day x 15 = 45, so DAILY_SEND_CAP is the real governor.
+// At 10 the per-run cap silently capped the day at 30 and the daily cap never bound.
+const SEND_CAP_PER_RUN = 15;
 // Hard ceiling on outbound emails per Phoenix calendar day, counted from
 // outreach_log rather than tracked in memory. A per-RUN cap alone is not a
 // daily limit: automation is scheduled every 30 minutes, so a per-run cap of 12
 // would still allow 12 x 48 = 576 sends/day. Counting what has already gone out
 // today makes the limit hold no matter how often the cron fires, how many runs
 // overlap, or how many times someone triggers it by hand.
-export const DAILY_SEND_CAP = 40;
+// Env-overridable so a new sending domain can be warmed up slowly (start ~10/day
+// and ramp) instead of opening at full volume on cold reputation.
+export const DAILY_SEND_CAP = Math.max(1, Number(process.env.DAILY_SEND_CAP) || 40);
 // A lead must have all of these (non-null, non-empty) to be scored. City/state
 // and other fields (socials, employees, founded_year, ...) may stay null.
 const REQUIRED_FIELDS = ["business_name", "email", "phone"] as const;
@@ -439,7 +443,15 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     const niches = new Set(savedTargets.niches.map((n: string) => n.toLowerCase()));
     const { data: pool, error: poolError } = await candidates(1000);
     if (poolError) throw new Error(`Cannot read outreach candidates: ${poolError.message}`);
-    const leads = (pool || []).filter(marketApproved).filter(l => niches.has((l.industry || l.niche || "").trim().toLowerCase())).slice(0, fetchLimit);
+    // Send to leads we have verified evidence about first. Those get the
+    // personalised touch-1 opener instead of the generic one, so the scarce
+    // daily send budget goes to the emails most likely to earn a reply.
+    const evidence = (l: any) => (l.lead_internet_observations || []).length > 0 ? 0 : 1;
+    const score = (l: any) => -(l.lead_ai_summaries?.[0]?.lead_score ?? l.lead_ai_summaries?.lead_score ?? 0);
+    const leads = (pool || []).filter(marketApproved)
+      .filter(l => niches.has((l.industry || l.niche || "").trim().toLowerCase()))
+      .sort((a, b) => evidence(a) - evidence(b) || score(a) - score(b))
+      .slice(0, fetchLimit);
 
     let sent = 0;
     let skipped = 0;

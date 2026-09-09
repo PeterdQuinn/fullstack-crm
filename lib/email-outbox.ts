@@ -65,7 +65,7 @@ export async function sendSavedEmail(email: string, subject: string, html: strin
   // reached the provider. A retry must replay exactly what was saved first.
   const { error } = await db.from("email_outbox").upsert({
     idempotency_key: key, ...trackingFields, recipient: email,
-    sender: process.env.RESEND_FROM_EMAIL || "noreply@fullstackservicesllc.net",
+    sender: process.env.RESEND_FROM_EMAIL || "peter@fullstackservicesllc.net",
     reply_to: replyTo || "owner@fullstackservicesllc.net", subject, html,
     body_text: tracking?.bodyText || html, source: tracking?.source || "automation", send_limit: tracking?.limit || 40,
   }, { onConflict: "idempotency_key", ignoreDuplicates: true });
