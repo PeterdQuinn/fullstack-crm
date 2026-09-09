@@ -287,6 +287,26 @@ check("reply polling is daily", workflow.includes('cron: "30 14-23 * * *"'));
 check("followup processing is daily after reply polling", workflow.includes('cron: "35 14-23 * * *"'));
 check("daily discovery and three daily send passes", workflow.includes('cron: "0 13 * * *"') && workflow.includes('cron: "0 16,19,22 * * *"'));
 
+// The page must not describe a schedule different from the one that fires.
+// lib/automation-schedule.ts mirrors cron.yml because YAML cannot be imported.
+const scheduleLib = read("lib/automation-schedule.ts");
+for (const [stage, cron] of [
+  ["discover-leads", '"0 13 * * *"'], ["enrich-leads", '"0 14,17,20 * * *"'],
+  ["research-leads", '"45 14,17,20 * * *"'], ["process-discovered-leads", '"0 15,18,21 * * *"'],
+  ["automation", '"0 16,19,22 * * *"'], ["daily-digest", '"0 1 * * *"'],
+]) {
+  check(`schedule shown matches schedule fired: ${stage}`,
+    workflow.includes(`cron: ${cron}`) && scheduleLib.includes(`stage: "${stage}"`));
+}
+check("the automation page leads with state, not settings",
+  read("app/crm/automation/page.tsx").includes("Start automation") &&
+  read("app/crm/automation/page.tsx").includes("Pause automation"));
+check("turning automation on is confirmed first",
+  read("app/crm/automation/page.tsx").includes("window.confirm"));
+check("the panel reports stage health instead of raw JSON",
+  read("app/api/crm/automation/route.ts").includes("brokenStages") &&
+  !read("app/crm/automation/page.tsx").includes("JSON.stringify(r.result"));
+
 for (const file of ["lib/automation.ts", "lib/reply-actions.ts", "app/api/cron/process-followups/route.ts",
   "app/api/email/send-batch/route.ts"]) {
   check(`idempotency key used: ${file}`, read(file).includes("`crm-${lead.id}-"));
