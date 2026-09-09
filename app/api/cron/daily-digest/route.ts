@@ -111,6 +111,27 @@ export async function POST(req: NextRequest) {
     const email3 = sentRows.filter((r: any) => r.message_type === "email_3").length;
     const emailsSent = sentRows.length;
 
+    // Unattended automation is only safe if a broken run reaches a human the
+    // same day. automation_runs records every failure; nothing read it until
+    // now, so a stage could fail every run and the digest would still look calm.
+    const { data: runRows, error: runError } = await supabase
+      .from("automation_runs").select("stage,status,result,started_at")
+      .gte("started_at", startIso).order("started_at", { ascending: false }).limit(200);
+    if (runError) throw new Error(`Could not read automation runs: ${runError.message}`);
+    const failedRuns = (runRows || []).filter((r: any) => r.status === "failed");
+    // A run left "running" past the longest route budget died mid-execution.
+    const stalledRuns = (runRows || []).filter((r: any) =>
+      r.status === "running" && Date.parse(r.started_at) < Date.now() - 300_000);
+    const failuresByStage = [...failedRuns, ...stalledRuns].reduce((acc: Record<string, number>, r: any) => {
+      acc[r.stage] = (acc[r.stage] || 0) + 1; return acc;
+    }, {});
+    const firstFailure = failedRuns[0]?.result?.error || failedRuns[0]?.result?.errors?.[0] || null;
+    // Silence is the failure mode that looks like success: stages green, nothing sent.
+    const { count: mailableNow } = await supabase
+      .from("leads").select("*", { count: "exact", head: true })
+      .eq("status", "Ready for Outreach").not("email", "is", null).neq("email", "")
+      .eq("opt_out", false).eq("bounced", false).is("archived_at", null);
+
     const dateLabel = end.toISOString().split("T")[0];
 
     const activity =
@@ -136,9 +157,19 @@ export async function POST(req: NextRequest) {
       meetings,
       suppressed,
       dailyCap: DAILY_SEND_CAP,
+      failedRuns: failedRuns.length,
+      stalledRuns: stalledRuns.length,
+      failuresByStage,
+      firstFailure,
+      mailableNow: mailableNow || 0,
     });
 
-    const subject = `CRM Daily Summary — ${dateLabel}`;
+    const brokenStages = Object.keys(failuresByStage);
+    const subject = brokenStages.length
+      ? `CRM ALERT — ${brokenStages.join(", ")} failing — ${dateLabel}`
+      : emailsSent === 0 && (mailableNow || 0) > 0
+        ? `CRM ALERT — nothing sent with ${mailableNow} mailable — ${dateLabel}`
+        : `CRM Daily Summary — ${dateLabel}`;
 
     // One digest per day, and a second attempt is a no-op rather than an error.
     //
@@ -212,7 +243,25 @@ function buildHtml(d: {
   replies: number;
   meetings: number;
   suppressed: number;
+  failedRuns: number;
+  stalledRuns: number;
+  failuresByStage: Record<string, number>;
+  firstFailure: string | null;
+  mailableNow: number;
 }): string {
+  const brokenStages = Object.entries(d.failuresByStage);
+  const healthBanner = brokenStages.length
+    ? `<div style="background:#fee2e2;border:1px solid #b91c1c;border-radius:8px;padding:12px;margin-bottom:16px">
+         <strong style="color:#7f1d1d">Automation is failing.</strong>
+         <p style="margin:6px 0 0">${d.failedRuns} failed run(s)${d.stalledRuns ? ` and ${d.stalledRuns} that died mid-run` : ""} since yesterday: ${brokenStages.map(([stage, n]) => `${stage} (${n})`).join(", ")}.</p>
+         ${d.firstFailure ? `<p style="margin:6px 0 0;font-family:monospace;font-size:12px">${String(d.firstFailure).slice(0, 300)}</p>` : ""}
+       </div>`
+    : d.emailsSent === 0 && d.mailableNow > 0
+      ? `<div style="background:#fef3c7;border:1px solid #b45309;border-radius:8px;padding:12px;margin-bottom:16px">
+           <strong style="color:#78350f">No email went out.</strong>
+           <p style="margin:6px 0 0">Every stage reported success, but ${d.mailableNow} lead(s) were mailable and nothing was sent.</p>
+         </div>`
+      : "";
   const row = (label: string, value: number | string, indent = false) => `
     <tr>
       <td style="padding:6px 0;color:#555;font-size:14px;${indent ? "padding-left:20px;" : ""}">${label}</td>
@@ -223,7 +272,7 @@ function buildHtml(d: {
     <h3 style="margin:24px 0 4px;font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:#888;">${title}</h3>
     <table style="width:100%;border-collapse:collapse;border-top:1px solid #eee;">${rows}</table>`;
 
-  const quietBanner = d.quiet
+  const quietBanner = d.quiet && !healthBanner
     ? `<div style="margin:16px 0;padding:12px 16px;background:#f5f5f4;border-radius:8px;color:#555;font-size:14px;">
          Nothing happened in the last 24 hours — no new leads, emails, replies, or bookings.
          This email is your heartbeat: if it stops arriving, something in the pipeline or the
@@ -235,6 +284,7 @@ function buildHtml(d: {
   <div style="font-family:-apple-system,Segoe UI,Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#111;">
     <h1 style="font-size:20px;margin:0 0 2px;">CRM Daily Summary</h1>
     <p style="margin:0;color:#999;font-size:13px;">${d.dateLabel} · last 24 hours</p>
+    ${healthBanner}
     ${quietBanner}
     ${section("Pipeline", row("New leads discovered", d.newLeads) + row("Leads scored", d.leadsScored))}
     ${section(

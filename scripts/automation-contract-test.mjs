@@ -209,8 +209,43 @@ check("only a complete sentence can be pasted into outreach", (() => {
   const good = "They opened a second location in Mesa to serve the east valley this spring.";
   return junk.every((v) => !internetIntelligence.usableOutreachDetail(v)) && internetIntelligence.usableOutreachDetail(good);
 })());
+// Supply, not the send cap, was the binding constraint: 9 enrichment attempts
+// a day against 126 leads holding a website but no email address.
+const enrichLib = read("lib/enrich.ts");
+check("enrichment works a real batch, not three leads a day",
+  enrichLib.includes("enrichLeadsBatch(batchSize = 12") &&
+  read("app/api/cron/enrich-leads/route.ts").includes("Number(body.batchSize) || 12"));
+check("a bigger enrichment batch cannot outrun the route budget",
+  enrichLib.includes("deadlineMs = 45_000") && enrichLib.includes("Date.now() - startedAt > deadlineMs"));
+// Measured: enrichment plus research in one route finished at 137s against a
+// 120s ceiling, because a deadline only stops another lead being *started*.
+check("research is its own stage, not a passenger on enrichment",
+  read("app/api/cron/research-leads/route.ts").includes("researchLeadsBatch") &&
+  !read("app/api/cron/enrich-leads/route.ts").includes("researchLeadsBatch"));
+check("one slow lead cannot consume the research route",
+  read("lib/lead-research.ts").includes("PER_LEAD_TIMEOUT_MS = 70_000") &&
+  read("lib/lead-research.ts").includes("Promise.race"));
+// A second lead may only start while 70s of work still fits under the ceiling.
+check("the research cutoff leaves room for the lead it starts",
+  read("lib/lead-research.ts").includes("deadlineMs = 45_000"));
+check("scheduled discovery asks for a full batch",
+  read("app/api/cron/discover-leads/route.ts").includes("limit: 25"));
+check("status reports what is mailable, not just what is qualified",
+  read("app/api/admin/status/route.ts").includes("mailableNow") &&
+  read("app/api/admin/status/route.ts").includes("readyAwaitingEmail"));
+
+// Unattended only works if a broken run reaches a human the same day.
+const digest = read("app/api/cron/daily-digest/route.ts");
+check("the digest reads automation run health", digest.includes('from("automation_runs")') && digest.includes("failedRuns"));
+check("a run that died mid-execution is treated as a failure", digest.includes('r.status === "running"') && digest.includes("stalledRuns"));
+check("a failing pipeline changes the subject line", digest.includes("CRM ALERT"));
+check("silence with mailable leads is itself an alert",
+  digest.includes("mailableNow") && digest.includes("nothing sent with"));
+check("a broken pipeline is never reported as a quiet day",
+  digest.includes("d.quiet && !healthBanner"));
 check("internet research runs on a schedule, not only by hand",
-  read("app/api/cron/enrich-leads/route.ts").includes("researchLeadsBatch"));
+  read("app/api/cron/research-leads/route.ts").includes("researchLeadsBatch") &&
+  read(".github/workflows/cron.yml").includes("routes=research-leads"));
 check("automated research saves observations and intelligence",
   read("lib/lead-research.ts").includes('from("lead_internet_observations").insert') &&
   read("lib/lead-research.ts").includes('from("lead_internet_intelligence").upsert'));
@@ -235,7 +270,7 @@ check("completed onboarding excluded from pending queue", stats.onboarding === 2
 const vercel = JSON.parse(read("vercel.json"));
 const workflow = read(".github/workflows/cron.yml");
 check("Vercel-native crons disabled", !Object.hasOwn(vercel, "crons"));
-for (const route of ["discover-leads", "enrich-leads", "process-discovered-leads", "automation",
+for (const route of ["discover-leads", "enrich-leads", "research-leads", "process-discovered-leads", "automation",
   "process-followups", "poll-replies", "daily-digest"]) {
   check(`GitHub schedule maps: ${route}`, workflow.includes(`routes=${route}`));
 }

@@ -59,6 +59,16 @@ export async function GET(req: NextRequest) {
       .eq("direction", "outbound")
       .gte("sent_at", phoenixDayStartIso());
 
+    const { count: mailableNow } = await supabase
+      .from("leads").select("*", { count: "exact", head: true })
+      .eq("status", "Ready for Outreach").not("email", "is", null).neq("email", "")
+      .eq("opt_out", false).eq("bounced", false).is("archived_at", null);
+
+    const { count: readyAwaitingEmail } = await supabase
+      .from("leads").select("*", { count: "exact", head: true })
+      .eq("status", "Ready for Outreach").or("email.is.null,email.eq.")
+      .is("archived_at", null);
+
     const { count: emailsSentTotal } = await supabase
       .from("outreach_log")
       .select("*", { count: "exact", head: true })
@@ -82,6 +92,13 @@ export async function GET(req: NextRequest) {
         sentTotal: emailsSentTotal || 0,
         dailyCapacity: DAILY_SEND_CAP,
         remainingToday: Math.max(0, DAILY_SEND_CAP - (emailsSentToday || 0)),
+      },
+      // "Ready for Outreach" only means qualified. 154 leads held that status
+      // with no email address, so every readiness number on every dashboard
+      // overstated what could actually be mailed today.
+      pipeline: {
+        mailableNow: mailableNow || 0,
+        readyAwaitingEmail: readyAwaitingEmail || 0,
       },
       summary: {
         readyToSend: leadsHighScore,

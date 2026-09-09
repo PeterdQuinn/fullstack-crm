@@ -38,7 +38,16 @@ function toObservation(row: any): InternetObservation {
   };
 }
 
-export async function researchLeadsBatch(batchSize = 2, deadlineMs = 85_000): Promise<ResearchResult> {
+// A single lead's research is four Firecrawl searches, up to five page scrapes
+// and an LLM read. deadlineMs only stops another lead being started, so each
+// lead also gets a hard cap — one slow source must not consume the route.
+// Measured: four Firecrawl searches and five scrapes in parallel plus the LLM
+// read runs 20-60s depending on how slow the slowest source is. 45s cut off
+// healthy runs. deadlineMs is deliberately well below this so a second lead is
+// only started when it can still finish inside the route's 120s ceiling.
+const PER_LEAD_TIMEOUT_MS = 70_000;
+
+export async function researchLeadsBatch(batchSize = 2, deadlineMs = 45_000): Promise<ResearchResult> {
   const startedAt = Date.now();
   const result: ResearchResult = { processed: 0, researched: 0, observations: 0, creditsUsed: 0, errors: [] };
 
@@ -79,7 +88,11 @@ export async function researchLeadsBatch(batchSize = 2, deadlineMs = 85_000): Pr
         .order("observed_at", { ascending: false }).limit(200);
       if (previousError) throw new Error(`Cannot read previous evidence: ${previousError.message}`);
 
-      const internet = await researchInternetPresence(lead as any, (previousRows || []).map(toObservation));
+      const internet = await Promise.race([
+        researchInternetPresence(lead as any, (previousRows || []).map(toObservation)),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`Research exceeded ${PER_LEAD_TIMEOUT_MS / 1000}s`)), PER_LEAD_TIMEOUT_MS)),
+      ]);
 
       if (internet.observations.length) {
         const { error: saveError } = await supabase.from("lead_internet_observations").insert(

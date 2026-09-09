@@ -13,7 +13,7 @@ async function run(req: NextRequest) {
   }
 
   try {
-    const result = await runDiscoveryPipeline({ states: 1, importToDb: true });
+    const result = await runDiscoveryPipeline({ states: 1, importToDb: true, limit: 25 });
     return NextResponse.json(result);
   } catch (error) {
     console.error("Automated discovery failed:", error);

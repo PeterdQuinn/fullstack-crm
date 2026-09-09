@@ -24,6 +24,7 @@ on:
     # -> scoring -> outreach -> digest.
     - cron: "0 13 * * *"        # discover-leads       — daily 06:00 Phoenix
     - cron: "0 14,17,20 * * *"        # enrich-leads         — 07:00, 10:00, 13:00 Phoenix
+    - cron: "45 14,17,20 * * *"        # research-leads       — 07:45, 10:45, 13:45 Phoenix
     - cron: "0 15,18,21 * * *"        # process-discovered   — 08:00, 11:00, 14:00 Phoenix
     - cron: "0 16,19,22 * * *"        # automation           — 09:00, 12:00, 15:00 Phoenix
     - cron: "0 1 * * *"        # daily-digest         — daily 18:00 Phoenix
@@ -38,7 +39,7 @@ on:
         required: true
         default: automation
         type: choice
-        options: [discover-leads, automation, enrich-leads, process-discovered-leads, process-followups, daily-digest, poll-replies]
+        options: [discover-leads, automation, enrich-leads, research-leads, process-discovered-leads, process-followups, daily-digest, poll-replies]
 
 concurrency:
   group: crm-pipeline
@@ -58,6 +59,7 @@ jobs:
             case "${{ github.event.schedule }}" in
               "0 13 * * *")      echo "routes=discover-leads" >> "$GITHUB_OUTPUT" ;;
               "0 14,17,20 * * *")      echo "routes=enrich-leads" >> "$GITHUB_OUTPUT" ;;
+              "45 14,17,20 * * *")     echo "routes=research-leads" >> "$GITHUB_OUTPUT" ;;
               "0 15,18,21 * * *")      echo "routes=process-discovered-leads" >> "$GITHUB_OUTPUT" ;;
               "0 16,19,22 * * *")      echo "routes=automation" >> "$GITHUB_OUTPUT" ;;
               "0 1 * * *")      echo "routes=daily-digest" >> "$GITHUB_OUTPUT" ;;

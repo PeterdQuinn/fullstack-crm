@@ -46,7 +46,13 @@ export type EnrichResult = {
   error?: string;
 };
 
-export async function enrichLeadsBatch(batchSize = 3): Promise<EnrichResult> {
+// batchSize was 3 against three runs a day — nine scrape attempts daily to work
+// through 126 leads that have a website but no email. At a realistic hit rate
+// that fed the sender roughly three new addresses a day, so the daily send cap
+// was never the binding constraint; supply was. deadlineMs stops the loop
+// starting another lead near the route's 120s ceiling.
+export async function enrichLeadsBatch(batchSize = 12, deadlineMs = 45_000): Promise<EnrichResult> {
+  const startedAt = Date.now();
   // Leads with a website to scrape but no email yet — those unblock the email
   // queue. Ordered oldest-touched-first, and every processed lead's updated_at
   // is bumped, so repeated cron runs rotate through the whole backlog instead
@@ -61,15 +67,17 @@ export async function enrichLeadsBatch(batchSize = 3): Promise<EnrichResult> {
     .neq("status", "Do Not Contact")
     .is("archived_at", null)
     .order("updated_at", { ascending: true })
-    .limit(Math.min(batchSize, 8));
+    .limit(Math.min(batchSize, 20));
 
   if (error || !leads) {
     return { processed: 0, updated: 0, emailsFound: 0, socialsFound: 0, errors: 0, error: error?.message };
   }
 
-  const result: EnrichResult = { processed: leads.length, updated: 0, emailsFound: 0, socialsFound: 0, errors: 0 };
+  const result: EnrichResult = { processed: 0, updated: 0, emailsFound: 0, socialsFound: 0, errors: 0 };
 
   for (const lead of leads) {
+    if (Date.now() - startedAt > deadlineMs) break;
+    result.processed++;
     try {
       const s = await scrapeLeadData(lead);
 
