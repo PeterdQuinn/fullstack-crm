@@ -377,6 +377,19 @@ check("reports states each number once",
   reportsPage.split("data.pipeline.map((s) => (").length === 2);
 check("reports uses the shared status colors",
   reportsPage.includes("getStatusStyle") && !reportsPage.includes("const BAR_COLOR"));
+// A bounce kills an address, not a business. 24 leads sat at "Bad Email" with a
+// phone on file and no opt-out or complaint, in no work queue at all.
+const suppression = read("lib/suppression.ts");
+const callQueue = read("app/api/crm/call-queue/route.ts");
+check("suppression distinguishes a request to stop from a dead address",
+  suppression.includes("isPermanentlySuppressed") && suppression.includes("isEmailSuppressed"));
+check("only an opt-out or complaint blocks every channel",
+  suppression.includes("Boolean(lead.opt_out) || Boolean(lead.complained)") &&
+  suppression.includes('lead.status === EMAIL_FAILURE_STATUS'));
+check("a bad address does not hide a working phone number",
+  callQueue.includes("EMAIL_FAILURE_STATUS") && callQueue.includes('.eq("complained", false)'));
+check("suppressed list catches addresses rejected before any send",
+  read("app/api/crm/suppressed/route.ts").includes("status.eq.${EMAIL_FAILURE_STATUS}"));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
 
 // 57% of the list is a role inbox, so the reply that matters is the one least

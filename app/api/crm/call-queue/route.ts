@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { EMAIL_FAILURE_STATUS } from "@/lib/suppression";
 import { buildCallPreparation, type InternetObservation } from "@/lib/internet-intelligence";
 
 const supabase = createClient(
@@ -16,6 +17,11 @@ const CALL_STATUSES = [
   "Follow-Up Scheduled",
   "Needs Follow-Up",
   "Interested",
+  // A failed email address is not a reason to stop calling. These leads were
+  // reachable by phone the whole time and appeared in no queue. Anyone who
+  // actually asked to be left alone is excluded by the opt_out/complained
+  // filters below, not by their status.
+  EMAIL_FAILURE_STATUS,
 ];
 
 export async function GET() {
@@ -40,6 +46,7 @@ export async function GET() {
       .neq("phone", "")
       .is("archived_at", null)
       .eq("opt_out", false)
+      .eq("complained", false)
       .in("status", CALL_STATUSES)
       .limit(200);
 
