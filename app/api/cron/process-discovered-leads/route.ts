@@ -1,3 +1,4 @@
+import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
@@ -32,7 +33,7 @@ async function scrapeLeadData(lead: any) {
 }
 
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   // Verify cron secret (required for security)
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
@@ -115,7 +116,9 @@ export async function GET(req: NextRequest) {
             if (scrapedData.phone && !lead.phone) updates.phone = scrapedData.phone;
             if (scrapedData.owner && !lead.owner_name) updates.owner_name = scrapedData.owner;
 
-            await supabase.from("leads").update(updates).eq("id", lead.id);
+            const { error: saveError } = await supabase.from("leads").update(updates).eq("id", lead.id);
+            if (saveError) throw saveError;
+            Object.assign(lead, updates);
             scraped++;
           }
         }
@@ -132,32 +135,10 @@ export async function GET(req: NextRequest) {
           short_description: lead.short_description,
         });
 
-        if (score) {
-          await supabase
-            .from("lead_ai_summaries")
-            .upsert({
-              lead_id: lead.id,
-              lead_score: score.lead_score || 50,
-              confidence_level: score.confidence_level || "medium",
-              main_pain_point: score.main_pain_point,
-              best_attack_angle: score.best_attack_angle,
-              recommended_first_message: score.recommended_first_message,
-              recommended_follow_up: score.recommended_follow_up,
-              missing_data_needed: score.missing_data_needed,
-            });
-          scored++;
-        }
-
-        // Step 3: Update lead status based on score.
-        // Threshold aligned to 50 — the same bar as SCORE_KEEP_THRESHOLD in
-        // lib/automation.ts and the `score > 50` gate on every send path. At
-        // the old >60 a lead could be kept by the automation phase yet never
-        // promoted to "Ready for Outreach" here, so it sat unsendable forever.
-        // Both statuses below are permitted by leads_status_check (see
-        // migrations/003_leads_status_constraint.sql).
-        const leadScore = score?.lead_score || 50;
-        const newStatus = leadScore >= 50 ? "Ready for Outreach" : "Scored";
-        await supabase.from("leads").update({ status: newStatus }).eq("id", lead.id);
+        if (!score || score.provider === "fallback") throw new Error("AI scoring unavailable; lead retained for retry");
+        const { error: saveError } = await supabase.rpc("save_automation_score", { p_lead_id: lead.id, p_score: score });
+        if (saveError) throw saveError;
+        scored++;
       } catch (error) {
         console.error(`Failed to process ${lead.business_name}:`, error);
         failed++;
@@ -167,7 +148,7 @@ export async function GET(req: NextRequest) {
     console.log(`✅ Processing complete: Scraped ${scraped}, Scored ${scored}, Failed ${failed}`);
 
     return NextResponse.json({
-      success: true,
+      success: failed === 0,
       processed: newLeads.length,
       scraped,
       scored,
@@ -181,4 +162,8 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  return withAutomationRun("process-discovered-leads", req, () => handleGET(req));
 }

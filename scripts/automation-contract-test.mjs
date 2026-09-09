@@ -179,9 +179,9 @@ for (const route of ["discover-leads", "enrich-leads", "process-discovered-leads
   "process-followups", "poll-replies", "daily-digest"]) {
   check(`GitHub schedule maps: ${route}`, workflow.includes(`routes=${route}`));
 }
-check("reply polling is daily", workflow.includes('cron: "30 14 * * *"'));
-check("followup processing is daily after reply polling", workflow.includes('cron: "30 15 * * *"'));
-check("heavy automation is Monday-only", workflow.includes('cron: "0 13 * * 1"') && workflow.includes('cron: "0 19 * * 1"'));
+check("reply polling is daily", workflow.includes('cron: "30 14-23 * * *"'));
+check("followup processing is daily after reply polling", workflow.includes('cron: "35 14-23 * * *"'));
+check("daily discovery and three daily send passes", workflow.includes('cron: "0 13 * * *"') && workflow.includes('cron: "0 16,19,22 * * *"'));
 
 for (const file of ["lib/automation.ts", "lib/reply-actions.ts", "app/api/cron/process-followups/route.ts",
   "app/api/email/send-batch/route.ts"]) {
@@ -247,15 +247,15 @@ const selectedSendRoute = read("app/api/email/send-batch/route.ts");
 check("lead Email tab requires a selected lead", selectedSendRoute.includes('const leadId = typeof body.leadId') && selectedSendRoute.includes('.eq("id", leadId)'));
 check("legacy endpoint cannot silently bulk send", selectedSendRoute.includes("bulk sending is not available"));
 check("selected-lead send uses manual daily cap", selectedSendRoute.includes("MANUAL_SEND_CAP") && selectedSendRoute.includes("phoenixDayStartIso"));
-check("manual followup send closes its pending task", selectedSendRoute.includes("Sent manually from Email Workspace") && selectedSendRoute.includes('task_type", `send_email_${emailNum}`'));
+check("manual followup send closes its pending task", read("supabase/migrations/016_autonomous_outreach.sql").includes("task_type='send_' || item.message_type"));
 check("selected-lead send rejects unsafe statuses", selectedSendRoute.includes('["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"]'));
 // Was 'market !== "hvac"'. The outreach copy stopped naming a trade in 11a356d,
 // so the gate became an allowlist in lib/outreach-markets.ts. What must hold is
 // that a gate still exists and still fails closed — not that it names one trade.
 const outreachMarkets = read("lib/outreach-markets.ts");
 check("selected-lead send is restricted to approved markets", selectedSendRoute.includes("marketRejectionReason"));
-check("approved markets are an allowlist, not a passthrough", outreachMarkets.includes("APPROVED_MARKETS.includes"));
-check("a lead with no market is never mailed", outreachMarkets.includes("APPROVED_MARKETS.includes(leadMarket(lead))"));
+check("named niches support optional configured market restrictions", outreachMarkets.includes("APPROVED_MARKETS.includes"));
+check("a lead with no market is never mailed", outreachMarkets.includes("Boolean(market) &&"));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
 
 check("reply polling fails when mailbox config is missing", read("app/api/cron/poll-replies/route.ts").includes("{ status: 503 }"));

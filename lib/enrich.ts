@@ -86,7 +86,8 @@ export async function enrichLeadsBatch(batchSize = 3): Promise<EnrichResult> {
       // Always bump updated_at so this lead rotates to the back of the queue,
       // even when nothing new was found (otherwise the cron re-scrapes it forever).
       updates.updated_at = new Date().toISOString();
-      await supabase.from("leads").update(updates).eq("id", lead.id);
+      const { error: saveError } = await supabase.from("leads").update(updates).eq("id", lead.id);
+      if (saveError) throw saveError;
 
       const socials = [
         { platform: "facebook", url: s.facebook_url },
@@ -107,7 +108,8 @@ export async function enrichLeadsBatch(batchSize = 3): Promise<EnrichResult> {
           .eq("platform", soc.platform)
           .maybeSingle();
         if (!existing) {
-          await supabase.from("lead_socials").insert({ lead_id: lead.id, platform: soc.platform, url: soc.url, is_active: true });
+          const { error: socialError } = await supabase.from("lead_socials").insert({ lead_id: lead.id, platform: soc.platform, url: soc.url, is_active: true });
+          if (socialError) throw socialError;
           result.socialsFound++;
         }
       }

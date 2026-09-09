@@ -1,3 +1,5 @@
+import { DAILY_SEND_CAP } from "@/lib/automation";
+import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
@@ -54,7 +56,8 @@ export async function GET(req: NextRequest) {
       .from("outreach_log")
       .select("*", { count: "exact", head: true })
       .eq("channel", "email")
-      .gte("sent_at", `${today}T00:00:00Z`);
+      .eq("direction", "outbound")
+      .gte("sent_at", phoenixDayStartIso());
 
     const { count: emailsSentTotal } = await supabase
       .from("outreach_log")
@@ -77,8 +80,8 @@ export async function GET(req: NextRequest) {
       email: {
         sentToday: emailsSentToday || 0,
         sentTotal: emailsSentTotal || 0,
-        dailyCapacity: 25,
-        remainingToday: Math.max(0, 25 - (emailsSentToday || 0)),
+        dailyCapacity: DAILY_SEND_CAP,
+        remainingToday: Math.max(0, DAILY_SEND_CAP - (emailsSentToday || 0)),
       },
       summary: {
         readyToSend: leadsHighScore,
