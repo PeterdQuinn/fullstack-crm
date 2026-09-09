@@ -360,6 +360,23 @@ const outreachMarkets = read("lib/outreach-markets.ts");
 check("selected-lead send is restricted to approved markets", selectedSendRoute.includes("marketRejectionReason"));
 check("named niches support optional configured market restrictions", outreachMarkets.includes("APPROVED_MARKETS.includes"));
 check("a lead with no market is never mailed", outreachMarkets.includes("Boolean(market) &&"));
+// The page counted six hardcoded terminal statuses, so it rendered 31 of 386
+// leads: four sat at zero, "Dead" was absent, and the 169 in Ready for Outreach
+// were invisible. It also drew the same numbers twice, as a bar block and then
+// a table block directly beneath it.
+const reportsApi = read("app/api/crm/reports/route.ts");
+const reportsPage = read("app/crm/reports/page.tsx");
+check("reports counts every status present in the data",
+  reportsApi.includes("counts.set(status") && reportsApi.includes("!STAGE_ORDER.includes(s)"));
+check("reports surfaces send performance, not just outcomes",
+  reportsApi.includes("opened_at") && reportsApi.includes("replied_at") && reportsApi.includes("rates"));
+check("reports states each number once",
+  !reportsPage.includes("Table (same numbers, precise)") &&
+  // The render site only. data.pipeline.map also appears computing the max,
+  // which is arithmetic, not a second copy of the numbers on screen.
+  reportsPage.split("data.pipeline.map((s) => (").length === 2);
+check("reports uses the shared status colors",
+  reportsPage.includes("getStatusStyle") && !reportsPage.includes("const BAR_COLOR"));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
 
 // 57% of the list is a role inbox, so the reply that matters is the one least
