@@ -1,3 +1,5 @@
+import { extractOutreachFact, OUTREACH_FACT_SIGNAL } from "@/lib/fact-extraction";
+
 export type InternetSignalCategory =
   | "reputation" | "hiring" | "expansion" | "advertising"
   | "technology" | "licensing" | "bbb" | "public_records" | "social" | "news" | "website";
@@ -203,20 +205,13 @@ export function usableOutreachDetail(value: string | undefined): boolean {
   return true;
 }
 
-// OFF until fact extraction is real. observationsFromPage finds sentences by
-// keyword match, which cannot tell "this company is hiring three technicians"
-// from a BBB page titled "Your liability risk when hiring a contractor" or a
-// directory listing. On live data every surviving candidate was boilerplate,
-// marketing copy, or a page *about* the category rather than a fact about the
-// business. A wrong personalised opener is far worse than a generic one: it
-// tells the reader you did not actually look. Flip this on only when an LLM
-// extraction pass supplies the detail and the sentence gate below still holds.
-const OUTREACH_PERSONALISATION_ENABLED = false;
-
+// Only an LLM-extracted fact may be pasted into outreach. Keyword-matched
+// observations stay internal: on live data they surfaced BBB disclaimers,
+// directory listing titles and the company's own slogans, all of which read as
+// proof that nobody actually looked. The sentence gate still applies on top.
 export function verifiedOutreachDetail(observations: InternetObservation[]): string | undefined {
-  if (!OUTREACH_PERSONALISATION_ENABLED) return undefined;
-  const usable = observations.filter((item) => item.evidenceType === "verified" && usableOutreachDetail(item.value));
-  return usable.find((item) => item.growthDirection > 0)?.value || usable[0]?.value;
+  const facts = observations.filter((item) => item.signal === OUTREACH_FACT_SIGNAL && usableOutreachDetail(item.value));
+  return facts.find((item) => item.growthDirection > 0)?.value || facts[0]?.value;
 }
 
 export function scoreInternetIntelligence(observations: InternetObservation[], lead: LeadIdentity, previous: InternetObservation[] = []) {
@@ -273,10 +268,23 @@ export async function researchInternetPresence(lead: LeadIdentity, previous: Int
     const scraped = await firecrawl("scrape", { url: candidate.url, formats: ["markdown"], onlyMainContent: true, maxAge: 604800000, timeout: 15_000, removeBase64Images: true, blockAds: true });
     return { ...candidate, markdown: scraped.data?.markdown || candidate.markdown };
   }));
+  const scrapedPages: { url: string; markdown?: string }[] = [];
   for (const result of pageResults) {
     if (result.status === "rejected") { errors.push(String(result.reason)); continue; }
     observations.push(...observationsFromPage(lead, result.value, observedAt));
+    if (result.value.url) scrapedPages.push({ url: result.value.url, markdown: result.value.markdown });
   }
+  // One reading pass over the same pages. This is the only observation allowed
+  // into outreach copy; everything above it is keyword-matched and stays
+  // internal to the call queue and research page.
+  try {
+    const extracted = await extractOutreachFact(lead, scrapedPages);
+    if (extracted) observations.push({
+      category: extracted.category as InternetSignalCategory, signal: OUTREACH_FACT_SIGNAL,
+      value: extracted.fact, sourceLabel: `Verified by ${extracted.provider}`, sourceUrl: extracted.sourceUrl,
+      observedAt, confidence: "high", growthDirection: extracted.growthDirection,
+    });
+  } catch (error) { errors.push(`Outreach fact extraction failed: ${error instanceof Error ? error.message : String(error)}`); }
   if (domain) {
     try {
       const mapped = await firecrawl("map", { url: `https://${domain}`, limit: 100, sitemap: "include", includeSubdomains: false, ignoreQueryParameters: true, timeout: 20_000 });

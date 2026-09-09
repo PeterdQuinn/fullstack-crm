@@ -163,7 +163,7 @@ const groundedEmail = emailTemplates.renderOutreachEmail({ leadId: "grounded", b
 // selector returns nothing and every caller falls back to the generic opener.
 // The renderer keeps working with a supplied detail so flipping the flag back
 // on once real extraction exists needs no template change.
-check("no scraped observation is offered to outreach", (() => {
+check("keyword-matched observations are never offered to outreach", (() => {
   const wellFormed = internetIntelligence.corroborateObservations([
     { category: "expansion", signal: "Expansion activity", value: "They opened a second location in Mesa to serve the east valley.", sourceLabel: "News", sourceUrl: "https://news.example.com/a", observedAt: new Date().toISOString(), confidence: "high", growthDirection: 1 },
     { category: "expansion", signal: "Expansion activity", value: "They opened a second location in Mesa to serve the east valley.", sourceLabel: "Blog", sourceUrl: "https://blog.example.org/b", observedAt: new Date().toISOString(), confidence: "high", growthDirection: 1 },
@@ -171,6 +171,30 @@ check("no scraped observation is offered to outreach", (() => {
   return wellFormed.every((o) => o.evidenceType === "verified") &&
     internetIntelligence.verifiedOutreachDetail(wellFormed) === undefined;
 })());
+const factExtraction = await import(`file://${path.join(out, "fact-extraction.js")}`);
+check("an LLM-extracted fact is offered to outreach", (() => {
+  const fact = "Example HVAC is hiring two service technicians for its Mesa location.";
+  return internetIntelligence.verifiedOutreachDetail([
+    { category: "hiring", signal: factExtraction.OUTREACH_FACT_SIGNAL, value: fact,
+      sourceLabel: "Verified by Gemini", sourceUrl: "https://example.com/careers",
+      observedAt: new Date().toISOString(), confidence: "high", growthDirection: 1 },
+  ]) === fact;
+})());
+check("extraction rejects boilerplate, slogans and unnamed facts", (() => {
+  const name = "Indoor Comfort Supply";
+  const junk = [
+    "Here are some links to leave us recommendations and reviews.",
+    "We handle each job with the same level of expertise and care every time.",
+    "Indoor Comfort Supply - 99 Reviews - Retail in Phoenix, AZ - Birdeye",
+    "They opened a second location in Mesa to serve the east valley this spring.",
+  ];
+  const good = "Indoor Comfort Supply opened a second location in Mesa this spring.";
+  return junk.every((v) => !factExtraction.factLooksUsable(v, name)) && factExtraction.factLooksUsable(good, name);
+})());
+check("extraction has its own provider chain including Kablewy",
+  read("lib/ai-providers.ts").includes("EXTRACTION_PROVIDERS") && read("lib/ai-providers.ts").includes('defaults: ["Gemini", "Ollama", "Groq", "Kablewy", "Anthropic", "Kimi"]'));
+check("extraction is allowed to answer none",
+  read("lib/fact-extraction.ts").includes('{"fact": null}') && read("lib/fact-extraction.ts").includes("Returning null is the correct answer"));
 check("the renderer still supports a detail once extraction is real",
   groundedEmail.bodyText.includes("Noticed this about"));
 // The Firecrawl pipeline shipped callable only from the manual research page,

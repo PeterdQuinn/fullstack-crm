@@ -520,6 +520,14 @@ export const CHAINS = {
     defaults: ROSTER,
     description: "Email drafting / lead summaries — moderate reasoning, low volume",
   },
+  extraction: {
+    envVar: "EXTRACTION_PROVIDERS",
+    // Reading comprehension over scraped pages, one lead at a time. Gemini and
+    // Ollama carry this in practice; Kablewy stays in the chain per operator
+    // request and fails on DNS in ~0ms until KABLEWY_BASE_URL is real.
+    defaults: ["Gemini", "Ollama", "Groq", "Kablewy", "Anthropic", "Kimi"],
+    description: "Outreach fact extraction — careful reading, must be able to answer none",
+  },
   cleanup: {
     envVar: "CLEANUP_PROVIDERS",
     defaults: ROSTER,

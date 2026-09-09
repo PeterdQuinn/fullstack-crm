@@ -125,7 +125,7 @@ function messageParagraphs(emailNum: number, ownerName: string, company: string,
     if (verifiedDetail) return [
       `Hi ${ownerName},`,
       `Noticed this about ${company}: ${verifiedDetail}`,
-      `Usually when that happens the software stack grows faster than the business does — one subscription for scheduling, another for invoicing, another for customer records, none of them talking to each other.`,
+      `That's what prompted me to reach out. I build one system that replaces the pile of separate subscriptions most operations run on — scheduling, invoicing, customer records — owned outright instead of rented every month.`,
       `Is that pile something you're dealing with right now?`,
       ...PETER_SIGNATURE,
     ];
