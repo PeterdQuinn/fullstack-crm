@@ -1,6 +1,4 @@
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { sendSavedEmail } from "@/lib/email-outbox";
 
 // Email body/footer rendering lives in lib/email-templates.ts (shared by the
 // cron send phase and the manual copy-paste Email Queue).
@@ -10,26 +8,11 @@ export async function sendEmail(
   subject: string,
   html: string,
   replyTo?: string,
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  tracking?: { bodyText?: string; source?: "owner" | "automation"; limit?: number }
 ) {
   try {
-    const fromEmail = process.env.RESEND_FROM_EMAIL || "noreply@fullstackservicesllc.net";
-    const result = await resend.emails.send(
-      {
-        from: fromEmail,
-        to: email,
-        subject,
-        html,
-        replyTo: replyTo || "owner@fullstackservicesllc.net",
-      },
-      idempotencyKey ? { idempotencyKey } : undefined
-    );
-
-    if (result.error) {
-      throw new Error(result.error.message);
-    }
-
-    return result.data;
+    return await sendSavedEmail(email, subject, html, replyTo, idempotencyKey, tracking);
   } catch (error) {
     console.error("Resend error:", error);
     throw error;
