@@ -1,3 +1,4 @@
+import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { runDiscoveryPipeline } from "@/lib/discovery-pipeline";
 
@@ -23,5 +24,9 @@ async function run(req: NextRequest) {
   }
 }
 
-export async function GET(req: NextRequest) { return run(req); }
+async function handleGET(req: NextRequest) { return run(req); }
 export async function POST(req: NextRequest) { return run(req); }
+
+export async function GET(req: NextRequest) {
+  return withAutomationRun("discover-leads", req, () => handleGET(req));
+}

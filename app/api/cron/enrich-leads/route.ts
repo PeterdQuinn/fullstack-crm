@@ -1,3 +1,4 @@
+import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { enrichLeadsBatch } from "@/lib/enrich";
 
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 // a real outage: a scheduler holding the wrong secret got a cheerful 200 body
 // and enriched nothing, so every job looked green while `outreach_log` sat at
 // zero. A wrong secret must fail loudly.
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
@@ -47,4 +48,8 @@ async function runEnrich(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  return withAutomationRun("enrich-leads", req, () => handleGET(req));
 }

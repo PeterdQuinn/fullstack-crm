@@ -1,3 +1,4 @@
+import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
@@ -24,7 +25,7 @@ async function countHead(query: any): Promise<number> {
 // a real outage: a scheduler with a stale secret got a cheerful 200 and sent no
 // digest, so a broken job was indistinguishable from a working one. A wrong
 // secret must fail loudly.
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
@@ -255,4 +256,8 @@ function buildHtml(d: {
       (based on when the lead row was last updated). Full Stack Services LLC · automated digest.
     </p>
   </div>`;
+}
+
+export async function GET(req: NextRequest) {
+  return withAutomationRun("daily-digest", req, () => handleGET(req));
 }

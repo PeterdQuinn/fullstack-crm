@@ -1,3 +1,4 @@
+import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { classifyReply } from "@/lib/grok";
@@ -119,7 +120,7 @@ async function handle(msg: GraphMessage) {
   return { lead: lead.business_name, category, acted: true, action, resumed: Boolean(stored) };
 }
 
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
@@ -179,4 +180,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   return GET(req);
+}
+
+export async function GET(req: NextRequest) {
+  return withAutomationRun("poll-replies", req, () => handleGET(req));
 }
