@@ -1,8 +1,18 @@
 # Full Stack Services LLC — Internal Sales CRM
 
-Internal outbound sales CRM. One link, one rep. Leads are **discovered automatically** (HVAC only) from Google Places + OpenStreetMap, AI-scored, emailed, and booked — with a manual call/DM workflow on top.
+Internal outbound sales CRM that runs itself. Leads are **discovered
+automatically** from Google Places + OpenStreetMap across whatever niches and
+cities you save, then enriched, researched, AI-scored, emailed on a three-touch
+sequence, and booked when they reply — with a manual call/DM workflow on top.
 
 **Leads come from the Discovery pipeline, not a pre-loaded file.**
+
+The whole system has one switch: `/crm/automation`. While it is off, nothing is
+discovered, scored, or sent. While it is on, the schedule in
+`ARCHITECTURE.md` runs without you.
+
+See **[ARCHITECTURE.md](ARCHITECTURE.md)** for how the pipeline, the outbox, the
+AI provider chains and the data model actually fit together.
 
 ---
 
@@ -30,8 +40,9 @@ NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 ```
 
-5. Also run every file in `supabase/migrations/` in order (001 → 015)
-6. Restart `npm run dev` and open **/crm/discovery** to pull your first HVAC leads
+5. Also run every file in `supabase/migrations/` in order (001 → 017)
+6. Restart `npm run dev`, open **/crm/automation** to set your niches and cities,
+   then **/crm/discovery** to pull your first leads
 
 ---
 

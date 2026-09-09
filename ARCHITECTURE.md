@@ -1,143 +1,204 @@
 # Full Stack CRM — Architecture
 
-A single-operator, AI-driven cold-outreach CRM. It finds local service
-businesses, researches them, drafts the outreach, sends it, classifies the
-replies, and books the meeting — with a human approval gate at every stage.
+A single-operator cold-outreach CRM that runs itself. It discovers local
+businesses, finds their contact details, researches them, scores them, writes
+and sends a three-touch email sequence, reads the replies, and books the
+meeting. A human is required for the sales conversation and nothing else.
 
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
-| **Size** | ~13,200 lines across `app/` and `lib/` · 50 API routes · 12 CRM pages |
+| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 38 libs · 17 migrations |
 | **Deploy** | Vercel, auto-deploy from `main` → `fullstack-crm-nine.vercel.app` |
-| **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic still accepted as a second door; `CRON_SECRET` for cron; provider signatures for webhooks |
-| **Discovery niche** | HVAC (hardcoded in `discovery-sources.ts` / `hvac-signals.ts`) |
-| **Outreach markets** | Allowlist in `lib/outreach-markets.ts` — `hvac,landscaping` by default, `OUTREACH_MARKETS` to change. The copy stopped naming a trade in `11a356d`, so the gate is no longer pinned to HVAC. Live queue is currently 18 landscaping / 5 HVAC. |
+| **Scheduler** | GitHub Actions (`.github/workflows/cron.yml`) — `vercel.json` declares no crons |
+| **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic accepted as a second door; `CRON_SECRET` on every `/api/cron/*` verb; provider signatures on webhooks |
+| **Targeting** | Owner-editable niches × US cities, stored in `automation_settings`, rotated one pairing per run by `next_discovery_target()` |
+| **Outreach markets** | `lib/outreach-markets.ts` defaults to `*` (any named niche) and still fails closed on a lead with no market. Narrow it with `OUTREACH_MARKETS`. |
+| **Master switch** | `automation_settings.enabled`. Every scheduled stage checks it before doing anything. Toggled at `/crm/automation`. |
 
 ---
 
 ## The Pipeline
 
 ```
-DISCOVER → ENRICH → RESEARCH → APPROVE → OUTREACH → REPLIES → CLOSE
+DISCOVER → ENRICH → RESEARCH → SCORE → SEND → FOLLOW UP → REPLIES → BOOK
 ```
 
-### 1. Discover
+Each stage is an HTTP endpoint under `/api/cron/`, fired by GitHub Actions and
+wrapped in `withAutomationRun()`, which checks the cron secret, honours the
+pause flag, and writes a row to `automation_runs` recording the stage, status,
+result and duration. A stage that returns errors is recorded as failed rather
+than reported green.
+
+### 1. Discover — `cron/discover-leads`, daily
 Two sources, deduplicated against existing leads before anything is written.
 
-- **Google Places (New)** — `places:searchText`, weekly cap enforced in the DB
-  *before* any HTTP call, so cost cannot run away.
+- **Google Places (New)** — `places:searchText`. A weekly cap is reserved in the
+  database *before* any HTTP call, so cost cannot run away.
 - **OpenStreetMap Overpass** — free second source. Mirrors are queried in
-  parallel (`Promise.any`); the first usable answer wins, so one busy server
-  cannot zero out a run.
+  parallel (`Promise.any`), so one busy server cannot zero out a run.
 
-Manual mode takes city, state, ZIP, radius, max results, minimum rating,
-minimum reviews, and require-phone/website/email. Auto mode rotates through
-metros. Results are AI-cleaned and structured before import.
+The niche and city come from `next_discovery_target()`, which advances a cursor
+through the owner's saved lists. Manual mode (`/crm/discovery`) takes a niche,
+city, state, ZIP, radius, and quality filters. Results are AI-cleaned and
+structured before import. Deduplication now runs *before* the result limit, so a
+run that mostly rediscovers known businesses still returns a full batch of new
+ones.
 
-`lib/discovery-pipeline.ts` · `lib/discovery-sources.ts` · `lib/discovery-clean.ts` · `lib/state-rotation.ts`
+`lib/discovery-pipeline.ts` · `lib/discovery-sources.ts` · `lib/discovery-clean.ts` · `lib/targeting.ts`
 
-### 2. Enrich
-A headless-browser crawl of the contractor's own site, walking internal links
-and merging what each page yields.
+### 2. Enrich — `cron/enrich-leads`, 3×/day
+A static crawl of the business's own site, walking internal links and merging
+what each page yields: email, phone, owner name, address, description, booking
+or dispatch software, website technologies, social profiles, Google Business
+profile. HVAC-specific signals (`lib/hvac-signals.ts`) still exist for the
+trades — booking, after-hours capture, financing, maintenance plans, brands,
+certifications, licence numbers.
 
-Generic: email, phone, owner name, address, description, booking/dispatch
-software, website technologies, social profiles, Google Business profile.
+Twelve leads per run against a 45-second budget, so the route cannot outrun its
+120-second ceiling. Supply, not the send cap, is the binding constraint on this
+system: enrichment is what converts a discovered business into a mailable one.
 
-HVAC-specific (`lib/hvac-signals.ts`): online booking, 24/7 emergency
-messaging, financing, maintenance plans, free estimates, brands carried
-(Trane/Carrier/Lennox/…), certifications (NATE/EPA 608/BBB/ACCA), services,
-residential vs commercial, contractor license numbers, mobile-friendliness,
-ad/analytics tracking, chat widget, review widget.
+`app/api/scrape-phone/route.ts` · `lib/enrich.ts` · `lib/hvac-signals.ts`
 
-Each of those maps to a concrete revenue gap, ranked in the order a rep should
-lead with — no online booking, no after-hours capture, no financing on
-high-ticket replacements, no recurring maintenance revenue, and so on.
+### 3. Research — `cron/research-leads`, 3×/day
+Its own scheduled stage, not a passenger on enrichment: one lead's research is
+four Firecrawl searches, up to five page scrapes and an LLM read, and can take
+70 seconds on its own.
 
-`app/api/scrape-phone/route.ts` · `lib/hvac-signals.ts` · `lib/enrich.ts`
-
-### 3. Research
-The AI produces the pain point, a dollar-sized impact in HVAC terms, the attack
-angle, a first email that must cite a specific verifiable detail, a follow-up,
-a 0–100 score, and what still needs confirming.
-
-Every fact carries its evidence grade:
-
-| Grade | Meaning |
-|---|---|
-| `verified` | Confirmed on the contractor's own site (or two agreeing sources) |
-| `single_source` | One source only — includes "not found on the pages read" |
-| `ai_inference` | Model estimate, explicitly not a company fact |
-| `not_found` | No reliable value |
-
-A positive is `verified`; a negative only ever claims "not found on pages
-read"; a page too thin to have said anything returns *unknown* rather than
-inventing a gap. Source links are listed for manual checking.
-
-`lib/research-evidence.ts` · `lib/grok.ts` · `app/api/crm/research-center/`
-
-### 4. Approve
-Nothing reaches a contact without a decision: **Approve for Email**,
-**Move to Calls**, **Needs More Research**, **Reject**, or **Do Not Contact**.
-Guardrails block approval without an email, off-niche leads, scores ≤ 50, and
-low-confidence research whose sources have not been ticked as reviewed.
-
-Research also builds a dated internet-intelligence history through Firecrawl.
 Grouped searches cover BBB/licensing/reputation, hiring, geographic expansion,
-advertising and technology adoption; a site map measures web footprint. The UI
-shows separate footprint and growth-momentum scores. Growth remains an explicit
-inference backed by source links and repeat observations, never a revenue fact.
-Search results must pass an identity gate using company domain, name, phone,
-address, owner and geography. Accepted results are opened and reduced to dated
-fact sentences; authoritative or independently corroborated facts are marked
-verified. Those facts drive the Call Workspace preparation and personalize the
-first email. Weak matches and unsupported AI claims never enter outreach copy.
+advertising and technology adoption. Results must pass an identity gate on
+domain, name, phone, address, owner and geography before a page is opened.
+Accepted pages are reduced to dated observations in
+`lead_internet_observations`, and a footprint and momentum score are written to
+`lead_internet_intelligence`.
 
-### 5. Outreach
-A three-step email sequence through Resend, with a shared footer carrying the
-mailing address, and one-click unsubscribe (public by design — it is clicked
-from the recipient's inbox). A scraped address is validated before use,
-guarding against invented emails.
+**Two separate outputs, and only one may reach a prospect.**
 
-**Delivery feedback — what is and is not live.** The Resend webhook handles
-`delivered`, `bounced`, `complained`, `failed`, `opened` and `clicked`. Only the
-first four ever fire. Open and click tracking require a **tracking subdomain
-configured in Resend with a matching CNAME at the DNS provider**, and that has
-never been set up — no `track.` / `clicks.` / `link.` record exists on the
-sending domain. The handlers and the `opened_at` / `clicked_at` columns are
-built and waiting.
+- *Keyword observations* are sentences matched by pattern. They are useful to a
+  human reading the call queue or research page and are **never** used in
+  outreach copy — on live data they surfaced BBB disclaimers, directory listing
+  titles and the company's own marketing slogans.
+- *An outreach fact* is produced by an LLM reading the same pages and returning
+  one specific, checkable, third-person sentence about that business, or
+  nothing. Nothing is the correct answer more often than not. This is the only
+  observation permitted into an email.
 
-The measured effect, as of 2026-08-24: **295 sent, 277 delivered (93.9%), 8
-bounced (2.7%), 0 opened, 0 clicked.** A 0% open rate across 277 delivered
-messages is a missing configuration, not reader behaviour — until the subdomain
-is set up there is no way to tell a message that was read from one that was
-ignored, and no copy decision can be evidence-based.
+`verified` now requires two independent sources; a single confident scrape is
+`single_source`.
 
-*(This section previously stated open/click tracking was live. It never was —
-that one line made the gap look solved to every reader, including AI agents
-working on the repo.)*
+`lib/lead-research.ts` · `lib/internet-intelligence.ts` · `lib/fact-extraction.ts` · `lib/research-evidence.ts`
 
-`lib/email-templates.ts` · `lib/email-sequence.ts` · `lib/resend.ts` · `lib/email-validation.ts`
+### 4. Score — `cron/process-discovered-leads`, 3×/day
+The AI produces the pain point, attack angle, a first message, a follow-up, a
+0–100 score and what still needs confirming. Score and the status change it
+implies commit together through `save_automation_score()`.
 
-### 6. Replies
-The owner's Outlook mailbox is polled via Microsoft Graph. Each reply is
-classified into one of eight categories, then acted on automatically:
+Scoring **fails loudly**: if every provider is down, the lead is left for the
+next run rather than promoted to *Ready for Outreach* on a fallback 50.
 
-- **Interested** → Calendly link sent, status becomes *Booking Link Sent*
-- **Not interested** → suppressed, Do Not Contact
+`lib/ai-scoring.ts` · `app/api/cron/process-discovered-leads/`
+
+### 5. Send — `cron/automation`, 3×/day
+Sends first-touch emails to leads scoring above 50 in an approved market,
+preferring leads that have a verified outreach fact so the scarce daily budget
+goes to the personalised opener.
+
+**Every email goes through a transactional outbox.** The message is saved before
+it is sent, reserved by `claim_email_outbox()`, and committed by
+`finalize_email_outbox()`. The log row, lead progress, audit entry and next
+follow-up task commit in one database transaction or not at all — a crash
+between the provider accepting a message and the bookkeeping landing can no
+longer leave a lead mailed but untracked.
+
+- Reservation is serialised by an advisory lock, so the daily cap holds across
+  concurrent senders.
+- A send left unconfirmed past 23 hours moves to `needs_review` rather than
+  being replayed after the provider has forgotten the idempotency key.
+- `cron/automation` runs `recoverEmailOutbox()` first, repairing anything an
+  interrupted run left behind.
+
+`lib/email-outbox.ts` · `lib/resend.ts` · `lib/email-templates.ts` · `lib/email-sequence.ts` · `lib/email-validation.ts`
+
+### 6. Follow up — `cron/process-followups`, hourly
+Touches 2 and 3, three days apart, sent when due. This is the path that knows
+how to stop on a reply, which is why `lib/automation.ts` deliberately keeps a
+narrower `SENDABLE_STATUSES` for touch 1.
+
+### 7. Replies — `cron/poll-replies`, hourly
+The owner's Outlook mailbox is polled through Microsoft Graph. Matching a reply
+to a lead has three tiers, each required to be unambiguous:
+
+1. **Address** — exact match on `leads.email`.
+2. **Thread** — the reply quotes a subject we actually sent (`Re:`/`Fwd:`
+   stripped). Accepted only when exactly one lead was sent that subject.
+3. **Company domain** — accepted only when the domain is not a shared mail
+   provider and exactly one lead uses it. 24 public providers are excluded:
+   matching `gmail.com` alone once paired a reply from one person to an
+   unrelated lead on the same free provider.
+
+This matters because 57% of the mailable list is a role inbox, so the likeliest
+real reply arrives from an address we never wrote to. Every match records *how*
+it matched.
+
+Each reply is classified into eight categories and acted on:
+
+- **Interested** → Calendly link sent, status *Booking Link Sent*
+- **Not interested** → Do Not Contact
 - **Unclear** → follow-up task for a human
 
-`lib/graph-inbox.ts` · `lib/reply-actions.ts` · `lib/reply-policy.ts` · `app/api/ai/classify-reply/`
+`lib/graph-inbox.ts` · `lib/reply-actions.ts` · `lib/reply-policy.ts`
 
-### 7. Close
-Call queue with logged outcomes, bookings, onboarding hand-off, and reporting.
+### 8. Book and close
+Calendly link, call queue with logged outcomes, bookings, onboarding hand-off.
+
+---
+
+## Delivery feedback
+
+The Resend webhook handles `delivered`, `bounced`, `complained`, `failed`,
+`opened` and `clicked`.
+
+**Open and click tracking are enabled** (`open_tracking` / `click_tracking` on
+the Resend domain, turned on 2026-09-09 and verified end to end by reading a
+sent message back out of the mailbox and confirming the pixel and rewritten
+links). Historical sends predate it and will always read 0% opened.
+
+Sending domain: `fullstackservicesllc.net`, verified in Resend — DKIM on the
+root, MAIL FROM on `send.`, SPF passing on the envelope domain. Authentication
+has never been the problem.
+
+Measured as of 2026-09-09: **353 sent, 334 delivered (94.6%), 9 bounced (2.5%),
+0 complaints, 0 replies.** Mail is reaching inboxes; nothing has answered.
+
+---
+
+## Suppression is per channel, not per lead
+
+A bounce says an address is dead. It does not say the business asked to be left
+alone, and it does not disconnect their phone.
+
+| Kind | Meaning | What still works |
+|---|---|---|
+| `permanent` | `opt_out`, `complained`, *Do Not Contact* — a person asked to stop | Nothing. No channel, ever. |
+| `address` | Hard bounce, or an address rejected before sending | Phone, and finding a better address |
+| `transient` | Full mailbox, throttle, temporary failure | Retry the same address |
+
+Every bounce records Resend's bounce type and the receiving server's
+diagnostic; the pre-send mailability check records its own reason and transient
+flag. `/crm/suppressed` shows the reason and offers the three things worth
+doing — retry, find a new address, or move to the call queue — and refuses to
+act at all on a lead whose owner asked to stop.
+
+`lib/suppression.ts` · `app/api/crm/suppressed/action/`
 
 ---
 
 ## AI Layer
 
-`lib/ai-providers.ts` is a shared registry with four task-specific chains, each
-ordered by an env var and failing over provider by provider. Only providers
-holding a key are called; reordering needs no code change.
+`lib/ai-providers.ts` is a shared registry of task-specific chains, each ordered
+by an env var and failing over provider by provider. Only providers holding a
+key are called; reordering needs no code change.
 
 | Task | Env var | Used by |
 |---|---|---|
@@ -145,26 +206,31 @@ holding a key are called; reordering needs no code change.
 | Lead scoring | `SCORING_PROVIDERS` | `scoreLead` |
 | Email drafting / summaries | `DRAFT_PROVIDERS` | `generateLeadSummary` |
 | Discovery cleanup | `CLEANUP_PROVIDERS` | `cleanAndStructureLeads` |
+| Outreach fact extraction | `EXTRACTION_PROVIDERS` | `extractOutreachFact` |
 
 Providers: Ollama, Groq, Gemini, Kimi, Anthropic, Kablewy. Free and cheap tiers
-sit at the head of each chain, paid providers at the tail. Model IDs are
-overridable per provider. `scripts/ai-health-check.mjs` probes every
-provider × chain pair with real calls.
+head every chain. `scripts/ai-health-check.mjs` probes every provider × chain
+pair with real calls.
 
-**Health as of 2026-08-24** (`npm run ai:health`, 11/22 pairs passing):
+Gemini and Ollama carry the work in practice. Kimi and Anthropic are
+quota/credit blocked; `api.kablewy.com` does not resolve, so it fails on DNS in
+about zero milliseconds and costs nothing sitting in the chain.
 
-| Provider | State |
-|---|---|
-| Ollama (`gpt-oss:120b-cloud`) | ✅ live, heads every chain |
-| Groq | ✅ live |
-| Gemini | ✅ live |
-| Kimi | ❌ HTTP 429, quota exhausted |
-| Anthropic | ❌ HTTP 400, credit balance too low |
-| Kablewy | ❌ `api.kablewy.com` is NXDOMAIN — permanently dead, removed from the chains |
+---
 
-Every chain still has at least two healthy providers at its head, so the dead
-tail costs nothing in practice — it is only reached if all three working
-providers fail at once.
+## External services
+
+| Service | Used for | Guard |
+|---|---|---|
+| **Google Places (New)** | Discovery | Weekly cap reserved in the DB before any call (`GOOGLE_PLACES_WEEKLY_CAP`, default 100 ≈ $3/week) |
+| **OpenStreetMap** Overpass + Nominatim | Free second discovery source, geocoding | Parallel mirrors, first usable answer wins |
+| **Firecrawl** | Internet research: search + page scrape | Per-lead 70s hard cap; 2 leads per run |
+| **Resend** | Sending, delivery webhooks, open/click tracking | Transactional outbox, idempotency keys, daily cap |
+| **Microsoft Graph** | Reading the owner's Outlook inbox | Fails loudly (503) when unconfigured |
+| **Calendly** | Booking | Single link, no OAuth |
+| **Supabase / Postgres** | All state | RLS on, service role from the server only |
+| **Vercel** | Hosting | Auto-deploy from `main` |
+| **GitHub Actions** | Scheduling | `CRON_SECRET` on every call |
 
 ---
 
@@ -175,39 +241,57 @@ policies).
 
 | Table | Holds |
 |---|---|
-| `leads` | The contractor record and its status |
+| `leads` | The business record, its status, and its suppression reason/kind |
 | `lead_ai_summaries` | Pain point, angle, messages, score, confidence |
 | `lead_research_facts` | Per-field evidence with certainty and source URL |
+| `lead_internet_observations` | Dated internet signals, including the one LLM-extracted outreach fact |
+| `lead_internet_intelligence` | Footprint and momentum scores per lead |
 | `lead_socials` | Discovered social/Google profiles |
+| `email_outbox` | Every outbound message, its reservation state and provider id |
+| `automation_settings` | The pause flag, saved niches and cities, discovery cursor |
+| `automation_runs` | Every scheduled run: stage, status, result, duration |
 | `status_audit_log` | Append-only trail of who changed what and why |
-| `follow_up_tasks` | Human tasks raised by unclear replies |
-| `outreach_log` | What was sent, when |
+| `follow_up_tasks` | Scheduled touches and human tasks |
+| `outreach_log` | What was sent and what happened to it (delivered/opened/clicked/bounced/replied) |
 | `appointments` / `call_logs` / `lead_notes` | Close-stage records |
-| `cron_failures` | Automation error trail |
-| `lead_discovery_config` | Metro rotation + the Google weekly quota counter |
+| `cron_failures` | Legacy automation error trail |
+| `lead_discovery_config` | Google weekly quota counter |
 
-Around 19 lead statuses drive the whole UI, colored from one source of truth
-(`tailwind status.*` → `lib/status-colors.ts`). Suppression is global:
-`opt_out`, `bounced`, `complained`, or *Do Not Contact* blocks every outreach
-path and cancels pending follow-ups.
+Database functions carry the transactional work: `claim_email_outbox`,
+`finalize_email_outbox`, `save_automation_score`, `next_discovery_target`.
+
+29 lead statuses drive the UI, coloured from one source of truth
+(`tailwind status.*` → `lib/status-colors.ts`). Queue membership lives in
+`lib/queue-definitions.ts` so a dashboard badge and the page it links to cannot
+disagree.
 
 ---
 
-## Automation
+## Automation schedule
 
-Eight cron endpoints, each guarded by `CRON_SECRET` and driven by an external
-scheduler (`vercel.json` declares no crons). See `CRON_SETUP.md`.
+Nine cron endpoints, each guarded by `CRON_SECRET` on every verb — middleware
+deliberately exempts `/api/cron`, so an unguarded verb would be world-callable.
 
-| Endpoint | Job |
-|---|---|
-| `cron/discover-leads` | Find new contractors |
-| `cron/process-discovered-leads` | Scrape + score new leads |
-| `cron/enrich-leads` | Fill missing contact data |
-| `cron/automation` | Advance the outreach pipeline |
-| `cron/send-daily-emails` | Send the day's queued batch |
-| `cron/poll-replies` | Read and classify the inbox |
-| `cron/process-followups` | Fire scheduled follow-ups |
-| `cron/daily-digest` | Owner summary |
+Phoenix is UTC-7 year round. `lib/automation-schedule.ts` mirrors the workflow
+so the UI can say when a stage next runs; a contract test asserts the two agree.
+
+| UTC | Phoenix | Stage |
+|---|---|---|
+| 13:00 | 06:00 | `discover-leads` |
+| 14:00, 17:00, 20:00 | 07:00, 10:00, 13:00 | `enrich-leads` |
+| 14:45, 17:45, 20:45 | 07:45, 10:45, 13:45 | `research-leads` |
+| 15:00, 18:00, 21:00 | 08:00, 11:00, 14:00 | `process-discovered-leads` |
+| 16:00, 19:00, 22:00 | 09:00, 12:00, 15:00 | `automation` (send) |
+| 14:30–23:30 hourly | 07:30–16:30 | `poll-replies` |
+| 14:35–23:35 hourly | 07:35–16:35 | `process-followups` |
+| 01:00 | 18:00 | `daily-digest` |
+
+`cron/send-daily-emails` is legacy and not scheduled.
+
+**The digest is the dead-man switch.** It reads `automation_runs`, names failed
+and stalled stages in plain language, and raises `CRM ALERT` in the subject
+line — including for the quietest failure of all: every stage green while
+nothing was sent and mailable leads were waiting.
 
 ---
 
@@ -217,47 +301,73 @@ Desktop sidebar, mobile bottom tab bar (`app/crm/_components/CrmNav.tsx`).
 
 | Page | Purpose |
 |---|---|
+| `automation` | Running or paused, what ran, what failed, when each stage next fires, and the targeting lists |
 | `unified-dashboard` | Today's numbers and what needs action |
 | `replies` | Inbound replies and their classification |
 | `call-queue` | Leads to phone, with outcome logging |
 | `bookings` | Scheduled meetings |
 | `discovery` | Manual + auto lead scraping |
-| `dm-queue` | **Research Center** — facts, weaknesses, sources, approval |
+| `dm-queue` | **Research Center** — facts, weaknesses, sources |
 | `email-queue` | Outbound review and send |
 | `onboarding` | Won-deal hand-off |
 | `leads` | Full searchable table |
-| `suppressed` | Opt-outs, bounces, complaints, DNC |
-| `reports` | Funnel performance |
+| `suppressed` | Why each lead is suppressed, and what can still be done |
+| `reports` | Every stage, the send funnel with rates, and supply |
 
 Theme: NY Jets palette — Gotham Green `#125740` primary (`brand`), Kelly Green
-accent, Stealth Black, Streak White. Status colors stay distinct from the brand
-so warnings and errors remain readable. Contrast is WCAG AA throughout.
+accent, Stealth Black, Streak White. Status colours stay distinct from the brand
+so warnings stay readable. Contrast is WCAG AA throughout.
+
+**Read routes must never be served stale.** `force-dynamic` alone does not stop
+Next caching supabase-js's own fetch; every read route also sets
+`fetchCache = "force-no-store"` and wraps the client's fetch with
+`cache: "no-store"`. Without it the automation page reported the system paused
+while it was sending.
 
 ---
 
-## Cost Controls
+## Cost controls
 
-- Google Places weekly cap, enforced in the DB before any HTTP call, with the
-  reservation refunded when a request is rejected for credentials
-  (`GOOGLE_PLACES_WEEKLY_CAP`, default 100 ≈ $3/week)
+- Google Places weekly cap, reserved in the DB before any HTTP call, refunded
+  when a request is rejected for credentials
 - OpenStreetMap as a free second discovery source
+- Firecrawl bounded to 2 leads per run with a 70s per-lead cap (~8 credits/lead)
 - Free/cheap AI tiers at the head of every provider chain
+- `DAILY_SEND_CAP` (default 40) overridable by env, so a cold sending domain can
+  be warmed slowly
 - Per-request timeouts and retry/backoff on every external call
 
 ---
 
-## Key Files
+## Testing
+
+`npm test` runs four suites — reply policy, the automation contract, AI
+normalisation, and the cron workflow. The contract test is the important one:
+it reads the source and asserts the properties that have broken before, so a
+regression fails the build rather than the pipeline. 180 checks in the automation contract alone.
+
+`scripts/outbox-database-test.sql` exercises the outbox transaction against a
+real database inside `BEGIN … ROLLBACK`: reservation, replay, saved
+log/status/audit/followup, suppression survival, and the expired-retry cutoff.
+
+---
+
+## Key files
 
 | Path | Role |
 |---|---|
-| `middleware.ts` | Basic auth over the CRM and private APIs |
+| `middleware.ts` | Session/Basic auth over the CRM and private APIs; exempts `/api/cron` |
 | `lib/ai-providers.ts` | Shared LLM layer, chains, retries |
-| `lib/discovery-pipeline.ts` | Orchestrates a discovery run |
-| `lib/discovery-sources.ts` | Google Places + Overpass, HVAC terms |
-| `lib/hvac-signals.ts` | HVAC intelligence and sellable gaps |
-| `lib/research-evidence.ts` | Facts with certainty grading |
-| `lib/automation.ts` | Pipeline state machine |
+| `lib/automation.ts` | Send phase and pipeline state machine |
+| `lib/automation-runs.ts` | Cron auth, pause gate, run recording |
+| `lib/automation-schedule.ts` | The schedule the UI reads |
+| `lib/email-outbox.ts` | Transactional send path |
+| `lib/lead-research.ts` | Scheduled internet research |
+| `lib/fact-extraction.ts` | The one observation allowed into an email |
+| `lib/suppression.ts` | Per-channel suppression semantics |
+| `lib/queue-definitions.ts` | What is in each queue, defined once |
+| `lib/targeting.ts` | Niche and location defaults, niche validation |
+| `lib/status-colors.ts` | Single source of truth for status colours |
 | `lib/lead-stats.ts` | Single source of truth for KPIs |
-| `lib/status-colors.ts` | Single source of truth for status colors |
 | `lib/audit.ts` | Append-only change trail |
-| `supabase/migrations/` | Schema history |
+| `supabase/migrations/` | Schema history (017 current) |

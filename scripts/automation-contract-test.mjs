@@ -314,6 +314,19 @@ for (const name of ["automation", "reports", "suppressed", "call-queue", "resear
   check(`read route is never served stale: ${name}`,
     route.includes('cache: "no-store"') && route.includes('fetchCache = "force-no-store"'));
 }
+// A previous commit had to correct ARCHITECTURE.md "where it described things
+// that are not live". Documentation drift is not cosmetic here: an AI agent
+// working on this repo reads it as fact. Guard the claims that go stale.
+const architecture = read("ARCHITECTURE.md");
+for (const dir of fs.readdirSync("app/api/cron", { withFileTypes: true }).filter((d) => d.isDirectory())) {
+  check(`ARCHITECTURE documents the ${dir.name} stage`, architecture.includes(dir.name));
+}
+check("ARCHITECTURE names the current migration",
+  architecture.includes(fs.readdirSync("supabase/migrations").sort().pop().slice(0, 3)));
+check("ARCHITECTURE no longer claims open tracking is unconfigured",
+  !architecture.includes("has never been set up") && architecture.includes("Open and click tracking are enabled"));
+check("README no longer says the pipeline is HVAC only",
+  !read("README.md").includes("(HVAC only)"));
 check("the automation page leads with state, not settings",
   read("app/crm/automation/page.tsx").includes("Start automation") &&
   read("app/crm/automation/page.tsx").includes("Pause automation"));

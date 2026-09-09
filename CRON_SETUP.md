@@ -1,8 +1,34 @@
 # Automated Cron Job Setup
 
-This guide explains how to set up automated cron jobs for the CRM system.
+> **The schedule is already configured** in `.github/workflows/cron.yml`, which
+> is what actually fires these endpoints in production. `vercel.json` declares
+> no crons. `lib/automation-schedule.ts` mirrors the workflow so the Automation
+> page can show when each stage next runs, and a contract test asserts the two
+> agree — if you change one, change the other.
+>
+> Every endpoint checks `CRON_SECRET` on **every** verb, because middleware
+> deliberately exempts `/api/cron`. Every scheduled stage also checks
+> `automation_settings.enabled` and returns `{ paused: true }` without doing any
+> work while automation is switched off at `/crm/automation`.
+>
+> The current schedule, and what each stage does, is documented in
+> **[ARCHITECTURE.md](ARCHITECTURE.md#automation-schedule)**. This file covers
+> running the endpoints by hand.
 
 ## Available Cron Endpoints
+
+### 0. Research Leads (Firecrawl + LLM fact extraction)
+**Endpoint**: `POST /api/cron/research-leads`
+
+**What it does:**
+- Picks mailable leads not researched in the last 30 days
+- Runs four Firecrawl searches and up to five page scrapes per lead
+- Stores dated observations and a footprint/momentum score
+- Runs one LLM pass to extract a single checkable fact for the email opener,
+  or nothing when no fact qualifies
+
+**Frequency**: 3×/day, 45 minutes after enrichment
+**Timeout**: 120s route ceiling, 70s hard cap per lead
 
 ### 1. Process Discovered Leads (Scrape & Score)
 **Endpoint**: `POST /api/cron/process-discovered-leads`
@@ -12,7 +38,8 @@ This guide explains how to set up automated cron jobs for the CRM system.
 - Scrapes their websites for missing emails, phones, and owner names
 - Scores each lead through the AI provider chain
   (Ollama → Groq → Gemini → Anthropic → Kablewy, see `lib/ai-providers.ts`)
-- Updates lead status to "Ready for Outreach" if score ≥ 50, otherwise "Scored"
+- Score and the status it implies commit together via `save_automation_score()`
+- Fails loudly when every AI provider is down, rather than promoting a lead on a fallback score
 
 **Recommended frequency**: Every 2-3 hours
 **Timeout**: 5 minutes (300 seconds)
