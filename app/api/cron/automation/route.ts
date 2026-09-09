@@ -1,6 +1,8 @@
+import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { runAutomationPhase } from "@/lib/automation";
+import { recoverEmailOutbox } from "@/lib/email-outbox";
 import { sendEmail } from "@/lib/resend";
 
 export const maxDuration = 60;
@@ -61,7 +63,8 @@ async function runAutomation(req: NextRequest) {
     // Run the three phases in-process (direct function calls). No HTTP self-call,
     // so this is not blocked by the Basic Auth middleware on /api/admin and does
     // not pay a second serverless cold-start per phase.
-    const phases = ["scrape", "score", "send"];
+    const recovery = await recoverEmailOutbox();
+    const phases = ["send"];
     const results = [];
 
     for (const phase of phases) {
@@ -87,10 +90,12 @@ async function runAutomation(req: NextRequest) {
     const emailedThisRun = sendEntry?.result?.emailed ?? [];
 
     const failedPhases = results.filter((r) => !r.success);
+    if (recovery.errors.length) failedPhases.push({ phase: "recovery", success: false, error: recovery.errors.join("; ") });
     const payload = {
       success: failedPhases.length === 0,
-      message: "✅ Daily automation completed",
+      message: failedPhases.length ? "Automation needs attention" : "Automation completed",
       emailedThisRun,
+      recovery,
       results,
       timestamp: new Date().toISOString(),
     };
@@ -109,10 +114,14 @@ async function runAutomation(req: NextRequest) {
 // 405 Method Not Allowed and the automation never actually executed — which is
 // why cron_failures is empty rather than healthy. Both verbs now run the same
 // handler; POST is kept for manual curl / external schedulers.
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   return runAutomation(req);
 }
 
 export async function POST(req: NextRequest) {
   return runAutomation(req);
+}
+
+export async function GET(req: NextRequest) {
+  return withAutomationRun("automation", req, () => handleGET(req));
 }

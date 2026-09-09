@@ -1,3 +1,4 @@
+import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
@@ -28,7 +29,7 @@ export const maxDuration = 120;
 // a real outage: the cron-job.org schedule pointed here held a stale secret and
 // received a cheerful 200 body while sending zero follow-ups, so the job read
 // green for as long as it was broken. A wrong secret must fail loudly.
-export async function GET(req: NextRequest) {
+async function handleGET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 500 });
@@ -308,73 +309,11 @@ export async function POST(req: NextRequest) {
           subject,
           html,
           undefined,
-          `crm-${lead.id}-email-${emailNum}`
+          `crm-${lead.id}-email-${emailNum}`,
+          { bodyText }
         );
 
-        // d. Log the send to outreach_log
-        const { data: existingLog, error: existingLogError } = await supabase
-          .from("outreach_log").select("id").eq("provider_message_id", sendResult.id).maybeSingle();
-        if (existingLogError) throw new Error(`Sent email but log lookup failed: ${existingLogError.message}`);
-        if (!existingLog) {
-          const { error: logError } = await supabase.from("outreach_log").insert({
-            lead_id: lead.id,
-            channel: "email",
-            direction: "outbound",
-            message_type: `email_${emailNum}`,
-            subject,
-            message_body: bodyText,
-            status: "sent",
-            provider: "resend",
-            provider_message_id: sendResult.id,
-            sent_at: new Date().toISOString(),
-          });
-          if (logError) throw new Error(`Sent email but failed to log it: ${logError.message}`);
-        }
-
-        // e. Update the lead's email_sent_count and status
-        const newStatus = emailNum === 1 ? "Email 1 Sent" : emailNum === 2 ? "Email 2 Sent" : "Email 3 Sent";
-        const nextFollowUp = emailNum < 3 ? nextFollowUpAt() : null;
-
-        const { data: updatedLead, error: leadUpdateError } = await supabase
-          .from("leads")
-          .update({
-            email_sent_count: emailNum,
-            status: newStatus,
-            next_follow_up_at: nextFollowUp,
-          })
-          .eq("id", lead.id)
-          .select("id")
-          .single();
-        if (leadUpdateError || !updatedLead) {
-          throw new Error(leadUpdateError?.message || "Sent email but lead update changed no rows");
-        }
-
-        await logStatusChange({ leadId: lead.id, from: lead.status ?? null, to: newStatus, source: "automation" });
-
-        // f. Mark this task completed
-        const { data: completedTask, error: completeError } = await supabase
-          .from("follow_up_tasks")
-          .update({
-            status: "completed",
-            completed_at: new Date().toISOString(),
-          })
-          .eq("id", task.id)
-          .select("id")
-          .single();
-        if (completeError || !completedTask) {
-          throw new Error(completeError?.message || "Follow-up task completion changed no rows");
-        }
-
-        // Auto-schedule the next email (mirrors send-daily/route.ts)
-        if (emailNum < 3) {
-          const { error: nextTaskError } = await supabase.from("follow_up_tasks").insert({
-            lead_id: lead.id,
-            task_type: `send_email_${emailNum + 1}`,
-            due_at: nextFollowUp,
-            status: "pending",
-          });
-          if (nextTaskError) throw new Error(`Next follow-up scheduling failed: ${nextTaskError.message}`);
-        }
+        // The outbox transaction saves progress and completes this task.
 
         console.log(`✅ Sent follow-up email ${emailNum} to ${lead.business_name}`);
         results.sent++;
@@ -405,4 +344,8 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+export async function GET(req: NextRequest) {
+  return withAutomationRun("process-followups", req, () => handleGET(req));
 }

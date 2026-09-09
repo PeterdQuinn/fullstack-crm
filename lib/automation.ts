@@ -30,7 +30,7 @@ const SCRAPE_TIMEOUT_MS = 9000;
 // Batches of 10 reliably 504'd; 3 completes with headroom.
 const SCORE_BATCH = 3;
 // Max emails per run. Sends fewer if fewer qualify — never forces a number.
-const SEND_CAP_PER_RUN = 100;
+const SEND_CAP_PER_RUN = 10;
 // Hard ceiling on outbound emails per Phoenix calendar day, counted from
 // outreach_log rather than tracked in memory. A per-RUN cap alone is not a
 // daily limit: automation is scheduled every 30 minutes, so a per-run cap of 12
@@ -379,7 +379,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       const q = supabase
         .from("leads")
         .select(
-          "id, business_name, email, city, state, status, owner_name, industry, niche, email_sent_count, lead_ai_summaries(recommended_first_message, recommended_follow_up, lead_score), lead_internet_observations(*)"
+          "id, business_name, email, city, state, status, owner_name, industry, niche, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, lead_score), lead_internet_observations(*)"
         )
         .eq("opt_out", false)
         .eq("bounced", false)
@@ -391,6 +391,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         // "Booked" with email_sent_count < 3 would be handed another COLD email,
         // directly contradicting the reply automation that just moved it there.
         .in("status", SENDABLE_STATUSES as unknown as string[])
+        .gt("lead_ai_summaries.lead_score", 50)
         .is("archived_at", null);
       // The market gate is applied in JS, not here: approved markets can sit in
       // either `industry` or `niche` (discovery fills only `niche` for some
@@ -433,8 +434,12 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     // unapproved is skipped, never mailed generic copy by accident.
     const fetchLimit = Math.min(SEND_CAP_PER_RUN, remainingToday);
     // Over-fetch so the in-JS market filter still has `fetchLimit` to work with.
-    const { data: pool } = await candidates(fetchLimit * 5);
-    const leads = (pool || []).filter(marketApproved).slice(0, fetchLimit);
+    const { data: savedTargets, error: targetsError } = await supabase.from("automation_settings").select("niches").eq("id", "owner").single();
+    if (targetsError) throw new Error(`Cannot read saved targeting: ${targetsError.message}`);
+    const niches = new Set(savedTargets.niches.map((n: string) => n.toLowerCase()));
+    const { data: pool, error: poolError } = await candidates(1000);
+    if (poolError) throw new Error(`Cannot read outreach candidates: ${poolError.message}`);
+    const leads = (pool || []).filter(marketApproved).filter(l => niches.has((l.industry || l.niche || "").trim().toLowerCase())).slice(0, fetchLimit);
 
     let sent = 0;
     let skipped = 0;
@@ -512,61 +517,10 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           subject,
           html,
           undefined,
-          `crm-${lead.id}-email-${emailNum}`
+          `crm-${lead.id}-email-${emailNum}`,
+          { bodyText }
         );
-        const { data: existingLog, error: existingLogError } = await supabase
-          .from("outreach_log").select("id").eq("provider_message_id", result.id).maybeSingle();
-        if (existingLogError) throw new Error(`Sent email but log lookup failed: ${existingLogError.message}`);
-        if (!existingLog) {
-          const { error: logError } = await supabase.from("outreach_log").insert({
-            lead_id: lead.id,
-            channel: "email",
-            direction: "outbound",
-            message_type: `email_${emailNum}`,
-            subject,
-            message_body: bodyText,
-            status: "sent",
-            provider: "resend",
-            provider_message_id: result.id,
-            sent_at: new Date().toISOString(),
-          });
-          if (logError) throw new Error(`Sent email but failed to log it: ${logError.message}`);
-        }
-
-        const nextFollowUp = emailNum < 3 ? nextFollowUpAt() : null;
-        const { data: updatedLead, error: updateError } = await supabase
-          .from("leads")
-          .update({
-            email_sent_count: emailNum,
-            status: `Email ${emailNum} Sent`,
-            next_follow_up_at: nextFollowUp,
-          })
-          .eq("id", lead.id)
-          .select("id")
-          .single();
-        if (updateError || !updatedLead) {
-          throw new Error(updateError?.message || "Sent email but lead update changed no rows");
-        }
-        await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: `Email ${emailNum} Sent`, source: "automation" });
-
-        // Sending moves the lead to "Email N Sent", which is deliberately NOT
-        // in SENDABLE_STATUSES — so this phase will not touch it again. Touches
-        // 2 and 3 are handed to the follow-up processor instead
-        // (app/api/cron/process-followups), which is the path that knows how to
-        // stop on a reply. Without this hand-off the status gate above would
-        // silently truncate the sequence to a single email.
-        if (emailNum < 3) {
-          const { error: taskError } = await supabase.from("follow_up_tasks").insert({
-            lead_id: lead.id,
-            task_type: `send_email_${emailNum + 1}`,
-            due_at: nextFollowUp,
-            status: "pending",
-          });
-          if (taskError) {
-            throw new Error(`Email sent but follow-up scheduling failed: ${taskError.message}`);
-          }
-        }
-
+        // The outbox transaction saves the log, lead progress and next task.
         sent++;
         // item 6: record exactly who was emailed and where.
         emailed.push({

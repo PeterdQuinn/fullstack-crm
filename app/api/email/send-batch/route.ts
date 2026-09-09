@@ -137,83 +137,12 @@ export async function POST(req: NextRequest) {
       subject,
       html,
       undefined,
-      `crm-${lead.id}-email-${emailNum}`
+      `crm-${lead.id}-email-${emailNum}`,
+      { bodyText, source: "owner", limit: MANUAL_SEND_CAP }
     );
 
-    const { data: existingLog, error: existingLogError } = await supabase
-      .from("outreach_log")
-      .select("id")
-      .eq("provider_message_id", result.id)
-      .maybeSingle();
-    if (existingLogError) throw new Error(`Email sent but log lookup failed: ${existingLogError.message}`);
-    if (!existingLog) {
-      const { error: logError } = await supabase.from("outreach_log").insert({
-          lead_id: lead.id,
-          channel: "email",
-          direction: "outbound",
-          message_type: `email_${emailNum}`,
-          subject,
-          message_body: bodyText,
-          status: "sent",
-          provider: "resend",
-          provider_message_id: result.id,
-          sent_at: new Date().toISOString(),
-      });
-      if (logError) throw new Error(`Email sent but outreach logging failed: ${logError.message}`);
-    }
-
     const newStatus = `Email ${emailNum} Sent`;
-    const nextFollowUp = emailNum < 3 ? nextFollowUpAt() : null;
-    const { data: updatedLead, error: updateError } = await supabase
-      .from("leads")
-      .update({
-        email_sent_count: emailNum,
-        status: newStatus,
-        next_follow_up_at: nextFollowUp,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", lead.id)
-      .select("id")
-      .single();
-    if (updateError || !updatedLead) {
-      throw new Error(updateError?.message || "Email sent but lead update changed no rows");
-    }
-
-    await logStatusChange({ leadId: lead.id, from: lead.status, to: newStatus, source: "owner" });
-
-    if (emailNum > 1) {
-      const { error: completedTaskError } = await supabase
-        .from("follow_up_tasks")
-        .update({
-          status: "completed",
-          completed_at: new Date().toISOString(),
-          notes: "Sent manually from Email Workspace",
-        })
-        .eq("lead_id", lead.id)
-        .eq("task_type", `send_email_${emailNum}`)
-        .eq("status", "pending");
-      if (completedTaskError) throw new Error(`Email sent but followup task cleanup failed: ${completedTaskError.message}`);
-    }
-
-    if (emailNum < 3) {
-      const { data: existingTask, error: taskLookupError } = await supabase
-        .from("follow_up_tasks")
-        .select("id")
-        .eq("lead_id", lead.id)
-        .eq("task_type", `send_email_${emailNum + 1}`)
-        .eq("status", "pending")
-        .maybeSingle();
-      if (taskLookupError) throw new Error(`Email sent but follow-up lookup failed: ${taskLookupError.message}`);
-      if (!existingTask) {
-        const { error: taskError } = await supabase.from("follow_up_tasks").insert({
-          lead_id: lead.id,
-          task_type: `send_email_${emailNum + 1}`,
-          due_at: nextFollowUp,
-          status: "pending",
-        });
-        if (taskError) throw new Error(`Email sent but follow-up scheduling failed: ${taskError.message}`);
-      }
-    }
+    // The outbox transaction saves tracking and closes/schedules follow-ups.
 
     return NextResponse.json({
       success: true,

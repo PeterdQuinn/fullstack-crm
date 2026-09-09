@@ -148,34 +148,11 @@ export async function actOnReplyClassification(
       subject,
       html,
       undefined,
-      `crm-${lead.id}-booking-link`
+      `crm-${lead.id}-booking-link`,
+      { bodyText: `Calendly booking link sent: ${CALENDLY_LINK}` }
     );
 
-    const { error: updateError } = await supabase
-      .from("leads")
-      .update({
-        status: "Booking Link Sent",
-        calendly_link_sent: true,
-        updated_at: now,
-      })
-      .eq("id", leadId);
-    if (updateError) throw new Error(`Failed to update interested lead: ${updateError.message}`);
-
-    const { error: logError } = await supabase.from("outreach_log").insert({
-      lead_id: leadId,
-      channel: "email",
-      direction: "outbound",
-      message_type: "booking_link",
-      subject,
-      message_body: `Calendly booking link sent: ${CALENDLY_LINK}`,
-      status: "sent",
-      provider: "resend",
-      provider_message_id: sendResult?.id,
-      sent_at: now,
-    });
-    if (logError) throw new Error(`Booking link sent but outreach log failed: ${logError.message}`);
-
-    await logStatusChange({ leadId, from: lead.status, to: "Booking Link Sent", source: "automation" });
+    // Booking progress and outreach logging commit in the outbox transaction.
 
     return {
       bucket,
