@@ -125,11 +125,26 @@ export async function POST(req: NextRequest) {
 
       case "email.bounced": {
         const before = await captureStatusBeforeSuppression();
+        // Resend sends the bounce type and the receiving server's diagnostic on
+        // every event; all of it used to be dropped on the floor. Without it a
+        // full mailbox and an address that has never existed were recorded
+        // identically, and both retired the lead for good.
+        const bounce = (event.data as any)?.bounce || {};
+        const bounceType = String(bounce.type || "").toLowerCase();
+        const bounceSubType = String(bounce.subType || bounce.sub_type || "");
+        const bounceReason = String(bounce.message || bounce.diagnosticCode || bounceSubType || "").slice(0, 500);
+        // Only a hard bounce proves the address is wrong. Anything else may be
+        // the receiving side having a bad day, so it stays retryable.
+        const transient = bounceType === "soft" || bounceType === "transient" ||
+          /mailbox full|over quota|timed? out|temporar|try again|throttl|rate limit/i.test(bounceReason);
+
         await requireDb(supabase
           .from("outreach_log")
           .update({
             bounced_at: new Date().toISOString(),
             status: "bounced",
+            bounce_type: bounceType || null,
+            bounce_reason: bounceReason || null,
           })
           .eq("id", log.id), "Bounce log update failed");
 
@@ -138,6 +153,9 @@ export async function POST(req: NextRequest) {
           .update({
             bounced: true,
             status: "Bad Email",
+            suppression_kind: transient ? "transient" : "address",
+            suppression_reason: bounceReason || (transient ? "Temporary delivery failure" : "Address rejected by the receiving server"),
+            suppressed_at: new Date().toISOString(),
             ...(before ? { status_before_suppression: before } : {}),
           })
           .eq("id", log.lead_id), "Bounced lead suppression failed");
@@ -148,6 +166,11 @@ export async function POST(req: NextRequest) {
 
       case "email.complained": {
         const before = await captureStatusBeforeSuppression();
+        await requireDb(supabase.from("leads").update({
+          suppression_kind: "permanent",
+          suppression_reason: "Reported the message as spam",
+          suppressed_at: new Date().toISOString(),
+        }).eq("id", log.lead_id), "Complaint reason not recorded");
         await requireDb(supabase
           .from("outreach_log")
           .update({

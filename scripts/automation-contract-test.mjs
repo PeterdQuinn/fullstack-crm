@@ -414,6 +414,25 @@ check("automation keeps its narrower send gate on purpose",
 check("research lists leads that are actually missing data",
   read("app/api/crm/research-center/route.ts").includes("email.is.null") &&
   read("app/api/crm/research-center/route.ts").includes("TERMINAL_STATUSES"));
+// The page listed leads and offered nothing to do about them, and recorded only
+// that a lead was suppressed — never why. A full mailbox and an address that has
+// never existed were stored identically and both retired the lead for good.
+const suppressAction = read("app/api/crm/suppressed/action/route.ts");
+const resendHook = read("app/api/webhooks/resend/route.ts");
+check("a bounce records its type and diagnostic",
+  resendHook.includes("bounce_type") && resendHook.includes("bounce_reason") &&
+  read("supabase/migrations/017_suppression_reasons.sql").includes("suppression_kind"));
+check("only a hard bounce condemns the address",
+  resendHook.includes("mailbox full|over quota") && resendHook.includes('transient ? "transient" : "address"'));
+check("the pre-send reason is stored on the lead, not just the audit log",
+  read("lib/automation.ts").includes("suppression_reason: mailability.reason") &&
+  read("app/api/cron/process-followups/route.ts").includes("suppression_reason: badAddress"));
+check("a request to stop cannot be undone from the dashboard",
+  suppressAction.includes("isPermanentlySuppressed(lead)") && suppressAction.includes("{ status: 409 }"));
+check("only a temporary failure can be retried",
+  suppressAction.includes('lead.suppression_kind !== "transient"'));
+check("suppressed leads have somewhere to go",
+  suppressAction.includes('"Call Needed"') && suppressAction.includes('action === "find_address"'));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
 
 // 57% of the list is a role inbox, so the reply that matters is the one least

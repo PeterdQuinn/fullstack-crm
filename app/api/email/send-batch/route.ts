@@ -93,7 +93,9 @@ export async function POST(req: NextRequest) {
     if (!mailability.ok) {
       const { error: badEmailError } = await supabase
         .from("leads")
-        .update({ status: "Bad Email", updated_at: new Date().toISOString() })
+        .update({ status: "Bad Email", updated_at: new Date().toISOString(),
+            suppression_kind: "address", suppression_reason: mailability.reason,
+            suppressed_at: new Date().toISOString() })
         .eq("id", lead.id);
       if (badEmailError) throw new Error(`Email rejected and lead update failed: ${badEmailError.message}`);
       await logStatusChange({ leadId: lead.id, from: lead.status, to: "Bad Email", source: "owner", reason: mailability.reason });

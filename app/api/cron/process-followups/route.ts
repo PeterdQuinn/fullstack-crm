@@ -242,7 +242,9 @@ export async function POST(req: NextRequest) {
         if (badAddress) {
           const { error: badLeadError } = await supabase
             .from("leads")
-            .update({ status: "Bad Email", updated_at: new Date().toISOString() })
+            .update({ status: "Bad Email", updated_at: new Date().toISOString(),
+            suppression_kind: "address", suppression_reason: badAddress,
+            suppressed_at: new Date().toISOString() })
             .eq("id", lead.id);
           if (badLeadError) throw new Error(`Bad-email lead update failed: ${badLeadError.message}`);
           const { error: badTaskError } = await supabase

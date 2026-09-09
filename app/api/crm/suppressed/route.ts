@@ -23,7 +23,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("leads")
       .select(
-        "id, business_name, contact_name, owner_name, email, phone, website, status, status_before_suppression, opt_out, bounced, complained, updated_at"
+        "id, business_name, contact_name, owner_name, email, phone, website, status, status_before_suppression, opt_out, bounced, complained, suppression_kind, suppression_reason, suppressed_at, updated_at"
       )
       .or(`bounced.eq.true,complained.eq.true,opt_out.eq.true,status.eq.${EMAIL_FAILURE_STATUS}`)
       .order("updated_at", { ascending: false });
@@ -40,13 +40,17 @@ export async function GET() {
         phone: l.phone || null,
         website: l.website || null,
         reasons: suppressionReasons(l),
-        date_flagged: l.updated_at || null,
+        date_flagged: l.suppressed_at || l.updated_at || null,
+        kind: l.suppression_kind || (permanent ? "permanent" : "address"),
+        why: l.suppression_reason || null,
         original_status: l.status_before_suppression || null,
         current_status: l.status || null,
         // Permanent means a person asked to be left alone. Everything else is
         // just a dead address on a business that may still answer the phone.
         permanent,
         callable: !permanent && isPhoneReachable(l),
+        retryable: !permanent && l.suppression_kind === "transient",
+        canFindAddress: !permanent && Boolean(l.website && l.website.trim()),
       };
     });
 
@@ -57,6 +61,7 @@ export async function GET() {
         permanent: rows.filter((r) => r.permanent).length,
         emailOnly: rows.filter((r) => !r.permanent).length,
         callable: rows.filter((r) => r.callable).length,
+        retryable: rows.filter((r) => r.retryable).length,
       },
     });
   } catch (error) {

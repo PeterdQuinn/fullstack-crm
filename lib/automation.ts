@@ -492,7 +492,9 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       if (!mailability.ok) {
         console.warn(`Skipping ${lead.business_name}: ${lead.email} — ${mailability.reason}`);
         await supabase.from("leads")
-          .update({ status: "Bad Email", updated_at: new Date().toISOString() })
+          .update({ status: "Bad Email", updated_at: new Date().toISOString(),
+            suppression_kind: "address", suppression_reason: mailability.reason,
+            suppressed_at: new Date().toISOString() })
           .eq("id", lead.id);
         await logStatusChange({ leadId: lead.id, from: (lead as any).status ?? null, to: "Bad Email", source: "automation", reason: mailability.reason });
         skipped++;
