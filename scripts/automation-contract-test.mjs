@@ -159,7 +159,43 @@ const corroborated = internetIntelligence.corroborateObservations([
 ]);
 check("two independent sources corroborate an internet fact", corroborated.every(item => item.evidenceType === "verified" && item.corroborationCount === 2));
 const groundedEmail = emailTemplates.renderOutreachEmail({ leadId: "grounded", businessName: "Example HVAC", emailSentCount: 0, verifiedDetail: "The company is hiring three technicians." });
-check("first-touch email uses verified company evidence", groundedEmail.bodyText.includes("hiring three technicians") && groundedEmail.bodyText.includes("Is that pile something"));
+// Regex sentence-matching cannot produce an outreach-grade fact, so the detail
+// selector returns nothing and every caller falls back to the generic opener.
+// The renderer keeps working with a supplied detail so flipping the flag back
+// on once real extraction exists needs no template change.
+check("no scraped observation is offered to outreach", (() => {
+  const wellFormed = internetIntelligence.corroborateObservations([
+    { category: "expansion", signal: "Expansion activity", value: "They opened a second location in Mesa to serve the east valley.", sourceLabel: "News", sourceUrl: "https://news.example.com/a", observedAt: new Date().toISOString(), confidence: "high", growthDirection: 1 },
+    { category: "expansion", signal: "Expansion activity", value: "They opened a second location in Mesa to serve the east valley.", sourceLabel: "Blog", sourceUrl: "https://blog.example.org/b", observedAt: new Date().toISOString(), confidence: "high", growthDirection: 1 },
+  ]);
+  return wellFormed.every((o) => o.evidenceType === "verified") &&
+    internetIntelligence.verifiedOutreachDetail(wellFormed) === undefined;
+})());
+check("the renderer still supports a detail once extraction is real",
+  groundedEmail.bodyText.includes("Noticed this about"));
+// The Firecrawl pipeline shipped callable only from the manual research page,
+// so lead_internet_observations stayed empty through 352 sends and every
+// automated email used the generic opener. A scheduled caller must exist.
+check("verified means two independent sources, not one confident scrape",
+  read("lib/internet-intelligence.ts").includes('evidenceType: count >= 2 ? "verified" : "single_source"'));
+check("only a complete sentence can be pasted into outreach", (() => {
+  const junk = ["REMOVEDcame out and did an excellent job on couple of neglected issues",
+    "SKILLED HVAC PROFESSIONALS YOU CAN TRUST IN YOUR HOME We understand th",
+    "Whether it is a minor adjustment to get your system running smoothly or"];
+  const good = "They opened a second location in Mesa to serve the east valley this spring.";
+  return junk.every((v) => !internetIntelligence.usableOutreachDetail(v)) && internetIntelligence.usableOutreachDetail(good);
+})());
+check("internet research runs on a schedule, not only by hand",
+  read("app/api/cron/enrich-leads/route.ts").includes("researchLeadsBatch"));
+check("automated research saves observations and intelligence",
+  read("lib/lead-research.ts").includes('from("lead_internet_observations").insert') &&
+  read("lib/lead-research.ts").includes('from("lead_internet_intelligence").upsert'));
+check("a missing Firecrawl key fails the run loudly",
+  read("lib/lead-research.ts").includes("isFirecrawlConfigured()") &&
+  read("lib/lead-research.ts").includes("no internet evidence can be gathered"));
+check("research only spends credits on mailable leads",
+  read("lib/lead-research.ts").includes('.not("email", "is", null)') &&
+  read("lib/lead-research.ts").includes("RESEARCHABLE"));
 check("Firecrawl supports deployment and key rotation env names", read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRE_CRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEYS"));
 check("internet observations are dated and append-only", read("supabase/migrations/014_internet_intelligence.sql").includes("observed_at") && !read("supabase/migrations/014_internet_intelligence.sql").includes("unique(lead_id"));
 

@@ -170,7 +170,10 @@ export function corroborateObservations(items: InternetObservation[]): InternetO
     const key = `${item.category}:${normalized(item.signal)}`;
     const sources = sourcesBySignal.get(key) || new Set<string>(); sources.add(host(item.sourceUrl)); sourcesBySignal.set(key, sources);
   }
-  return items.map((item) => { const count = sourcesBySignal.get(`${item.category}:${normalized(item.signal)}`)?.size || 1; return { ...item, corroborationCount: count, evidenceType: count >= 2 || item.confidence === "high" ? "verified" : "single_source", confidence: count >= 2 ? "high" : item.confidence }; });
+  // "Verified" must mean two independent sources actually agreed. The previous
+  // `count >= 2 || confidence === "high"` stamped every single-source scrape as
+  // verified, which marked 41 of 41 review-page fragments as corroborated fact.
+  return items.map((item) => { const count = sourcesBySignal.get(`${item.category}:${normalized(item.signal)}`)?.size || 1; return { ...item, corroborationCount: count, evidenceType: count >= 2 ? "verified" : "single_source", confidence: count >= 2 ? "high" : item.confidence }; });
 }
 
 export function buildCallPreparation(lead: LeadIdentity, observations: InternetObservation[], momentumLabel?: string) {
@@ -185,8 +188,35 @@ export function buildCallPreparation(lead: LeadIdentity, observations: InternetO
   return { momentumLabel: momentumLabel || "unknown", verifiedSignals: verified.slice(0, 5), opener: detail ? `I was researching ${lead.business_name} and found that ${detail.replace(/[.!]+$/, "")}. How is that affecting the way you handle growth operationally?` : `I was looking at ${lead.business_name} and wanted to understand how you currently handle scheduling, follow-up, and daily operations.`, questions };
 }
 
+// Anything returned here is pasted verbatim into a stranger's inbox after the
+// words "Noticed this about your company:". Scraped page text arrives as
+// truncated fragments and shouting marketing banners, so a detail must read as
+// a finished sentence before it is allowed anywhere near an email. Returning
+// undefined is always safe: the generic opener is used instead.
+const COMPLETE_SENTENCE = /^[A-Z][^\n]{39,179}[.!?]$/;
+
+export function usableOutreachDetail(value: string | undefined): boolean {
+  const detail = (value || "").trim();
+  if (!COMPLETE_SENTENCE.test(detail)) return false;
+  if (/[A-Z]{6,}/.test(detail)) return false;
+  if (/\b(?:and|or|the|to|for|with|of|a|an|in|on|at|that|which)$/i.test(detail.replace(/[.!?]+$/, "").trim())) return false;
+  return true;
+}
+
+// OFF until fact extraction is real. observationsFromPage finds sentences by
+// keyword match, which cannot tell "this company is hiring three technicians"
+// from a BBB page titled "Your liability risk when hiring a contractor" or a
+// directory listing. On live data every surviving candidate was boilerplate,
+// marketing copy, or a page *about* the category rather than a fact about the
+// business. A wrong personalised opener is far worse than a generic one: it
+// tells the reader you did not actually look. Flip this on only when an LLM
+// extraction pass supplies the detail and the sentence gate below still holds.
+const OUTREACH_PERSONALISATION_ENABLED = false;
+
 export function verifiedOutreachDetail(observations: InternetObservation[]): string | undefined {
-  return observations.find((item) => item.evidenceType === "verified" && item.growthDirection > 0)?.value || observations.find((item) => item.evidenceType === "verified")?.value;
+  if (!OUTREACH_PERSONALISATION_ENABLED) return undefined;
+  const usable = observations.filter((item) => item.evidenceType === "verified" && usableOutreachDetail(item.value));
+  return usable.find((item) => item.growthDirection > 0)?.value || usable[0]?.value;
 }
 
 export function scoreInternetIntelligence(observations: InternetObservation[], lead: LeadIdentity, previous: InternetObservation[] = []) {

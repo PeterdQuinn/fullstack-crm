@@ -1,8 +1,10 @@
 import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { enrichLeadsBatch } from "@/lib/enrich";
+import { researchLeadsBatch } from "@/lib/lead-research";
 
-export const maxDuration = 60;
+// Internet research runs here too; Firecrawl search + scrape needs the headroom.
+export const maxDuration = 120;
 export const dynamic = "force-dynamic";
 
 // GET is what Vercel Cron sends. A bad or missing secret returns 401 — never a
@@ -40,7 +42,17 @@ async function runEnrich(req: NextRequest) {
 
   try {
     const result = await enrichLeadsBatch(batchSize);
-    return NextResponse.json({ success: true, ...result, timestamp: new Date().toISOString() });
+    // Internet research runs in the same slot so evidence exists before the
+    // scoring pass an hour later and the send pass an hour after that.
+    const research = await researchLeadsBatch(Number(body.researchBatchSize) || 2);
+    const errors = [...research.errors];
+    return NextResponse.json({
+      success: errors.length === 0,
+      ...result,
+      research,
+      errors,
+      timestamp: new Date().toISOString(),
+    }, { status: errors.length ? 500 : 200 });
   } catch (error) {
     console.error("Enrich cron error:", error);
     return NextResponse.json(
