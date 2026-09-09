@@ -40,21 +40,23 @@ export function deduplicateLeads(leads: DiscoveredLead[]): DiscoveredLead[] {
 // Check if lead already exists in database (by email or business_name + city)
 export async function checkLeadExists(lead: DiscoveredLead): Promise<boolean> {
   if (lead.email) {
-    const { data } = await supabase
+    const { data, error: readError } = await supabase
       .from("leads")
       .select("id")
       .eq("email", lead.email)
-      .single();
+      .limit(1).maybeSingle();
+    if (readError) throw readError;
     if (data) return true;
   }
 
-  const { data } = await supabase
+  const { data, error: readError } = await supabase
     .from("leads")
     .select("id")
     .eq("business_name", lead.business_name)
     .eq("city", lead.city || "")
-    .single();
+    .limit(1).maybeSingle();
 
+  if (readError) throw readError;
   return !!data;
 }
 
@@ -166,16 +168,18 @@ export async function importLeads(leads: DiscoveredLead[]): Promise<{
       // Dedupe against existing rows: by email if present, else name + city.
       let exists = false;
       if (lead.email) {
-        const { data } = await supabase.from("leads").select("id").eq("email", lead.email).maybeSingle();
+        const { data, error: readError } = await supabase.from("leads").select("id").eq("email", lead.email).maybeSingle();
+        if (readError) throw readError;
         exists = !!data;
       }
       if (!exists) {
-        const { data } = await supabase
+        const { data, error: readError } = await supabase
           .from("leads")
           .select("id")
           .eq("business_name", lead.business_name)
           .eq("city", lead.city || "")
           .maybeSingle();
+        if (readError) throw readError;
         exists = !!data;
       }
       if (exists) {

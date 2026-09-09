@@ -33,6 +33,7 @@ const PRIMARY: NavItem[] = [
 
 // Desktop sidebar shows everything; mobile bottom bar shows only PRIMARY.
 const SECONDARY: NavItem[] = [
+  { label: "Automation", href: "/crm/automation", icon: Radar },
   { label: "Discovery", href: "/crm/discovery", icon: Radar },
   { label: "Email Queue", href: "/crm/email-queue", icon: Mail },
   { label: "Research", href: "/crm/dm-queue", icon: Search },

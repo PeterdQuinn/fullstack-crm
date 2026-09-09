@@ -56,6 +56,7 @@ export default function ManualDiscoveryPanel({
   const [error, setError] = useState("");
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [form, setForm] = useState({
+    niche: "HVAC",
     city: "Mesa",
     state: "AZ",
     zip: "",
@@ -74,7 +75,7 @@ export default function ManualDiscoveryPanel({
       onError?.("City and state are required");
       return;
     }
-    if (!window.confirm(`Search for up to ${form.limit} HVAC businesses in ${form.city}, ${form.state}?`)) return;
+    if (!window.confirm(`Search for up to ${form.limit} ${form.niche} businesses in ${form.city}, ${form.state}?`)) return;
 
     onStart?.();
     setWorking(true);
@@ -128,6 +129,7 @@ export default function ManualDiscoveryPanel({
       {showForm && (
         <div className={`rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5 ${collapsible ? "mt-3" : ""}`}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Input label="Business niche" value={form.niche} onChange={(value) => setForm({ ...form, niche: value })} />
             <Input label="City" value={form.city} onChange={(value) => setForm({ ...form, city: value })} />
             <Input
               label="State"
@@ -189,9 +191,9 @@ export default function ManualDiscoveryPanel({
           </div>
 
           <div className="mt-4 rounded-xl bg-brand-light p-3 text-sm text-brand-dark">
-            <strong>Search summary:</strong> HVAC businesses within {form.radiusMiles} miles of {form.city},{" "}
+            <strong>Search summary:</strong> {form.niche} businesses within {form.radiusMiles} miles of {form.city},{" "}
             {form.state}
-            {form.zip ? ` near ZIP ${form.zip}` : ""}. Save no more than {form.limit}. Nothing will be contacted.
+            {form.zip ? ` near ZIP ${form.zip}` : ""}. Save no more than {form.limit}. Saved leads may enter scheduled outreach after qualification.
           </div>
 
           {working && progressStages[progress] && (

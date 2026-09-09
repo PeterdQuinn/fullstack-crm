@@ -1,8 +1,5 @@
 import { DiscoveredLead, filterNewLeads, importLeads } from "@/lib/lead-discovery";
 import {
-  HVAC_SEARCH_TERMS,
-  HVAC_OSM_FILTERS,
-  HVAC_NICHE,
   googleTextQuery,
   buildOverpassQuery,
   buildOverpassRadiusQuery,
@@ -12,10 +9,13 @@ import {
 } from "@/lib/discovery-sources";
 import { cleanAndStructureLeads, RawLead } from "@/lib/discovery-clean";
 import { getGoogleQuota } from "@/lib/api-usage";
-import { getNextMetros } from "@/lib/state-rotation";
+import { createClient } from "@supabase/supabase-js";
+import { discoveryTerms, DEFAULT_LOCATIONS } from "@/lib/targeting";
+const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
 export interface DiscoveryOptions {
   states?: number;
+  niche?: string;
   limit?: number;
   city?: string;
   state?: string;
@@ -32,9 +32,14 @@ export interface DiscoveryOptions {
 export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
   const { states = 1, city, state, importToDb = true } = options;
   const requestedLimit = Math.max(1, Math.min(Number(options.limit) || 10, 25));
-  const targets = city && state
-    ? [{ city, state }]
-    : await getNextMetros(Math.max(2, states));
+  let target = { city: city || "", state: state || "", niche: options.niche || "" };
+  if (!city || !state) {
+    const { data, error } = await db.rpc("next_discovery_target", { p_locations: DEFAULT_LOCATIONS });
+    if (error) throw new Error(`Could not save target rotation: ${error.message}`);
+    target = data;
+  }
+  const { niche, terms, osmFilters } = discoveryTerms(target.niche || "HVAC");
+  const targets = [{ city: target.city, state: target.state }];
 
   const rawGoogle: RawLead[] = [];
   const rawOverpass: RawLead[] = [];
@@ -53,28 +58,28 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
     const radiusMiles = Math.max(1, Math.min(Number(options.radiusMiles) || 15, 30));
     const coordinates = radiusRequested ? await geocodeSearchArea(targetCity, targetState, options.zip) : null;
     const radiusMeters = Math.round(radiusMiles * 1609.344);
-    queriesSent.push({
+    if (osmFilters.length) queriesSent.push({
       source: "overpass",
       query: coordinates
-        ? buildOverpassRadiusQuery(HVAC_OSM_FILTERS, coordinates.latitude, coordinates.longitude, radiusMeters, PER_CITY)
-        : buildOverpassQuery(HVAC_OSM_FILTERS, targetCity, PER_CITY),
+        ? buildOverpassRadiusQuery(osmFilters, coordinates.latitude, coordinates.longitude, radiusMeters, PER_CITY)
+        : buildOverpassQuery(osmFilters, targetCity, PER_CITY),
     });
-    const overpassPromise = searchOverpass({
-      osmFilters: HVAC_OSM_FILTERS,
-      niche: HVAC_NICHE,
+    const overpassPromise = osmFilters.length ? searchOverpass({
+      osmFilters: osmFilters,
+      niche: niche,
       city: targetCity,
       state: targetState,
       limit: PER_CITY,
       ...(coordinates || {}),
       radiusMeters: coordinates ? radiusMeters : undefined,
       onError: noteSourceError,
-    });
+    }) : Promise.resolve([]);
 
-    for (const term of HVAC_SEARCH_TERMS) {
+    for (const term of terms) {
       queriesSent.push({ source: "google_places", query: googleTextQuery(term, targetCity, targetState) });
       const found = await searchGooglePlaces({
         term,
-        niche: HVAC_NICHE,
+        niche: niche,
         city: options.zip ? `${targetCity} ${options.zip}` : targetCity,
         state: targetState,
         maxResults: Math.min(requestedLimit, 20),
@@ -90,6 +95,7 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
   }
 
   const combined = [...rawGoogle, ...rawOverpass];
+  if (!combined.length && sourceErrors.size) throw new Error(`Discovery sources unavailable: ${[...sourceErrors].join("; ")}`);
   const clean = await cleanAndStructureLeads(combined);
   const qualified = clean.cleaned.filter((lead) => {
     if (options.requireEmail && !lead.email) return false;
@@ -98,8 +104,8 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
     if (options.minimumRating && (!lead.rating || lead.rating < options.minimumRating)) return false;
     if (options.minimumReviews && (!lead.review_count || lead.review_count < options.minimumReviews)) return false;
     return true;
-  }).slice(0, requestedLimit);
-  const newLeads = await filterNewLeads(qualified);
+  });
+  const newLeads = (await filterNewLeads(qualified)).slice(0, requestedLimit);
   let imported = { imported: 0, skipped: 0, errors: 0, importedIds: [] as string[] };
   if (importToDb && newLeads.length > 0) imported = await importLeads(newLeads);
   if (imported.errors > 0) throw new Error(`Discovery import failed for ${imported.errors} lead(s)`);
@@ -107,7 +113,7 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
   const quota = await getGoogleQuota();
   return {
     success: true,
-    niche: HVAC_NICHE,
+    niche: niche,
     queries: queriesSent,
     pipeline: {
       discovered: combined.length,
@@ -124,6 +130,6 @@ export async function runDiscoveryPipeline(options: DiscoveryOptions = {}) {
     targets,
     searchArea: { radiusMiles: Math.max(1, Math.min(Number(options.radiusMiles) || 15, 30)), exactRadiusApplied: queriesSent.some((query) => query.query.includes("around:")) },
     importedLeadIds: imported.importedIds,
-    message: `HVAC discovery — ${combined.length} raw (${rawGoogle.length} Google / ${rawOverpass.length} Overpass), cleaned to ${clean.cleaned.length}, imported ${imported.imported}.`,
+    message: `${niche} discovery — ${combined.length} raw (${rawGoogle.length} Google / ${rawOverpass.length} Overpass), cleaned to ${clean.cleaned.length}, imported ${imported.imported}.`,
   };
 }
