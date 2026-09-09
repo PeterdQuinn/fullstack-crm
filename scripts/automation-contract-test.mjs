@@ -306,6 +306,14 @@ check("a stage is only failing if its most recent run failed",
 check("a stage that recovered is noted, not alarmed",
   read("app/api/crm/automation/route.ts").includes("recoveredStages") &&
   read("app/crm/automation/page.tsx").includes("since recovered"));
+// force-dynamic does not stop Next caching supabase-js's own fetch. The
+// automation route served enabled=false for minutes after the flag was set
+// true — reporting the system paused while it was sending.
+for (const name of ["automation", "reports", "suppressed", "call-queue", "research-center", "bookings", "replies", "workspace", "onboarding-queue"]) {
+  const route = read(`app/api/crm/${name}/route.ts`);
+  check(`read route is never served stale: ${name}`,
+    route.includes('cache: "no-store"') && route.includes('fetchCache = "force-no-store"'));
+}
 check("the automation page leads with state, not settings",
   read("app/crm/automation/page.tsx").includes("Start automation") &&
   read("app/crm/automation/page.tsx").includes("Pause automation"));

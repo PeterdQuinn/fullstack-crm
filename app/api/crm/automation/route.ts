@@ -4,8 +4,18 @@ import { DEFAULT_LOCATIONS, discoveryTerms } from "@/lib/targeting";
 import { STAGE_SCHEDULE, nextRunAt } from "@/lib/automation-schedule";
 import { DAILY_SEND_CAP } from "@/lib/automation";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
+// force-dynamic alone is not enough: Next caches supabase-js's own fetch, so
+// this route served enabled=false for minutes after the flag was set true. On
+// this page that is the worst possible staleness — it reports the system paused
+// while it is sending. Same treatment as the other read routes.
 export const dynamic = "force-dynamic";
-const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+export const fetchCache = "force-no-store";
+export const revalidate = 0;
+const db = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, cache: "no-store" }) } }
+);
 
 // A run left "running" past this is not running; the function died mid-flight.
 const STALE_RUN_MS = 300_000;
