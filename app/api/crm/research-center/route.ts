@@ -5,6 +5,8 @@ import { logStatusChange } from "@/lib/audit";
 import { looksLikeRealEmail } from "@/lib/email-validation";
 import { buildResearchFacts } from "@/lib/research-evidence";
 import { researchInternetPresence, type InternetObservation } from "@/lib/internet-intelligence";
+import { EMAIL_FAILURE_STATUS } from "@/lib/suppression";
+import { TERMINAL_STATUSES } from "@/lib/queue-definitions";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,6 +16,12 @@ const supabase = createClient(
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+// The page exists to fill in missing contact data, but it only listed leads in
+// four early statuses — two of which ("Needs Data", "Ready for AI Summary") no
+// lead has ever held. Meanwhile 153 leads sat at "Ready for Outreach" with no
+// email address, and 24 at "Bad Email" needing a replacement address: exactly
+// the work this page is for, excluded from it. Membership is now "is this lead
+// missing what we need to contact it", not "is it early in the pipeline".
 const RESEARCH_STATUSES = ["New", "Needs Data", "Ready for AI Summary", "Scored"];
 const JUNK_EMAIL = /duckduckgo|example\.(com|org|net)|error|noreply|no-reply|@sentry\./i;
 
@@ -33,9 +41,16 @@ export async function GET() {
           recommended_follow_up, missing_data_needed, updated_at),
         lead_socials(platform, url, username, is_active)
       `)
-      .in("status", RESEARCH_STATUSES)
+      .or([
+        `status.in.(${RESEARCH_STATUSES.join(",")})`,
+        "email.is.null",
+        "email.eq.",
+        `status.eq.${EMAIL_FAILURE_STATUS}`,
+      ].join(","))
+      .not("status", "in", `(${TERMINAL_STATUSES.join(",")})`)
       .is("archived_at", null)
       .eq("opt_out", false)
+      .eq("complained", false)
       .order("created_at", { ascending: false })
       .limit(200);
     if (error) throw error;

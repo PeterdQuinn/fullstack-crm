@@ -387,9 +387,33 @@ check("only an opt-out or complaint blocks every channel",
   suppression.includes("Boolean(lead.opt_out) || Boolean(lead.complained)") &&
   suppression.includes('lead.status === EMAIL_FAILURE_STATUS'));
 check("a bad address does not hide a working phone number",
-  callQueue.includes("EMAIL_FAILURE_STATUS") && callQueue.includes('.eq("complained", false)'));
+  // The status list moved into lib/queue-definitions.ts when the dashboard and
+  // the page were made to share one definition; the guarantee is unchanged.
+  read("lib/queue-definitions.ts").includes("EMAIL_FAILURE_STATUS") &&
+  callQueue.includes('.eq("complained", false)'));
 check("suppressed list catches addresses rejected before any send",
   read("app/api/crm/suppressed/route.ts").includes("status.eq.${EMAIL_FAILURE_STATUS}"));
+// The dashboard badge and the page it links to each defined their own queue.
+// The call badge counted 2 of the page's 8 statuses; the email badge omitted
+// "Follow-Up Scheduled", which send-batch mails. Both undercounted their page.
+const queueDefs = read("lib/queue-definitions.ts");
+const leadStatsSrc = read("lib/lead-stats.ts");
+check("queue membership is defined once",
+  queueDefs.includes("EMAIL_QUEUE_STATUSES") && queueDefs.includes("CALL_QUEUE_STATUSES"));
+check("the dashboard counts what the queue pages list",
+  leadStatsSrc.includes('from "@/lib/queue-definitions"') &&
+  !leadStatsSrc.includes("const EMAIL_QUEUE_STATUSES = ["));
+check("the queue routes use the shared definitions",
+  read("app/api/crm/call-queue/route.ts").includes("CALL_QUEUE_STATUSES") &&
+  read("app/api/email/queue/route.ts").includes("EMAIL_QUEUE_STATUSES"));
+check("automation keeps its narrower send gate on purpose",
+  read("lib/automation.ts").includes('const SENDABLE_STATUSES = ["Ready for Outreach", "Follow-Up Scheduled"]') &&
+  queueDefs.includes("That narrowness is a safety property"));
+// The research page is for filling contact gaps, yet it excluded every lead
+// with a missing address — 153 at Ready for Outreach and 24 at Bad Email.
+check("research lists leads that are actually missing data",
+  read("app/api/crm/research-center/route.ts").includes("email.is.null") &&
+  read("app/api/crm/research-center/route.ts").includes("TERMINAL_STATUSES"));
 check("manual queue excludes New leads", !read("app/api/email/queue/route.ts").includes('        "New",'));
 
 // 57% of the list is a role inbox, so the reply that matters is the one least

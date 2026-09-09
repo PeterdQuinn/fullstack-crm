@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { EMAIL_QUEUE_STATUSES } from "@/lib/queue-definitions";
 import { createClient } from "@supabase/supabase-js";
 import { renderOutreachEmail } from "@/lib/email-templates";
 import { sendBlockedReason } from "@/lib/email-templates";
@@ -61,12 +62,7 @@ export async function GET() {
       // This used to be `.or("industry.ilike.HVAC,niche.ilike.HVAC")`, which
       // meant the workspace never listed a lead that send-batch would happily
       // mail. Filtering in one place keeps the queue and the send agreeing.
-      .in("status", [
-        "Ready for Outreach",
-        "Email 1 Sent",
-        "Email 2 Sent",
-        "Follow-Up Scheduled",
-      ]);
+      .in("status", EMAIL_QUEUE_STATUSES as unknown as string[]);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

@@ -10,6 +10,8 @@
 // so /api/crm/stats (server) and the leads workspace (client) get identical logic.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { CALL_QUEUE_STATUSES, EMAIL_QUEUE_STATUSES } from "@/lib/queue-definitions";
+
 /** The subset of lead fields any stat here can depend on. */
 export interface LeadStatFields {
   status?: string | null;
@@ -108,8 +110,9 @@ export function computeLeadKpis(leads: LeadStatFields[], ref: number = Date.now(
 }
 
 // ── Lead-derived numbers the dashboard needs ────────────────────────────────
-const EMAIL_QUEUE_STATUSES = ["Ready for Outreach", "Email 1 Sent", "Email 2 Sent"];
-const CALL_QUEUE_STATUSES = ["Call Needed", "Ready for Outreach"];
+// Imported, not restated. The local copies had drifted: the email list was
+// missing "Follow-Up Scheduled" (which send-batch mails) and the call list held
+// two of the queue's eight statuses, so both badges undercounted their page.
 
 export interface LeadDashboardStats {
   emailQueue: number;
@@ -131,11 +134,11 @@ export function computeLeadDashboardStats(
         l.bounced !== true &&
         l.status !== "Do Not Contact" &&
         !!l.status &&
-        EMAIL_QUEUE_STATUSES.includes(l.status) &&
+        (EMAIL_QUEUE_STATUSES as unknown as string[]).includes(l.status) &&
         hasValue(l.email)
     ).length,
     callQueue: leads.filter(
-      (l) => hasValue(l.phone) && !!l.status && CALL_QUEUE_STATUSES.includes(l.status)
+      (l) => hasValue(l.phone) && !!l.status && (CALL_QUEUE_STATUSES as unknown as string[]).includes(l.status)
     ).length,
     onboarding: leads.filter(
       (l) => l.opt_out !== true && (l.status === "Booked" || l.status === "Onboarding Sent")

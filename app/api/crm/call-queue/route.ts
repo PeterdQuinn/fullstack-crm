@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { EMAIL_FAILURE_STATUS } from "@/lib/suppression";
+import { CALL_QUEUE_STATUSES } from "@/lib/queue-definitions";
 import { buildCallPreparation, type InternetObservation } from "@/lib/internet-intelligence";
 
 const supabase = createClient(
@@ -9,20 +9,6 @@ const supabase = createClient(
 
 export const dynamic = "force-dynamic";
 
-const CALL_STATUSES = [
-  "Call Needed",
-  "Ready for Outreach",
-  "No Answer",
-  "Follow-Up",
-  "Follow-Up Scheduled",
-  "Needs Follow-Up",
-  "Interested",
-  // A failed email address is not a reason to stop calling. These leads were
-  // reachable by phone the whole time and appeared in no queue. Anyone who
-  // actually asked to be left alone is excluded by the opt_out/complained
-  // filters below, not by their status.
-  EMAIL_FAILURE_STATUS,
-];
 
 export async function GET() {
   try {
@@ -47,7 +33,7 @@ export async function GET() {
       .is("archived_at", null)
       .eq("opt_out", false)
       .eq("complained", false)
-      .in("status", CALL_STATUSES)
+      .in("status", CALL_QUEUE_STATUSES as unknown as string[])
       .limit(200);
 
     if (error) throw error;
