@@ -34,7 +34,11 @@ export async function GET() {
     const forStage = runRows.filter((r: any) => r.stage === schedule.stage);
     const last = forStage[0] || null;
     const failed = forStage.filter((r: any) => r.status === "failed" || isStale(r));
-    const firstError = failed.map((r: any) => r.result?.error || r.result?.errors?.[0]).find(Boolean) || null;
+    // "Failing" means the most recent run failed, not that any run failed today.
+    // A stage that broke at 21:31 and has succeeded twice since is working, and
+    // saying otherwise trains the reader to ignore the banner.
+    const broken = Boolean(last) && (last.status === "failed" || isStale(last));
+    const latestError = broken ? (last.result?.error || last.result?.errors?.[0] || null) : null;
     return {
       stage: schedule.stage,
       label: schedule.label,
@@ -42,9 +46,10 @@ export async function GET() {
       runs24h: forStage.length,
       failed24h: failed.length,
       lastStatus: last ? (isStale(last) ? "died" : last.status) : null,
+      broken,
       lastRunAt: last?.started_at || null,
       nextRunAt: nextRunAt(schedule),
-      error: firstError ? String(firstError).slice(0, 300) : null,
+      error: latestError ? String(latestError).slice(0, 300) : null,
     };
   });
 
@@ -69,7 +74,8 @@ export async function GET() {
     health: {
       runs24h: runRows.length,
       failed24h: runRows.filter((r: any) => r.status === "failed" || isStale(r)).length,
-      brokenStages: stages.filter((s) => s.failed24h > 0).map((s) => s.label),
+      brokenStages: stages.filter((s) => s.broken).map((s) => s.label),
+      recoveredStages: stages.filter((s) => !s.broken && s.failed24h > 0).map((s) => s.label),
     },
     outbox: { counts: outboxCounts, total: outboxRows.length, needsAttention: needsAttention.slice(0, 25) },
   });

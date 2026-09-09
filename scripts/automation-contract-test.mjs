@@ -298,6 +298,14 @@ for (const [stage, cron] of [
   check(`schedule shown matches schedule fired: ${stage}`,
     workflow.includes(`cron: ${cron}`) && scheduleLib.includes(`stage: "${stage}"`));
 }
+// A stage that failed at 21:31 and has succeeded twice since is working. Alarming
+// on any failure in 24h trains the reader to ignore the banner.
+check("a stage is only failing if its most recent run failed",
+  read("app/api/crm/automation/route.ts").includes("const broken = Boolean(last) && (last.status === \"failed\" || isStale(last))") &&
+  read("app/api/crm/automation/route.ts").includes("brokenStages: stages.filter((s) => s.broken)"));
+check("a stage that recovered is noted, not alarmed",
+  read("app/api/crm/automation/route.ts").includes("recoveredStages") &&
+  read("app/crm/automation/page.tsx").includes("since recovered"));
 check("the automation page leads with state, not settings",
   read("app/crm/automation/page.tsx").includes("Start automation") &&
   read("app/crm/automation/page.tsx").includes("Pause automation"));

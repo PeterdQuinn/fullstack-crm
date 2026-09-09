@@ -12,13 +12,13 @@ import { useCallback, useEffect, useState } from "react";
 interface Stage {
   stage: string; label: string; description: string;
   runs24h: number; failed24h: number;
-  lastStatus: string | null; lastRunAt: string | null; nextRunAt: string; error: string | null;
+  lastStatus: string | null; lastRunAt: string | null; nextRunAt: string; error: string | null; broken: boolean;
 }
 interface Data {
   settings: { enabled: boolean; niches: string[]; locations: { city: string; state: string }[] };
   today: { sent: number; cap: number; discovered: number; researched: number };
   stages: Stage[];
-  health: { runs24h: number; failed24h: number; brokenStages: string[] };
+  health: { runs24h: number; failed24h: number; brokenStages: string[]; recoveredStages: string[] };
   outbox: { counts: Record<string, number>; total: number; needsAttention: any[] };
 }
 
@@ -141,11 +141,17 @@ export default function AutomationPage() {
         <section className="rounded-xl border border-status-lost bg-red-50 p-4">
           <p className="font-semibold text-status-lost">{broken.join(", ")} {broken.length === 1 ? "is" : "are"} failing</p>
           <ul className="mt-2 space-y-1 text-sm text-gray-700">
-            {data.stages.filter((s) => s.error).map((s) => (
+            {data.stages.filter((s) => s.broken && s.error).map((s) => (
               <li key={s.stage}><span className="font-medium">{s.label}:</span> {s.error}</li>
             ))}
           </ul>
         </section>
+      )}
+
+      {data.health.recoveredStages.length > 0 && (
+        <p className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600">
+          {data.health.recoveredStages.join(", ")} failed earlier today and {data.health.recoveredStages.length === 1 ? "has" : "have"} since recovered.
+        </p>
       )}
 
       <section>
@@ -173,7 +179,7 @@ export default function AutomationPage() {
             </thead>
             <tbody>
               {data.stages.map((s) => {
-                const bad = s.failed24h > 0 || s.lastStatus === "died";
+                const bad = s.broken;
                 return (
                   <tr key={s.stage} className="border-b border-gray-100 last:border-0">
                     <td className="px-4 py-3">
