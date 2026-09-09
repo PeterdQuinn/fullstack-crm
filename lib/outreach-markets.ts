@@ -1,19 +1,5 @@
-// Which markets the approved outreach copy may be sent to.
-//
-// HISTORY, because the previous hard-coded `industry === "HVAC"` check looks
-// arbitrary now: the touch-1 copy used to open "most HVAC shops are paying
-// $300-500 a month", which reads as a mistake to anyone else, so automation.ts
-// and send-batch both refused non-HVAC leads. Commit 11a356d then replaced that
-// copy with the market-neutral "own vs rent your business software" sequence --
-// it names scheduling, dispatch, invoicing and customer management, and never
-// mentions a trade. The gate outlived its reason and left 20 scored, approved
-// landscaping leads unmailable.
-//
-// This is a deliberate allowlist rather than "send to everyone": copy that is
-// safe for two service trades is not automatically safe for a law firm or a
-// restaurant. Widen it with OUTREACH_MARKETS; do not delete the gate.
-
-const DEFAULT_MARKETS = "hvac,landscaping";
+// Business-neutral outreach supports any named niche. Explicit env lists can narrow it.
+const DEFAULT_MARKETS = "*";
 
 /**
  * Lowercased market names the current copy is approved for.
@@ -44,7 +30,8 @@ export function leadMarket(lead: { industry?: string | null; niche?: string | nu
 
 /** True when this lead's market is approved for the current outreach copy. */
 export function marketApproved(lead: { industry?: string | null; niche?: string | null }): boolean {
-  return APPROVED_MARKETS.includes(leadMarket(lead));
+  const market = leadMarket(lead);
+  return Boolean(market) && (APPROVED_MARKETS.includes("*") || APPROVED_MARKETS.includes(market));
 }
 
 /** Reason string for a blocked send, or null when the market is approved. */

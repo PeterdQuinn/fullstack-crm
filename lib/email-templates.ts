@@ -121,7 +121,7 @@ function messageParagraphs(emailNum: number, ownerName: string, company: string,
     if (verifiedDetail) return [
       `Hi ${ownerName},`,
       `I noticed this while researching ${company}: ${verifiedDetail}`,
-      `Growth usually makes missed calls, estimate follow-up, scheduling, and repeated data entry more expensive. I'm Peter Quinn, owner of Full Stack Services LLC. I build focused systems around those operational gaps instead of forcing a business into another disconnected subscription.`,
+      `Growth usually makes missed inquiries, customer follow-up, scheduling, and repeated data entry more expensive. I'm Peter Quinn, owner of Full Stack Services LLC. I build focused systems around those operational gaps instead of forcing a business into another disconnected subscription.`,
       `Is that creating any friction for the team today? If it is, I can show you a practical way to tighten it up in a short call.`,
       ...PETER_SIGNATURE,
     ];
@@ -137,7 +137,7 @@ function messageParagraphs(emailNum: number, ownerName: string, company: string,
   if (emailNum === 2) {
     return [
       `Hi ${ownerName},`,
-      `The software that runs scheduling, dispatch, invoicing, and customer management should be a business asset, not a collection of bills that never ends.`,
+      `The software that runs customer follow-up, invoicing, reporting, and day-to-day work should be a business asset, not a collection of bills that never ends.`,
       `I help businesses build one system around their operation so they can own the tool they depend on. If you want to see what that could look like for ${company}, let me know a good time for a short call.`,
       ...PETER_SIGNATURE,
     ];

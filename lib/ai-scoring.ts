@@ -182,7 +182,7 @@ export function buildScoringPrompt(lead: LeadScoringInput): string {
   const knownFields = lines.length;
 
   return `You are scoring an outbound sales lead for Full Stack Services LLC, which builds
-custom owned software for US home-service businesses (HVAC, plumbing, landscaping)
+custom owned software for US businesses across industries
 to replace recurring SaaS subscriptions.
 
 KNOWN DATA (${knownFields} field${knownFields === 1 ? "" : "s"} on file — every field we hold is listed):
@@ -197,9 +197,9 @@ SCORING RULES — read carefully:
 - A reachable, real business in our target industries is a GOOD lead. Anything
   with a working phone or email plus a website should score at least 60.
 - Raise the score for: signs of an established operation (reviews, ratings,
-  employees, years in business), an identified owner, a known SaaS/field-service
+  employees, years in business), an identified owner, a known subscription software
   tool we can displace, and evidence of manual/legacy processes.
-- Lower the score only for REAL negatives: out of our target industries, an
+- Lower the score only for REAL negatives: an
   enterprise or national chain too large for us, a franchise/directory listing
   rather than an operating business, or no way to contact them at all.
 - Use confidence_level (not lead_score) to express how thin the record is:
