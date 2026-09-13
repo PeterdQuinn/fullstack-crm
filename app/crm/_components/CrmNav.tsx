@@ -14,6 +14,7 @@ import {
   Ban,
   BarChart3,
   Radar,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,6 +34,7 @@ const PRIMARY: NavItem[] = [
 
 // Desktop sidebar shows everything; mobile bottom bar shows only PRIMARY.
 const SECONDARY: NavItem[] = [
+  { label: "Insurance", href: "/crm/insurance", icon: ShieldCheck },
   { label: "Automation", href: "/crm/automation", icon: Radar },
   { label: "Discovery", href: "/crm/discovery", icon: Radar },
   { label: "Email Queue", href: "/crm/email-queue", icon: Mail },
@@ -67,7 +69,7 @@ export default function CrmNav() {
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3 py-2">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
           {[...PRIMARY, ...SECONDARY].map((item) => {
             const active = isActive(pathname, item.href);
             const Icon = item.icon;
@@ -88,6 +90,8 @@ export default function CrmNav() {
           })}
         </nav>
       </aside>
+
+      <Link href="/crm/insurance" className="fixed right-3 bottom-20 z-30 flex items-center gap-2 rounded-full bg-teal-800 px-4 py-2 text-xs font-semibold text-white shadow md:hidden"><ShieldCheck size={15} /> Insurance</Link>
 
       {/* ── Mobile: fixed bottom tab bar (below md) ───────────────────────── */}
       <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-gray-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">

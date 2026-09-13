@@ -8,7 +8,7 @@ meeting. A human is required for the sales conversation and nothing else.
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
-| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 38 libs · 17 migrations |
+| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 38 libs · 18 migrations |
 | **Deploy** | Vercel, auto-deploy from `main` → `fullstack-crm-nine.vercel.app` |
 | **Scheduler** | GitHub Actions (`.github/workflows/cron.yml`) — `vercel.json` declares no crons |
 | **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic accepted as a second door; `CRON_SECRET` on every `/api/cron/*` verb; provider signatures on webhooks |
@@ -370,4 +370,14 @@ log/status/audit/followup, suppression survival, and the expired-retry cutoff.
 | `lib/status-colors.ts` | Single source of truth for status colours |
 | `lib/lead-stats.ts` | Single source of truth for KPIs |
 | `lib/audit.ts` | Append-only change trail |
-| `supabase/migrations/` | Schema history (017 current) |
+| `supabase/migrations/` | Schema history (018 current) |
+
+## Insurance workspace
+
+`/crm/insurance` provides separate recruiting and public buyer-signal research for AZ, SC, VA, OH, and MI. Migration 018 adds isolated prospects, search cache, and atomic monthly usage counters; HVAC automation does not query these tables. Saved profiles support notes, stages, evidence-backed license dates, and follow-up dates. Unknown dates stay unknown.
+
+Search uses the imported `PRODUCERFORGE_OLLAMA_API_KEY` against the hosted web-search API, with `SERPAPI_API_KEY` as fallback. Results are source snippets for review, not verified license records or confirmed buyers. Repeated searches are cached for one hour. Requests have deadlines; each provider is capped at 100 requests per month. No localhost AI service or filesystem usage counter is required.
+
+Drafts are instant templates with Peter's website and Calendly link. Optional editing uses the two imported `PRODUCERFORGE_GEMINI_API_KEY` credentials with bounded fallback to the template. Drafts do not send messages. Insurance sending, reply automation, official license feeds, carrier integrations, and migration of existing ProducerForge workspace records are not implemented.
+
+Verification: `npm run test:insurance`; live search, persistence, and draft checks use the authenticated `/api/crm/insurance/*` routes. Secrets remain server-side.
