@@ -8,7 +8,7 @@ meeting. A human is required for the sales conversation and nothing else.
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
-| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 38 libs · 18 migrations |
+| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 40 libs · 19 migrations |
 | **Deploy** | Vercel, auto-deploy from `main` → `fullstack-crm-nine.vercel.app` |
 | **Scheduler** | GitHub Actions (`.github/workflows/cron.yml`) — `vercel.json` declares no crons |
 | **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic accepted as a second door; `CRON_SECRET` on every `/api/cron/*` verb; provider signatures on webhooks |
@@ -48,6 +48,12 @@ ones.
 `lib/discovery-pipeline.ts` · `lib/discovery-sources.ts` · `lib/discovery-clean.ts` · `lib/targeting.ts`
 
 ### 2. Enrich — `cron/enrich-leads`, 3×/day
+
+**This stage is the constraint on the whole system.** Measured 2026-09-12: 169
+leads stood at *Ready for Outreach* and exactly one had an email address, while
+196 had a website and none. Nothing downstream can send what this stage does not
+find.
+
 A static crawl of the business's own site, walking internal links and merging
 what each page yields: email, phone, owner name, address, description, booking
 or dispatch software, website technologies, social profiles, Google Business
@@ -55,11 +61,19 @@ profile. HVAC-specific signals (`lib/hvac-signals.ts`) still exist for the
 trades — booking, after-hours capture, financing, maintenance plans, brands,
 certifications, licence numbers.
 
-Twelve leads per run against a 45-second budget, so the route cannot outrun its
-120-second ceiling. Supply, not the send cap, is the binding constraint on this
+Twenty leads per run against a 75-second budget, so the route cannot outrun its
+120-second ceiling — the static scrape now averages about two seconds. Supply, not the send cap, is the binding constraint on this
 system: enrichment is what converts a discovered business into a mailable one.
 
-`app/api/scrape-phone/route.ts` · `lib/enrich.ts` · `lib/hvac-signals.ts`
+Addresses are read from the **markup**, not `$("body").text()`: Cloudflare's
+XOR-obfuscated mailto, JSON-LD, meta tags and `info [at] example [dot] com` all
+carry an address no text scan can see. What is found is then *ranked* — the
+site's own domain wins, and an address on a third-party company domain is
+rejected, because the first live run of the new extractor returned the web
+designer's footer credit. A blocked page is retried once as a full browser
+navigation, and a transport failure falls back to the www/apex twin.
+
+`app/api/scrape-phone/route.ts` · `lib/email-extract.ts` · `lib/enrich.ts` · `lib/hvac-signals.ts`
 
 ### 3. Research — `cron/research-leads`, 3×/day
 Its own scheduled stage, not a passenger on enrichment: one lead's research is
@@ -94,13 +108,20 @@ The AI produces the pain point, attack angle, a first message, a follow-up, a
 0–100 score and what still needs confirming. Score and the status change it
 implies commit together through `save_automation_score()`.
 
+The bar is **20**, defined once in `lib/score-thresholds.ts` and mirrored by
+`save_automation_score` (migration 019) — the database held its own copy of the
+old 50 and would otherwise have parked every newly scored lead at *Scored*. An
+exact 50 is excluded everywhere: it is the literal value written when every
+provider fails, and a lead holding one is re-scored by
+`cron/process-discovered-leads` rather than mailed.
+
 Scoring **fails loudly**: if every provider is down, the lead is left for the
 next run rather than promoted to *Ready for Outreach* on a fallback 50.
 
 `lib/ai-scoring.ts` · `app/api/cron/process-discovered-leads/`
 
 ### 5. Send — `cron/automation`, 3×/day
-Sends first-touch emails to leads scoring above 50 in an approved market,
+Sends first-touch emails to leads scoring at least 20 in an approved market,
 preferring leads that have a verified outreach fact so the scarce daily budget
 goes to the personalised opener.
 
@@ -370,7 +391,7 @@ log/status/audit/followup, suppression survival, and the expired-retry cutoff.
 | `lib/status-colors.ts` | Single source of truth for status colours |
 | `lib/lead-stats.ts` | Single source of truth for KPIs |
 | `lib/audit.ts` | Append-only change trail |
-| `supabase/migrations/` | Schema history (018 current) |
+| `supabase/migrations/` | Schema history (019 current) |
 
 ## Insurance workspace
 

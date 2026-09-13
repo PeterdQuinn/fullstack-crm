@@ -57,6 +57,12 @@ const LEAD_SCORING_COLUMNS = [
   "twitter_url",
 ].join(", ");
 
+// The exact text the fallback below writes. Exported so a placeholder score can
+// be recognised in the database later: lead_ai_summaries has no provider column,
+// and without this the only trace of "no provider answered" is a 50 that looks
+// like a judgment.
+export const FALLBACK_PAIN_POINT = "Unable to determine";
+
 export interface LeadScoringInput {
   /** When present, the full lead row + socials are loaded and merged in. */
   id?: string;
@@ -250,7 +256,7 @@ export async function scoreLead(leadData: LeadScoringInput): Promise<ScoringResu
   return {
     lead_score: 50,
     confidence_level: "low",
-    main_pain_point: "Unable to determine",
+    main_pain_point: FALLBACK_PAIN_POINT,
     best_attack_angle: "Contact directly",
     recommended_first_message: `Hi ${lead.business_name}, we help service businesses grow with custom software.`,
     recommended_follow_up: "Following up on our previous message.",

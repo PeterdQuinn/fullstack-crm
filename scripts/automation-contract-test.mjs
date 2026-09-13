@@ -235,6 +235,19 @@ check("email extraction reads the markup, not just body text",
   extractor.includes("data-cfemail") && extractor.includes("cdn-cgi/l/email-protection"));
 check("a vendor's address is never mailed as the prospect",
   extractor.includes("belongsToBusiness") && extractor.includes("CONSUMER_PROVIDERS"));
+// A placeholder score is not a judgment, and for 24 leads it was also a dead
+// end: the anti-join skips them (they have a summary) and the sender skips them
+// (an exact 50 is unevaluated), so nothing ever looked at them again.
+const scoringCron = read("app/api/cron/process-discovered-leads/route.ts");
+check("a placeholder score is re-scored, not left forever",
+  scoringCron.includes("FALLBACK_PAIN_POINT") && scoringCron.includes("FALLBACK_SCORE") &&
+  read("lib/ai-scoring.ts").includes("export const FALLBACK_PAIN_POINT"));
+// The database held its own copy of the send bar. Lowering it in the app alone
+// would have parked every newly scored lead at 'Scored', which is not sendable.
+const scoreFn = read("supabase/migrations/019_score_bar_and_placeholder_rescore.sql");
+check("the database promotion rule matches the application send bar",
+  scoreFn.includes("points >= 20 and points <> 50") && scoreFn.includes("Ready for Outreach"));
+
 check("a blocked page is retried as a real navigation before being written off",
   read("app/api/scrape-phone/route.ts").includes("NAVIGATION_HEADERS") &&
   read("app/api/scrape-phone/route.ts").includes("alternateHost"));

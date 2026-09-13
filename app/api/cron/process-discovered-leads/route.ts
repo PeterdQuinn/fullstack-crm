@@ -1,7 +1,8 @@
 import { withAutomationRun } from "@/lib/automation-runs";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { scoreLead } from "@/lib/ai-scoring";
+import { scoreLead, FALLBACK_PAIN_POINT } from "@/lib/ai-scoring";
+import { FALLBACK_SCORE } from "@/lib/score-thresholds";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -86,7 +87,43 @@ async function handleGET(req: NextRequest) {
       throw poolError;
     }
 
-    const newLeads = (pool || []).filter((l) => !scoredIds.has(l.id)).slice(0, BATCH);
+    let newLeads = (pool || []).filter((l) => !scoredIds.has(l.id)).slice(0, BATCH);
+
+    // Leads whose ONLY score is the placeholder written while every provider was
+    // down. They are invisible to the anti-join above — they do have a summary
+    // row — and the sender excludes an exact 50 as unevaluated, so nothing in
+    // the pipeline ever looked at them again. 24 leads sat in this state,
+    // including addresses enrichment had just found. They are re-scored here,
+    // after genuinely new leads, so a backlog never starves discovery.
+    if (newLeads.length < BATCH) {
+      const { data: placeholders, error: placeholderError } = await supabase
+        .from("lead_ai_summaries")
+        .select("lead_id")
+        .eq("lead_score", FALLBACK_SCORE)
+        .eq("main_pain_point", FALLBACK_PAIN_POINT)
+        .limit(BATCH * 10);
+      if (placeholderError) {
+        console.error("Failed to load placeholder scores:", placeholderError);
+        throw placeholderError;
+      }
+      const ids = (placeholders || []).map((row) => row.lead_id);
+      if (ids.length) {
+        const { data: stale, error: staleError } = await supabase
+          .from("leads")
+          .select("*")
+          .in("id", ids)
+          .is("archived_at", null)
+          .eq("opt_out", false)
+          .neq("status", "Do Not Contact")
+          .order("updated_at", { ascending: true })
+          .limit(BATCH - newLeads.length);
+        if (staleError) {
+          console.error("Failed to load leads holding a placeholder score:", staleError);
+          throw staleError;
+        }
+        newLeads = [...newLeads, ...(stale || [])];
+      }
+    }
 
     if (!newLeads || newLeads.length === 0) {
       console.log("No new leads to process");

@@ -40,7 +40,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 ```
 
-5. Also run every file in `supabase/migrations/` in order (001 → 017)
+5. Also run every file in `supabase/migrations/` in order (001 → 019)
 6. Restart `npm run dev`, open **/crm/automation** to set your niches and cities,
    then **/crm/discovery** to pull your first leads
 
@@ -98,8 +98,8 @@ stay in sync). The main path:
 | Status | Meaning |
 |--------|---------|
 | New | Discovered, not yet scored |
-| Scored | Scored below the outreach bar (50) |
-| Ready for Outreach | Scored ≥ 50 — eligible for automated email |
+| Scored | Scored below the outreach bar (20), or holding a placeholder 50 awaiting re-score |
+| Ready for Outreach | Scored ≥ 20 — eligible for automated email |
 | Email 1/2/3 Sent | Position in the 3-touch sequence |
 | Replied | Reply received, awaiting classification |
 | Booking Link Sent | Classified Interested — Calendly link emailed |
