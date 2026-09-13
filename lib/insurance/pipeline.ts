@@ -329,10 +329,15 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
       await activity(prospect.id, "enriched", `Found phone number ${phone}`, { phone });
     }
 
-    // Contact details are the only thing that can reveal that two source pages
-    // describe one person. This is the moment they first exist.
-    if (email || phone) {
-      const merged = await mergeIfDuplicate({ ...prospect, email: email || prospect.email, phone: phone || prospect.phone });
+    // Contact details are what reveal that two source pages describe one person
+    // — whether this pass found them or an earlier one did. Gating the check on
+    // what the SCRAPE just returned meant a record that arrived already holding
+    // an address was never compared to anything: a planted duplicate carrying a
+    // known address survived fifty-six record-passes without being noticed.
+    const knownEmail = email || prospect.email;
+    const knownPhone = phone || prospect.phone;
+    if (knownEmail || knownPhone) {
+      const merged = await mergeIfDuplicate({ ...prospect, email: knownEmail, phone: knownPhone });
       if (merged) result.merged++;
     }
   }

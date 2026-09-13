@@ -251,6 +251,11 @@ check("a shared office number alone never merges two records",
 check("duplicate lookup never builds a filter out of a phone number",
   !/\.or\(`email\.eq/.test(read("lib/insurance/pipeline.ts")) &&
   read("lib/insurance/pipeline.ts").includes('.eq("email", email)'));
+// Gating the duplicate check on what the scrape just returned meant a record
+// that already held an address was never compared to anything.
+check("a record already holding contact details is still checked for duplicates",
+  read("lib/insurance/pipeline.ts").includes("const knownEmail = email || prospect.email") &&
+  read("lib/insurance/pipeline.ts").includes("if (knownEmail || knownPhone)"));
 check("a merged record is linked, not deleted",
   read("supabase/migrations/021_insurance_duplicates.sql").includes("duplicate_of uuid references") &&
   read("lib/insurance/pipeline.ts").includes("duplicate_of: keep.id"));
