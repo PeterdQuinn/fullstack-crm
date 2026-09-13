@@ -8,7 +8,7 @@ meeting. A human is required for the sales conversation and nothing else.
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
-| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 42 libs · 20 migrations |
+| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 44 libs · 21 migrations |
 | **Deploy** | Vercel, auto-deploy from `main` → `fullstack-crm-nine.vercel.app` |
 | **Scheduler** | GitHub Actions (`.github/workflows/cron.yml`) — `vercel.json` declares no crons |
 | **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic accepted as a second door; `CRON_SECRET` on every `/api/cron/*` verb; provider signatures on webhooks |
@@ -392,7 +392,7 @@ log/status/audit/followup, suppression survival, and the expired-retry cutoff.
 | `lib/status-colors.ts` | Single source of truth for status colours |
 | `lib/lead-stats.ts` | Single source of truth for KPIs |
 | `lib/audit.ts` | Append-only change trail |
-| `supabase/migrations/` | Schema history (020 current) |
+| `supabase/migrations/` | Schema history (021 current) |
 
 ## Insurance pipeline (`insurance-pipeline`, 07:15 and 13:15 Phoenix)
 
@@ -414,6 +414,12 @@ DISCOVER → ENRICH → QUALIFY → SEND → REPLIES
   come off profile networks that will never publish an address, and a producer
   with a phone is a lead that can be worked today. Measured on eight live
   Michigan agency pages: 5 emails, 7 phones.
+
+Once enrichment has found contact details, `lib/insurance/dedupe.ts` decides
+whether two source pages describe one person. An email match is decisive. A
+phone match counts only alongside a name match, because five producers at one
+agency publish one office number and merging on that alone would quietly delete
+four real people. A duplicate is linked, never deleted, and can never be mailed.
 
 **What gets imported at all** is decided by `lib/insurance/sources.ts`. The first
 live run imported ten LinkedIn profiles and ten quote farms and produced zero

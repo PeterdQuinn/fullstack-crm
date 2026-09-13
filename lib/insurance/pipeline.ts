@@ -7,6 +7,7 @@ import { insuranceDb, reserveInsuranceRequest } from "./db";
 import { searchInsurance } from "./search";
 import { safePublicUrl, INSURANCE_STATES, type InsuranceState, type InsuranceTrack } from "./types";
 import { isImportable, sourceKind, DEFAULT_QUERIES, hostOf } from "./sources";
+import { findDuplicate, survivor } from "./dedupe";
 import { sendInsuranceTouch, sendRefusal } from "./outreach";
 
 // The insurance pipeline, stage by stage.
@@ -145,7 +146,50 @@ export interface EnrichResult {
   processed: number;
   emailsFound: number;
   phonesFound: number;
+  /** Records linked to an existing one because the contact details matched. */
+  merged: number;
   errors: string[];
+}
+
+/**
+ * Link a record to the one it duplicates, if any. Returns true when merged.
+ *
+ * The duplicate is kept and pointed at its survivor rather than deleted: the
+ * rule deliberately refuses several pairs a human might merge by eye, so the
+ * decisions it does make have to be visible and reversible.
+ */
+async function mergeIfDuplicate(record: { id: string; name?: string | null; email?: string | null; phone?: string | null; created_at?: string | null }): Promise<boolean> {
+  const db = insuranceDb();
+  const { data: others, error } = await db
+    .from("insurance_prospects")
+    .select("id, name, email, phone, created_at, stage, notes")
+    .is("duplicate_of", null)
+    .or(`email.eq.${record.email || "__none__"},phone.eq.${record.phone || "__none__"}`)
+    .limit(20);
+  if (error || !others?.length) return false;
+
+  const match = findDuplicate(record as any, others as any);
+  if (!match) return false;
+
+  const { data: full } = await db.from("insurance_prospects").select("id, name, email, phone, created_at").eq("id", record.id).single();
+  const { keep, merge } = survivor(full as any, match.of as any);
+  if (keep.id === merge.id) return false;
+
+  const { error: linkError } = await db.from("insurance_prospects").update({
+    duplicate_of: keep.id,
+    duplicate_reason: `matched ${keep.name || "another record"} on ${match.reason}`,
+    updated_at: new Date().toISOString(),
+  }).eq("id", merge.id);
+  if (linkError) {
+    console.error(`Could not link duplicate: ${linkError.message}`);
+    return false;
+  }
+  // Cancel anything queued against the record that is no longer the one worked.
+  await db.from("insurance_tasks").update({ status: "cancelled", completed_at: new Date().toISOString(), notes: "Cancelled: merged into another record" })
+    .eq("prospect_id", merge.id).eq("status", "pending");
+  await activity(merge.id, "note", `Merged into ${keep.name || "an earlier record"} — matched on ${match.reason}`, { duplicate_of: keep.id, reason: match.reason });
+  await activity(keep.id, "note", `A second source page for this contact was merged in — matched on ${match.reason}`, { merged_id: merge.id, reason: match.reason });
+  return true;
 }
 
 // A US number as it appears in page text. Validated with libphonenumber before
@@ -193,7 +237,7 @@ const UA = {
 export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_000): Promise<EnrichResult> {
   const startedAt = Date.now();
   const db = insuranceDb();
-  const result: EnrichResult = { processed: 0, emailsFound: 0, phonesFound: 0, errors: [] };
+  const result: EnrichResult = { processed: 0, emailsFound: 0, phonesFound: 0, merged: 0, errors: [] };
 
   // Anything still missing a way to reach it. Phone matters as much as email
   // here: the best recruiting records come off profile networks that will never
@@ -201,7 +245,8 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
   // work today.
   const { data: prospects, error } = await db
     .from("insurance_prospects")
-    .select("id, name, source, website, email, phone, stage")
+    .select("id, name, source, website, email, phone, stage, created_at")
+    .is("duplicate_of", null)
     .or("email.eq.,phone.eq.")
     .eq("opt_out", false)
     .neq("stage", "Do not contact")
@@ -260,6 +305,13 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
       result.phonesFound++;
       await activity(prospect.id, "enriched", `Found phone number ${phone}`, { phone });
     }
+
+    // Contact details are the only thing that can reveal that two source pages
+    // describe one person. This is the moment they first exist.
+    if (email || phone) {
+      const merged = await mergeIfDuplicate({ ...prospect, email: email || prospect.email, phone: phone || prospect.phone });
+      if (merged) result.merged++;
+    }
   }
 
   return result;
@@ -311,6 +363,7 @@ export async function qualifyInsuranceProspects(batchSize = 10): Promise<Qualify
   const { data: pool, error } = await db
     .from("insurance_prospects")
     .select("id, name, track, state, source, email, phone, score, stage")
+    .is("duplicate_of", null)
     .is("score", null)
     .neq("stage", "Do not contact")
     .order("created_at", { ascending: true })
@@ -403,6 +456,7 @@ export async function sendInsuranceOutreach(settings: InsuranceSettings, perRun 
     .from("insurance_prospects")
     .select("*")
     .eq("stage", "Qualified")
+    .is("duplicate_of", null)
     .eq("email_sent_count", 0)
     .eq("opt_out", false)
     .eq("bounced", false)

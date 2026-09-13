@@ -241,6 +241,18 @@ const outboxTest = read("scripts/outbox-database-test.sql");
 check("the outbox database test cannot commit its own fixtures",
   /^--[\s\S]*?\bbegin;/m.test(outboxTest) && outboxTest.trimEnd().endsWith("rollback;"));
 
+// Merging on a shared phone would delete real people: five producers at one
+// agency publish one office number.
+const dedupeLib = read("lib/insurance/dedupe.ts");
+check("a shared office number alone never merges two records",
+  dedupeLib.includes("sameName(record.name, other.name)") && dedupeLib.includes('reason: "phone and name"'));
+check("a merged record is linked, not deleted",
+  read("supabase/migrations/021_insurance_duplicates.sql").includes("duplicate_of uuid references") &&
+  read("lib/insurance/pipeline.ts").includes("duplicate_of: keep.id"));
+check("a merged record can never be mailed",
+  read("supabase/migrations/021_insurance_duplicates.sql").includes("Recipient was merged into another record") &&
+  read("app/api/crm/insurance/workspace/route.ts").includes('.is("duplicate_of", null)'));
+
 // A placeholder score is not a judgment, and for 24 leads it was also a dead
 // end: the anti-join skips them (they have a summary) and the sender skips them
 // (an exact 50 is unevaluated), so nothing ever looked at them again.

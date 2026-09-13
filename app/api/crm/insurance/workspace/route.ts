@@ -28,7 +28,7 @@ export async function GET() {
 
   const [settings, prospects, tasks, activities, usage, sentToday, runs] = await Promise.all([
     db.from("insurance_settings").select("*").eq("id", "owner").maybeSingle(),
-    db.from("insurance_prospects").select("*").order("updated_at", { ascending: false }).limit(600),
+    db.from("insurance_prospects").select("*").is("duplicate_of", null).order("updated_at", { ascending: false }).limit(600),
     db.from("insurance_tasks").select("*").eq("status", "pending").order("due_at", { ascending: true }).limit(100),
     db.from("insurance_activities").select("*").order("created_at", { ascending: false }).limit(150),
     db.from("insurance_api_usage").select("provider,used").eq("month", new Date().toISOString().slice(0, 7)),
@@ -48,6 +48,10 @@ export async function GET() {
   }
 
   const rows = prospects.data || [];
+  // Merged records are excluded above; the count is kept so the workspace can
+  // say so rather than appear to have quietly lost rows.
+  const { count: mergedAway } = await db.from("insurance_prospects")
+    .select("id", { count: "exact", head: true }).not("duplicate_of", "is", null);
   const byStage: Record<string, number> = {};
   for (const row of rows) byStage[`${row.track}:${row.stage}`] = (byStage[`${row.track}:${row.stage}`] || 0) + 1;
 
@@ -62,6 +66,7 @@ export async function GET() {
     unscored: rows.filter((r) => r.score == null).length,
     sentToday: sentToday.count || 0,
     tasksDue: (tasks.data || []).filter((t) => Date.parse(t.due_at) <= now).length,
+    merged: mergedAway || 0,
   };
 
   return NextResponse.json({

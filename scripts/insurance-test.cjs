@@ -154,5 +154,47 @@ function load(file) {
     }
   }
 
-  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, one-key sends, source filtering, and reachability');
+
+  // ── duplicate detection ─────────────────────────────────────────────────
+  // Two source pages, one person. And the opposite trap: five producers at one
+  // agency share a single office number, so a phone match alone must never
+  // merge them.
+  const dedupe = load('lib/insurance/dedupe.ts');
+  assert.equal(dedupe.normalizeEmail(' June@JuneLifeInsurance.com '), 'june@junelifeinsurance.com');
+  assert.equal(dedupe.normalizeEmail('not an address'), '');
+  assert.equal(dedupe.normalizePhone('+1 (908) 339-7723'), '9083397723');
+  assert.equal(dedupe.normalizePhone('908-339'), '');
+
+  const a = { id: 'a', name: 'June Carter', email: 'june@junelifeinsurance.com', phone: '', created_at: '2026-09-01T00:00:00Z' };
+  const b = { id: 'b', name: 'Crosspointe VA Whole Life Insurance', email: 'June@JuneLifeInsurance.com', phone: '', created_at: '2026-09-02T00:00:00Z' };
+  const emailMatch = dedupe.findDuplicate(b, [a]);
+  assert.equal(emailMatch && emailMatch.reason, 'email', 'one mailbox is one business');
+
+  // Same office line, two different producers — the exact shape that would
+  // delete real people if phone alone were trusted.
+  const office1 = { id: 'c', name: 'Candice D Short', email: '', phone: '(803) 287-2349', created_at: '2026-09-01T00:00:00Z' };
+  const office2 = { id: 'd', name: 'Catherine Sherer', email: '', phone: '(803) 287-2349', created_at: '2026-09-02T00:00:00Z' };
+  assert.equal(dedupe.findDuplicate(office2, [office1]), null, 'a shared office number is not one person');
+
+  // Same person, same line, one listing carrying credentials.
+  const cred1 = { id: 'e', name: 'Jeremy Smith', email: '', phone: '(989) 463-2450', created_at: '2026-09-01T00:00:00Z' };
+  const cred2 = { id: 'f', name: 'Jeremy Smith, CLU®', email: '', phone: '989.463.2450', created_at: '2026-09-02T00:00:00Z' };
+  const phoneMatch = dedupe.findDuplicate(cred2, [cred1]);
+  assert.equal(phoneMatch && phoneMatch.reason, 'phone and name');
+
+  // A nickname is not a rule a machine should apply.
+  assert.equal(dedupe.sameName('Rebecca Lythgoe Huddleston', 'Beckey Huddleston'), false);
+  assert.equal(dedupe.sameName('Huddleston', 'Huddleston'), false, 'a surname alone is not an identity');
+  assert.equal(dedupe.sameName('Jeremy Smith', 'Jeremy Smith Insurance Agency'), true);
+
+  // The older record keeps the history; a tie goes to the one that can be mailed.
+  assert.equal(dedupe.survivor(a, b).keep.id, 'a');
+  const tieOld = { id: 'g', email: '', created_at: '2026-09-01T00:00:00Z' };
+  const tieNew = { id: 'h', email: 'x@y.com', created_at: '2026-09-01T00:00:00Z' };
+  assert.equal(dedupe.survivor(tieOld, tieNew).keep.id, 'h');
+
+  // Nothing to match on is not a match.
+  assert.equal(dedupe.findDuplicate({ id: 'i', name: 'Nobody', email: '', phone: '' }, [a, office1]), null);
+
+  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, one-key sends, source filtering, reachability, and duplicate detection');
 })().catch(error => { console.error(error); process.exit(1); });

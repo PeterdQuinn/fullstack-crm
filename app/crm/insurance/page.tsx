@@ -35,7 +35,7 @@ type Settings = {
 type Workspace = {
   settings: Settings | null; prospects: Prospect[]; tasks: Task[]; activities: ActivityRow[];
   usage: { provider: string; used: number }[]; monthlyCap: number;
-  stats: { total: number; withEmail: number; qualified: number; contacted: number; replied: number; suppressed: number; unscored: number; sentToday: number; tasksDue: number };
+  stats: { total: number; withEmail: number; qualified: number; contacted: number; replied: number; suppressed: number; unscored: number; sentToday: number; tasksDue: number; merged: number };
   runs: { status: string; started_at: string; result: any }[];
   configured: { search: boolean; fallback: boolean; drafts: boolean; sending: boolean };
   needsMigration?: boolean;
@@ -621,6 +621,7 @@ export default function InsurancePage() {
       <footer className="flex flex-wrap justify-between gap-2 border-t border-slate-200 pt-4 text-xs text-slate-400">
         <a href={INSURANCE_WEBSITE} target="_blank" rel="noreferrer">peterdquinnsr.com</a>
         <span>
+          {data?.stats.merged ? `${data.stats.merged} merged as duplicates · ` : ""}
           Monthly search requests: {data?.usage.length ? data.usage.map((u) => `${u.provider} ${u.used}/${data.monthlyCap}`).join(" · ") : "0"}
           {data?.runs?.[0] ? ` · last pipeline run ${when(data.runs[0].started_at)} (${data.runs[0].status})` : ""}
         </span>

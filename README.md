@@ -40,7 +40,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 ```
 
-5. Also run every file in `supabase/migrations/` in order (001 → 020)
+5. Also run every file in `supabase/migrations/` in order (001 → 021)
 6. Restart `npm run dev`, open **/crm/automation** to set your niches and cities,
    then **/crm/discovery** to pull your first leads
 
