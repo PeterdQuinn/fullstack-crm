@@ -33,6 +33,8 @@ export const STAGE_SCHEDULE: StageSchedule[] = [
     hours: [14, 15, 16, 17, 18, 19, 20, 21, 22, 23], description: "Sends touches 2 and 3 when due" },
   { stage: "daily-digest", label: "Daily digest", minute: 0, hours: [1],
     description: "Emails you the summary and any alerts" },
+  { stage: "insurance-pipeline", label: "Insurance", minute: 15, hours: [14, 20],
+    description: "Discovers, enriches, qualifies and mails insurance prospects" },
 ];
 
 /** Next UTC firing time for a stage, as an ISO string. */

@@ -20,6 +20,22 @@ async function deliver(item: any): Promise<{ id: string }> {
     await finalize(item.id);
     return { id: item.provider_message_id };
   }
+  if (item.insurance_prospect_id) {
+    // Same guarantee the lead branch below gives: a message saved minutes ago
+    // must not go out to someone who has since replied, bounced or asked to be
+    // left alone. Recovery can replay a row long after it was written.
+    const { data: person, error } = await db.from("insurance_prospects")
+      .select("email,stage,opt_out,bounced,complained,replied_at").eq("id", item.insurance_prospect_id).single();
+    if (error) throw new Error(`Cannot verify saved insurance recipient: ${error.message}`);
+    if (person.opt_out || person.complained || person.bounced || person.replied_at ||
+        person.stage === "Do not contact" ||
+        person.email?.trim().toLowerCase() !== item.recipient.toLowerCase()) {
+      const { error: saveError } = await db.from("email_outbox")
+        .update({ status: "cancelled", error_message: "Recipient no longer eligible" }).eq("id", item.id);
+      if (saveError) throw new Error(saveError.message);
+      throw new Error("Saved email cancelled: recipient no longer eligible");
+    }
+  }
   if (item.lead_id) {
     const { data: lead, error } = await db.from("leads")
       .select("email,status,opt_out,bounced,complained,archived_at").eq("id", item.lead_id).single();

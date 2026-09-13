@@ -33,6 +33,36 @@ function leadIdFrom(req: NextRequest): string | null {
   return q.get("lead_id") || q.get("lead");
 }
 
+/**
+ * The insurance pipeline mails from the same domain, so its footer needs a
+ * working opt-out too — and CAN-SPAM does not care which of our pipelines sent
+ * the message. Suppression here is total: the stage moves to Do not contact and
+ * opt_out is set, which every insurance query already honours.
+ */
+async function unsubscribeProspect(prospectId: string) {
+  const { data: prospect, error } = await supabase
+    .from("insurance_prospects").select("id, stage, opt_out").eq("id", prospectId).maybeSingle();
+  if (error || !prospect) {
+    return page("You've been unsubscribed", "You will no longer receive emails from us. Thank you.");
+  }
+  if (!prospect.opt_out) {
+    const now = new Date().toISOString();
+    const { error: updateError } = await supabase.from("insurance_prospects").update({
+      opt_out: true, stage: "Do not contact", suppression_reason: "unsubscribed from an email",
+      suppressed_at: now, updated_at: now,
+    }).eq("id", prospectId);
+    if (updateError) {
+      return page("Something went wrong", "We could not record your request. Please reply to the email with STOP and we will remove you by hand.", 500);
+    }
+    await supabase.from("insurance_tasks").update({ status: "cancelled", completed_at: now, notes: "Cancelled: unsubscribed" })
+      .eq("prospect_id", prospectId).eq("status", "pending");
+    await supabase.from("insurance_activities").insert({
+      prospect_id: prospectId, kind: "suppressed", summary: "Unsubscribed from an email", actor: "recipient",
+    });
+  }
+  return page("You've been unsubscribed", "You will no longer receive emails from us. Thank you.");
+}
+
 async function unsubscribe(leadId: string | null) {
   if (!leadId) {
     return page("Invalid link", "This unsubscribe link is missing its identifier.", 400);
@@ -80,12 +110,24 @@ async function unsubscribe(leadId: string | null) {
   );
 }
 
+/** `prospect_id` is an insurance record; `lead_id`/`lead` is an HVAC lead. */
+async function handle(req: NextRequest) {
+  const prospectId = req.nextUrl.searchParams.get("prospect_id");
+  if (prospectId) {
+    if (!/^[0-9a-f-]{36}$/i.test(prospectId)) {
+      return page("Invalid link", "This unsubscribe link is missing its identifier.", 400);
+    }
+    return unsubscribeProspect(prospectId);
+  }
+  return unsubscribe(leadIdFrom(req));
+}
+
 // Most email clients follow the link with a GET.
 export async function GET(req: NextRequest) {
-  return unsubscribe(leadIdFrom(req));
+  return handle(req);
 }
 
 // List-Unsubscribe-Post / one-click unsubscribers use POST.
 export async function POST(req: NextRequest) {
-  return unsubscribe(leadIdFrom(req));
+  return handle(req);
 }

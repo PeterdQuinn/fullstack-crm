@@ -8,7 +8,7 @@ meeting. A human is required for the sales conversation and nothing else.
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
-| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 40 libs · 19 migrations |
+| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 42 libs · 20 migrations |
 | **Deploy** | Vercel, auto-deploy from `main` → `fullstack-crm-nine.vercel.app` |
 | **Scheduler** | GitHub Actions (`.github/workflows/cron.yml`) — `vercel.json` declares no crons |
 | **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic accepted as a second door; `CRON_SECRET` on every `/api/cron/*` verb; provider signatures on webhooks |
@@ -290,7 +290,7 @@ disagree.
 
 ## Automation schedule
 
-Nine cron endpoints, each guarded by `CRON_SECRET` on every verb — middleware
+Ten cron endpoints, each guarded by `CRON_SECRET` on every verb — middleware
 deliberately exempts `/api/cron`, so an unguarded verb would be world-callable.
 
 Phoenix is UTC-7 year round. `lib/automation-schedule.ts` mirrors the workflow
@@ -306,6 +306,7 @@ so the UI can say when a stage next runs; a contract test asserts the two agree.
 | 14:30–23:30 hourly | 07:30–16:30 | `poll-replies` |
 | 14:35–23:35 hourly | 07:35–16:35 | `process-followups` |
 | 01:00 | 18:00 | `daily-digest` |
+| 14:15, 20:15 | 07:15, 13:15 | `insurance-pipeline` |
 
 `cron/send-daily-emails` is legacy and not scheduled.
 
@@ -391,14 +392,63 @@ log/status/audit/followup, suppression survival, and the expired-retry cutoff.
 | `lib/status-colors.ts` | Single source of truth for status colours |
 | `lib/lead-stats.ts` | Single source of truth for KPIs |
 | `lib/audit.ts` | Append-only change trail |
-| `supabase/migrations/` | Schema history (019 current) |
+| `supabase/migrations/` | Schema history (020 current) |
+
+## Insurance pipeline (`insurance-pipeline`, 07:15 and 13:15 Phoenix)
+
+A second autonomous pipeline beside the HVAC one, with its own switch, its own
+tables and its own copy — and deliberately sharing the outbox, because
+reputation belongs to the sending domain rather than to a pipeline.
+
+```
+DISCOVER → ENRICH → QUALIFY → SEND → REPLIES
+```
+
+- **Discover** rotates one track x state per run through `next_insurance_target()`
+  and saves what the search returns as *Research* records, deduplicated on the
+  source URL — the same key the manual "Save for review" button uses, so a
+  scheduled run and a human can never create two records for one page.
+- **Enrich** reads the source page with `lib/email-extract`, so it sees the
+  Cloudflare-obfuscated and JSON-LD addresses the HVAC scraper now sees, and
+  applies the same vendor-domain rejection.
+- **Qualify** scores how clearly the SOURCE identifies one person worth writing
+  to. It is never a judgment about a person's licence, income or intent, and it
+  fails loudly rather than writing a placeholder.
+- **Send** mails up to three touches, `sequence_gap_days` apart, through
+  `email_outbox`. Migration 020 extends `claim_email_outbox` so insurance sends
+  draw on the same daily budget as HVAC ones, and `finalize_email_outbox` so the
+  activity record, the sequence counter, the stage change and the next task
+  commit inside the send transaction.
+- **Replies** are matched by exact address only — a lead is a business and can be
+  matched by thread or domain; a prospect is a person, and guessing which person
+  replied cannot be walked back. The only automated action is suppression.
+
+Three separate switches, all off by default: `enabled` (discovery, enrichment,
+scoring), `sending_enabled` (mail actually leaves), `autopilot` (a classified
+"not interested" suppresses without a human). Every stage change, score, send,
+reply and note is appended to `insurance_activities`, which is what the
+workspace timeline reads.
+
+`lib/insurance/pipeline.ts` · `lib/insurance/outreach.ts` · `app/api/cron/insurance-pipeline/`
 
 ## Insurance workspace
 
-`/crm/insurance` provides separate recruiting and public buyer-signal research for AZ, SC, VA, OH, and MI. Migration 018 adds isolated prospects, search cache, and atomic monthly usage counters; HVAC automation does not query these tables. Saved profiles support notes, stages, evidence-backed license dates, and follow-up dates. Unknown dates stay unknown.
+`/crm/insurance` is the control room for that pipeline: the three switches, the
+run-now buttons, a stage board per track, the due-task queue, a global activity
+feed, and a per-record panel with the score and its reason, the next touch
+previewed exactly as it will send, and the record's own history. Migration 018 adds isolated prospects, search cache, and atomic monthly usage counters; HVAC automation does not query these tables. Saved profiles support notes, stages, evidence-backed license dates, and follow-up dates. Unknown dates stay unknown.
 
 Search uses the imported `PRODUCERFORGE_OLLAMA_API_KEY` against the hosted web-search API, with `SERPAPI_API_KEY` as fallback. Results are source snippets for review, not verified license records or confirmed buyers. Repeated searches are cached for one hour. Requests have deadlines; each provider is capped at 100 requests per month. No localhost AI service or filesystem usage counter is required.
 
-Drafts are instant templates with Peter's website and Calendly link. Optional editing uses the two imported `PRODUCERFORGE_GEMINI_API_KEY` credentials with bounded fallback to the template. Drafts do not send messages. Insurance sending, reply automation, official license feeds, carrier integrations, and migration of existing ProducerForge workspace records are not implemented.
+Drafts are instant templates with Peter's website and Calendly link. Optional editing uses the two imported `PRODUCERFORGE_GEMINI_API_KEY` credentials with bounded fallback to the template.
+
+Sending is implemented and off by default. The copy states nothing about the
+recipient that the data cannot support — no earnings figure, no lead promise, no
+carrier claim, nothing about their licence, and no suggestion we know they are
+shopping. A record discovered by the pipeline is named after its source page, so
+a name is only used in a greeting when it actually looks like a person's name;
+`scripts/insurance-test.cjs` asserts both, along with the ten reasons a send is
+refused. Official licence feeds, carrier integrations, and migration of existing
+ProducerForge records are still not implemented.
 
 Verification: `npm run test:insurance`; live search, persistence, and draft checks use the authenticated `/api/crm/insurance/*` routes. Secrets remain server-side.

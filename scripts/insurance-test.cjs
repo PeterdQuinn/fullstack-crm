@@ -10,7 +10,10 @@ function load(file) {
   const exports = {};
   cache.set(file, exports);
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText,
-    { exports, require: name => load(path.resolve(path.dirname(file), name + '.ts')), URL, URLSearchParams, AbortSignal, fetch, console, Date, setTimeout });
+    { exports, require: name => load(name.startsWith('@/')
+        ? path.resolve(process.cwd(), name.slice(2) + '.ts')
+        : path.resolve(path.dirname(file), name + '.ts')),
+      URL, URLSearchParams, AbortSignal, fetch, console, Date, setTimeout, process });
   return exports;
 }
 (async () => {
@@ -42,5 +45,72 @@ function load(file) {
   assert.throws(() => insuranceDraft({ track: 'buyers', stage: 'Do not contact' }));
   const fallback = await refineInsuranceDraft(base, '', { keys: ['test'], reserve: async () => true, fetch: async () => { throw new Error('secret test'); } });
   assert.equal(fallback.provider, 'template'); assert.ok(!fallback.warning.includes('secret'));
-  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, and instant draft fallback');
+
+  // ── outreach ────────────────────────────────────────────────────────────
+  // The copy that reaches a stranger, and the rules about who may receive it.
+  // Everything below is loaded with the network and the database stubbed: what
+  // is under test is the decision, not the delivery.
+  const sent = [];
+  cache.set(path.resolve('lib/resend.ts'), { sendEmail: async (to, subject) => { sent.push({ to, subject }); return { id: 'test-message' }; } });
+  cache.set(path.resolve('lib/email-templates.ts'), { COMPANY_MAILING_ADDRESS: '535 E Southern Ave Ste 6, Mesa, AZ 85204', mailingAddressConfigured: () => true });
+  const saved = [];
+  cache.set(path.resolve('lib/insurance/db.ts'), {
+    insuranceDb: () => ({ from: () => ({ upsert: async (row) => { saved.push(row); return { error: null }; } }) }),
+    reserveInsuranceRequest: async () => true,
+    INSURANCE_MONTHLY_CAP: 100,
+  });
+  const { renderInsuranceEmail, sendRefusal, sendInsuranceTouch, insuranceUnsubscribeUrl } = load('lib/insurance/outreach.ts');
+
+  const person = { id: '11111111-1111-4111-8111-111111111111', name: 'Dana Reyes', track: 'recruiting', state: 'AZ', email: 'dana@example.com', stage: 'Qualified', score: 70, email_sent_count: 0 };
+
+  const touch1 = renderInsuranceEmail(person);
+  assert.equal(touch1.touch, 1);
+  assert.ok(touch1.html.includes(insuranceUnsubscribeUrl(person.id)), 'every message carries a working unsubscribe link');
+  assert.ok(touch1.bodyText.includes('535 E Southern Ave'), 'CAN-SPAM postal address is present');
+  assert.ok(touch1.html.includes(types.BOOKING_URL));
+  assert.ok(touch1.html.includes('Hi Dana,'), 'a usable first name is used');
+  for (const title of ['Producer Directory Listing 2026', 'Best Life Insurance Agents Near Me', 'Reyes Insurance Agency LLC', 'dana_reyes', 'Top 10 Producers In Arizona Reviewed']) {
+    assert.ok(renderInsuranceEmail({ ...person, name: title }).html.includes('Hi there,'),
+      `a page title is never greeted as a first name: ${title}`);
+  }
+  // Claims about the RECIPIENT that the data cannot support at the moment they
+  // read it. Peter describing himself as a licensed agent is a fact about the
+  // sender and stays.
+  for (const touch of [0, 1, 2]) {
+    for (const track of ['recruiting', 'buyers']) {
+      const body = renderInsuranceEmail({ ...person, track, email_sent_count: touch }).bodyText.toLowerCase();
+      for (const forbidden of [
+        '$', 'guarantee', 'free leads', 'qualified leads', 'commission split', 'six figure',
+        'your license', 'your npn', 'newly licensed', 'you are shopping', 'you\'re shopping',
+        'carrier appointment', 'we know you', 'i saw that you need',
+      ]) {
+        assert.ok(!body.includes(forbidden), `touch ${touch + 1} (${track}) must not claim "${forbidden}"`);
+      }
+    }
+  }
+  assert.equal(renderInsuranceEmail({ ...person, email_sent_count: 5 }).touch, 3, 'the sequence never runs past three touches');
+
+  // Who may not be mailed, and why.
+  assert.equal(sendRefusal(person, 40), null);
+  assert.equal(sendRefusal({ ...person, email: '' }, 40), 'no email address');
+  assert.equal(sendRefusal({ ...person, opt_out: true }, 40), 'asked not to be contacted');
+  assert.equal(sendRefusal({ ...person, stage: 'Do not contact' }, 40), 'asked not to be contacted');
+  assert.equal(sendRefusal({ ...person, complained: true }, 40), 'asked not to be contacted');
+  assert.equal(sendRefusal({ ...person, bounced: true }, 40), 'address failed');
+  assert.equal(sendRefusal({ ...person, replied_at: '2026-09-01T00:00:00Z' }, 40), 'already replied');
+  assert.equal(sendRefusal({ ...person, email_sent_count: 3 }, 40), 'sequence complete');
+  assert.equal(sendRefusal({ ...person, stage: 'Meeting booked' }, 40), 'stage is closed');
+  assert.equal(sendRefusal({ ...person, score: null }, 40), 'not qualified yet');
+  assert.equal(sendRefusal({ ...person, score: 39 }, 40), 'not qualified yet');
+
+  const outcome = await sendInsuranceTouch(person, { dailyCap: 10, minScore: 40 });
+  assert.equal(outcome.sent, true);
+  assert.equal(saved[0].insurance_prospect_id, person.id, 'the outbox row carries the prospect so finalization can do the bookkeeping');
+  assert.equal(saved[0].idempotency_key, `ins-${person.id}-touch-1`, 'a replay reuses one key rather than mailing twice');
+  assert.equal(saved[0].send_limit, 10);
+  const refused = await sendInsuranceTouch({ ...person, opt_out: true }, { dailyCap: 10, minScore: 40 });
+  assert.equal(refused.sent, false);
+  assert.equal(sent.length, 1, 'a refused send never reaches the provider');
+
+  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, and one-key sends');
 })().catch(error => { console.error(error); process.exit(1); });

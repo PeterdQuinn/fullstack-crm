@@ -29,6 +29,12 @@ on:
     - cron: "0 16,19,22 * * *"        # automation           — 09:00, 12:00, 15:00 Phoenix
     - cron: "0 1 * * *"        # daily-digest         — daily 18:00 Phoenix
 
+    # The insurance pipeline runs its four phases in one pass, twice a day.
+    # It is an order of magnitude cheaper than the HVAC stages — one capped
+    # search, a few static fetches, a few short LLM calls — and it stays behind
+    # its own switch, so a pass that finds nothing costs nothing.
+    - cron: "15 14,20 * * *"   # insurance-pipeline   — 07:15, 13:15 Phoenix
+
     # Check replies before processing due follow-ups.
     - cron: "30 14-23 * * *"       # poll-replies         — hourly 07:30–16:30 Phoenix
     - cron: "35 14-23 * * *"       # process-followups    — hourly 07:35–16:35 Phoenix
@@ -39,7 +45,7 @@ on:
         required: true
         default: automation
         type: choice
-        options: [discover-leads, automation, enrich-leads, research-leads, process-discovered-leads, process-followups, daily-digest, poll-replies]
+        options: [discover-leads, automation, enrich-leads, research-leads, process-discovered-leads, process-followups, daily-digest, poll-replies, insurance-pipeline]
 
 concurrency:
   group: crm-pipeline
@@ -63,6 +69,7 @@ jobs:
               "0 15,18,21 * * *")      echo "routes=process-discovered-leads" >> "$GITHUB_OUTPUT" ;;
               "0 16,19,22 * * *")      echo "routes=automation" >> "$GITHUB_OUTPUT" ;;
               "0 1 * * *")      echo "routes=daily-digest" >> "$GITHUB_OUTPUT" ;;
+              "15 14,20 * * *")  echo "routes=insurance-pipeline" >> "$GITHUB_OUTPUT" ;;
               "30 14-23 * * *")     echo "routes=poll-replies" >> "$GITHUB_OUTPUT" ;;
               "35 14-23 * * *")     echo "routes=process-followups" >> "$GITHUB_OUTPUT" ;;
               *)                 echo "routes=" >> "$GITHUB_OUTPUT" ;;

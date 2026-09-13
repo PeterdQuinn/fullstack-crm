@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { classifyReply } from "@/lib/grok";
 import { actOnReplyClassification, cancelPendingColdEmailTasks } from "@/lib/reply-actions";
+import { bucketForCategory } from "@/lib/reply-policy";
 import { logStatusChange } from "@/lib/audit";
 import { fetchRecentInbox, markRead, replyText, graphMissingReason, type GraphMessage } from "@/lib/graph-inbox";
 
@@ -93,6 +94,83 @@ async function findLeadForReply(address: string, subject: string | null | undefi
   return null;
 }
 
+/**
+ * A reply to the insurance pipeline.
+ *
+ * Matching is exact-address only. The lead matcher can fall back to a thread
+ * subject or a company domain because a lead is a business; an insurance
+ * prospect is a person, and guessing which person replied is the one mistake
+ * that cannot be walked back.
+ *
+ * The only automated action is suppression. A "not interested" reply stops
+ * every future touch immediately, because that is what the person asked for and
+ * acting fast on it can only help them. Everything else stops the sequence and
+ * waits for a human — booking a meeting or quoting a policy off a classifier's
+ * guess is not a mistake worth risking.
+ */
+async function handleInsuranceReply(msg: GraphMessage, from: string) {
+  const { data: matches } = await supabase
+    .from("insurance_prospects")
+    .select("id, name, stage, email, replied_at")
+    .ilike("email", literal(from))
+    .limit(2);
+  if (matches?.length !== 1) return null;
+  const person = matches[0];
+
+  const text = replyText(msg);
+  const classification = await classifyReply(text).catch(() => null);
+  const category = classification?.category ?? "Unclear";
+  const bucket = bucketForCategory(category);
+  const now = new Date().toISOString();
+
+  const alreadyRecorded = Boolean(person.replied_at);
+  const closing = bucket === "not_interested" && autopilot();
+
+  const { error: updateError } = await supabase
+    .from("insurance_prospects")
+    .update({
+      replied_at: person.replied_at || msg.receivedDateTime || now,
+      ...(closing
+        ? { stage: "Do not contact", opt_out: true, suppression_reason: `replied ${category}`, suppressed_at: now }
+        : person.stage === "Contacted" || person.stage === "Qualified"
+          ? { stage: "Replied" }
+          : {}),
+      updated_at: now,
+    })
+    .eq("id", person.id);
+  if (updateError) throw new Error(`Failed to record insurance reply: ${updateError.message}`);
+
+  // A reply always ends the sequence, whatever it said.
+  const { error: taskError } = await supabase
+    .from("insurance_tasks")
+    .update({ status: "cancelled", completed_at: now, notes: "Cancelled automatically: the prospect replied" })
+    .eq("prospect_id", person.id)
+    .eq("status", "pending")
+    .like("task_type", "send_touch_%");
+  if (taskError) throw new Error(`Failed to stop the insurance sequence: ${taskError.message}`);
+
+  if (!alreadyRecorded) {
+    await supabase.from("insurance_activities").insert({
+      prospect_id: person.id,
+      kind: "reply",
+      summary: `Replied — classified ${category}`,
+      detail: { category, bucket, body: text.slice(0, 4000), subject: msg.subject },
+      actor: "prospect",
+    });
+    if (!closing) {
+      await supabase.from("insurance_tasks").insert({
+        prospect_id: person.id,
+        task_type: "read_reply",
+        due_at: now,
+        status: "pending",
+        notes: `Reply classified ${category} — read it and decide the next step`,
+      });
+    }
+  }
+
+  return { insurance: person.name, matchedBy: "address" as const, category, acted: closing };
+}
+
 async function storedReply(messageId: string): Promise<{ id: string; status: string | null } | null> {
   const { data } = await supabase
     .from("outreach_log")
@@ -117,7 +195,13 @@ async function handle(msg: GraphMessage) {
   if (!from) return { skipped: "no sender address" };
 
   const match = await findLeadForReply(from, msg.subject);
-  if (!match) return { skipped: `no lead matches ${from}` };
+  if (!match) {
+    // The insurance pipeline mails from the same mailbox, so a reply with no
+    // lead behind it may still belong to someone we wrote to.
+    const insurance = await handleInsuranceReply(msg, from);
+    if (insurance) return insurance;
+    return { skipped: `no lead matches ${from}` };
+  }
   const { lead, matchedBy } = match;
 
   // Graph ids are stable, so retries must not insert the inbound log twice.
@@ -223,6 +307,7 @@ async function handleGET(req: NextRequest) {
       autopilot: autopilot(),
       scanned: messages.length,
       matched: results.filter((r) => r.lead).length,
+      matchedInsurance: results.filter((r) => r.insurance).length,
       skipped: results.filter((r) => r.skipped).length,
       errors: errors.length,
       results,

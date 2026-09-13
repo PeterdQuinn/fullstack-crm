@@ -314,7 +314,7 @@ const vercel = JSON.parse(read("vercel.json"));
 const workflow = read(".github/workflows/cron.yml");
 check("Vercel-native crons disabled", !Object.hasOwn(vercel, "crons"));
 for (const route of ["discover-leads", "enrich-leads", "research-leads", "process-discovered-leads", "automation",
-  "process-followups", "poll-replies", "daily-digest"]) {
+  "process-followups", "poll-replies", "daily-digest", "insurance-pipeline"]) {
   check(`GitHub schedule maps: ${route}`, workflow.includes(`routes=${route}`));
 }
 check("reply polling is daily", workflow.includes('cron: "30 14-23 * * *"'));
@@ -328,6 +328,7 @@ for (const [stage, cron] of [
   ["discover-leads", '"0 13 * * *"'], ["enrich-leads", '"0 14,17,20 * * *"'],
   ["research-leads", '"45 14,17,20 * * *"'], ["process-discovered-leads", '"0 15,18,21 * * *"'],
   ["automation", '"0 16,19,22 * * *"'], ["daily-digest", '"0 1 * * *"'],
+  ["insurance-pipeline", '"15 14,20 * * *"'],
 ]) {
   check(`schedule shown matches schedule fired: ${stage}`,
     workflow.includes(`cron: ${cron}`) && scheduleLib.includes(`stage: "${stage}"`));
