@@ -35,14 +35,27 @@ export const EXCLUDED_DOMAINS: readonly string[] = [
   "valuepenguin.com", "bankrate.com", "investopedia.com", "insuranceopedia.com", "smartfinancial.com",
   "insure.com", "trustedchoice.com", "selectquote.com", "ethos.com", "ladderlife.com",
   "financial-advisorpro.com", "findassurance.com", "insuredbetter.com", "arizonalifeinsurance360.com",
-  // Carriers and national brands — not a recruiting target, not a buyer
-  "statefarm.com", "allstate.com", "progressive.com", "geico.com", "nationwide.com",
-  "newyorklife.com", "massmutual.com", "northwesternmutual.com", "prudential.com", "aflac.com",
-  "farmers.com", "libertymutual.com", "guardianlife.com", "transamerica.com", "mutualofomaha.com",
   // Job boards and review aggregators about employers
   "indeed.com", "ziprecruiter.com", "glassdoor.com", "monster.com", "simplyhired.com",
   // General reference and news
   "wikipedia.org", "reddit.com", "quora.com", "youtube.com", "pinterest.com",
+];
+
+/**
+ * National carriers.
+ *
+ * These are refused for BUYERS — a carrier's landing page is a competitor, not
+ * someone with a question. They are kept for RECRUITING, because a captive
+ * agent's page is one of the best targets there is: a named producer, a
+ * published phone, a public address, and a reason to be open to a conversation
+ * about going independent. Blanket-refusing them dropped Beckey Huddleston of
+ * Mutual of Omaha out of a recruiting run, which was the wrong call.
+ */
+export const CARRIER_DOMAINS: readonly string[] = [
+  "statefarm.com", "allstate.com", "progressive.com", "geico.com", "nationwide.com",
+  "newyorklife.com", "massmutual.com", "northwesternmutual.com", "prudential.com", "aflac.com",
+  "farmers.com", "libertymutual.com", "guardianlife.com", "transamerica.com", "mutualofomaha.com",
+  "primerica.com", "globelifeinsurance.com", "bankerslife.com", "colonialpenn.com",
 ];
 
 const PROFILE_HOSTS = ["linkedin.com", "facebook.com", "instagram.com", "twitter.com", "x.com", "threads.net"];
@@ -65,11 +78,18 @@ function matches(host: string, list: readonly string[]): boolean {
   return list.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
-/** False when this result can never become a lead. */
-export function isImportable(url: string): boolean {
+/**
+ * False when this result can never become a lead on this track.
+ *
+ * `track` matters: the same carrier page is a competitor to a buyer and a
+ * recruiting target to a producer. Omitting it applies the stricter rule.
+ */
+export function isImportable(url: string, track: "recruiting" | "buyers" = "buyers"): boolean {
   const host = hostOf(url);
   if (!host) return false;
-  return !matches(host, EXCLUDED_DOMAINS);
+  if (matches(host, EXCLUDED_DOMAINS)) return false;
+  if (track === "buyers" && matches(host, CARRIER_DOMAINS)) return false;
+  return true;
 }
 
 /** What kind of page this is, which decides how the record can be worked. */
@@ -78,6 +98,9 @@ export function sourceKind(url: string): SourceKind {
   if (!host) return "content";
   if (matches(host, PROFILE_HOSTS)) return "profile";
   if (matches(host, DIRECTORY_HOSTS)) return "directory";
+  // A captive agent's page on a carrier's domain is that agent's shopfront:
+  // name, phone, office address. Treat it as an agency page, not a brand site.
+  if (matches(host, CARRIER_DOMAINS)) return "agency";
   // A path that reads like an article is content wherever it lives.
   const path = (() => { try { return new URL(url).pathname.toLowerCase(); } catch { return ""; } })();
   if (/\/(blog|news|article|guide|resources|best-|top-\d|compare|reviews-of)/.test(path)) return "content";
@@ -100,26 +123,27 @@ export function sourceKind(url: string): SourceKind {
  */
 export const DEFAULT_QUERIES: Record<string, readonly string[]> = {
   recruiting: [
-    "independent insurance agency {state} meet our team agents contact",
-    "life insurance agency {state} our agents phone email",
-    "insurance producer {state} agency profile contact information",
-    "final expense insurance agent {state} contact",
-    "licensed life insurance agent {state} about me contact",
-    "insurance agent {state} chamber of commerce member directory",
-    "life insurance producer {state} linkedin profile",
-    "medicare insurance agent {state} independent agency team",
+    "independent insurance agency meet our team agents contact",
+    "life insurance agency our agents phone email",
+    "insurance producer agency profile contact information",
+    "final expense insurance agent contact",
+    "licensed life insurance agent about me contact",
+    "insurance agent chamber of commerce member directory",
+    "life insurance producer linkedin profile",
+    "medicare insurance agent independent agency team",
   ],
   buyers: [
-    "life insurance agent {state} client questions consultation request",
-    "final expense coverage {state} family asking about options",
-    "{state} small business owner group benefits question",
+    "life insurance agent client questions consultation request",
+    "final expense coverage family asking about options",
+    "small business owner group benefits question",
   ],
 };
 
-/** Fill a query template for a state. */
-export function buildQuery(template: string, stateName: string): string {
-  return template.replace(/\{state\}/g, stateName);
-}
+// NOTE: no template names a state. insuranceQuery() in search.ts appends the
+// territory to whatever it is given, so a template carrying its own state
+// produced "life insurance producer Ohio linkedin profile Ohio" — which is what
+// the first live run with these queries actually sent. The state belongs in
+// exactly one place, and the test asserts it stays there.
 
 /** How the owner would reach this record today. */
 export function reachability(record: { email?: string | null; phone?: string | null; source?: { url?: string } | null }): {

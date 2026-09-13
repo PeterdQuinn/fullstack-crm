@@ -6,7 +6,7 @@ import { parsePhoneNumberFromString } from "libphonenumber-js";
 import { insuranceDb, reserveInsuranceRequest } from "./db";
 import { searchInsurance } from "./search";
 import { safePublicUrl, INSURANCE_STATES, type InsuranceState, type InsuranceTrack } from "./types";
-import { isImportable, sourceKind, DEFAULT_QUERIES, buildQuery, hostOf } from "./sources";
+import { isImportable, sourceKind, DEFAULT_QUERIES, hostOf } from "./sources";
 import { sendInsuranceTouch, sendRefusal } from "./outreach";
 
 // The insurance pipeline, stage by stage.
@@ -77,7 +77,7 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
   // ten LinkedIn profiles and ten quote farms, and produced zero contactable
   // leads out of twenty records.
   const saved = (settings.queries || []).filter((q) => q.track === track).map((q) => q.query);
-  const pool = saved.length ? saved : (DEFAULT_QUERIES[track] || []).map((template) => buildQuery(template, INSURANCE_STATES[state]));
+  const pool = saved.length ? saved : [...(DEFAULT_QUERIES[track] || [])];
   const query = pool.length ? pool[Number(target.cursor || 0) % pool.length] : "";
 
   const result = await searchInsurance(
@@ -98,7 +98,7 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
     // A quote farm, a listicle or a carrier's own site cannot become a lead,
     // whatever the query was. Importing it only fills the board with rows that
     // score 10 and sit at Research forever.
-    if (!isImportable(url)) {
+    if (!isImportable(url, track)) {
       filtered++;
       continue;
     }

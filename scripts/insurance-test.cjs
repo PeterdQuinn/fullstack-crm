@@ -117,9 +117,15 @@ function load(file) {
   // The first live run imported ten LinkedIn profiles and ten quote farms and
   // produced zero contactable leads. These are the rules that stop that.
   const sources = load('lib/insurance/sources.ts');
-  for (const junk of ['https://quickquote.com/az', 'https://www.insuranceopedia.com/best', 'https://www.statefarm.com/agent/us/az/phoenix/dale-wilson', 'https://www.indeed.com/q-insurance-agent', 'https://financial-advisorpro.com/term-life-mesa']) {
-    assert.equal(sources.isImportable(junk), false, `must refuse ${junk}`);
+  for (const junk of ['https://quickquote.com/az', 'https://www.insuranceopedia.com/best', 'https://www.indeed.com/q-insurance-agent', 'https://financial-advisorpro.com/term-life-mesa']) {
+    assert.equal(sources.isImportable(junk, 'recruiting'), false, `must refuse ${junk}`);
+    assert.equal(sources.isImportable(junk, 'buyers'), false, `must refuse ${junk}`);
   }
+  // A captive agent is a recruiting target and a competitor to a buyer.
+  const captive = 'https://www.statefarm.com/agent/us/az/phoenix/dale-wilson';
+  assert.equal(sources.isImportable(captive, 'recruiting'), true, 'a captive agent is worth recruiting');
+  assert.equal(sources.isImportable(captive, 'buyers'), false, 'a carrier page is not a buyer');
+  assert.equal(sources.sourceKind(captive), 'agency', "a captive agent's page is their shopfront");
   for (const keep of ['https://mycornerstoneinsurance.com/about/', 'https://www.linkedin.com/in/chajon', 'https://www.experience.com/reviews/john-7318415']) {
     assert.equal(sources.isImportable(keep), true, `must keep ${keep}`);
   }
@@ -140,10 +146,13 @@ function load(file) {
   for (const track of ['recruiting', 'buyers']) {
     for (const template of sources.DEFAULT_QUERIES[track]) {
       assert.ok(!/["]|\bOR\b|site:|intitle:/.test(template), `query must not use search operators: ${template}`);
-      assert.ok(template.includes('{state}'), `query must be state-aware: ${template}`);
+      // search.ts appends the territory; a template that names one too produced
+      // "life insurance producer Ohio linkedin profile Ohio" on a live run.
+      for (const name of ['Arizona', 'Ohio', 'Michigan', 'Virginia', 'South Carolina', '{state}']) {
+        assert.ok(!template.includes(name), `query must not name a state, search.ts adds it: ${template}`);
+      }
     }
   }
-  assert.equal(sources.buildQuery('insurance agent {state} contact', 'Arizona'), 'insurance agent Arizona contact');
 
   console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, one-key sends, source filtering, and reachability');
 })().catch(error => { console.error(error); process.exit(1); });
