@@ -1,4 +1,14 @@
--- Execute with migration 016 inside BEGIN ... ROLLBACK. No email provider calls.
+-- Exercises the outbox transaction against a real database. No provider calls.
+--
+-- The file carries its OWN begin/rollback. It used to say "execute inside
+-- BEGIN ... ROLLBACK" and trust the caller: run bare through
+-- scripts/database-sql.mjs, every statement autocommitted and the test left a
+-- lead, two outbox rows, two outreach_log rows, a summary, a task and an audit
+-- entry sitting in production. A test that can dirty the database it is testing
+-- is a hazard, so the transaction is no longer the caller's job.
+-- (A nested begin inside an outer transaction only warns; the outer rollback
+-- still governs.)
+begin;
 do $$
 declare prospect uuid; message uuid; followup uuid; claimed integer; records integer;
 begin
@@ -38,3 +48,4 @@ begin
   if claimed<>0 or not exists(select 1 from email_outbox where id=message and status='needs_review') then raise exception 'Old ambiguous send was retried'; end if;
 end $$;
 select 'PASS: reservation, replay, saved log/status/audit/followup, suppression, expired retry' as result;
+rollback;

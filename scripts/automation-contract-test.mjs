@@ -235,6 +235,12 @@ check("email extraction reads the markup, not just body text",
   extractor.includes("data-cfemail") && extractor.includes("cdn-cgi/l/email-protection"));
 check("a vendor's address is never mailed as the prospect",
   extractor.includes("belongsToBusiness") && extractor.includes("CONSUMER_PROVIDERS"));
+// A test that can dirty the database it tests is a hazard: run bare, this one
+// left a lead, two outbox rows and an audit entry in production.
+const outboxTest = read("scripts/outbox-database-test.sql");
+check("the outbox database test cannot commit its own fixtures",
+  /^--[\s\S]*?\bbegin;/m.test(outboxTest) && outboxTest.trimEnd().endsWith("rollback;"));
+
 // A placeholder score is not a judgment, and for 24 leads it was also a dead
 // end: the anti-join skips them (they have a summary) and the sender skips them
 // (an exact 50 is unevaluated), so nothing ever looked at them again.

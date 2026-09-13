@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "outDir": "/Users/peterquinn/Desktop/fullstack-crm/.automation-contract-build",
+    "module": "esnext",
+    "target": "es2022",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "files": [
+    "lib/email-validation.ts",
+    "lib/email-templates.ts",
+    "lib/email-sequence.ts",
+    "lib/lead-stats.ts",
+    "lib/research-evidence.ts",
+    "lib/internet-intelligence.ts",
+    "lib/hvac-signals.ts"
+  ]
+}
