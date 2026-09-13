@@ -7,9 +7,13 @@ sequence, and booked when they reply — with a manual call/DM workflow on top.
 
 **Leads come from the Discovery pipeline, not a pre-loaded file.**
 
-The whole system has one switch: `/crm/automation`. While it is off, nothing is
-discovered, scored, or sent. While it is on, the schedule in
-`ARCHITECTURE.md` runs without you.
+**There are two pipelines.** HVAC and trades runs from `/crm/automation`.
+Insurance — producer recruiting and buyer research across AZ, SC, VA, OH and MI
+— runs the same five stages from `/crm/insurance` behind its own three switches.
+They share one database and one daily sending budget, and nothing else.
+
+While a pipeline's switch is off, nothing is discovered, scored, or sent. While
+it is on, the schedule in `ARCHITECTURE.md` runs without you.
 
 See **[ARCHITECTURE.md](ARCHITECTURE.md)** for how the pipeline, the outbox, the
 AI provider chains and the data model actually fit together.
@@ -43,6 +47,25 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 5. Also run every file in `supabase/migrations/` in order (001 → 021)
 6. Restart `npm run dev`, open **/crm/automation** to set your niches and cities,
    then **/crm/discovery** to pull your first leads
+
+### Environment variables that matter
+
+| Variable | Why |
+|----------|-----|
+| `SUPABASE_SERVICE_ROLE_KEY` | Every server route. Never exposed to the browser. |
+| `CRON_SECRET` | Guards every `/api/cron/*` verb **and** `/api/scrape-phone`, which the enrichment stages call over HTTP |
+| `APP_USERNAME` / `APP_PASSWORD` | The CRM login. Make the password long and random — the per-IP brake slows a brute force, it does not stop one. |
+| `SESSION_SECRET` | Signs the session cookie. Without it the key is derived from `APP_PASSWORD` + `CRON_SECRET`, and `CRON_SECRET` lives in GitHub Actions. |
+| `COMPANY_MAILING_ADDRESS` | CAN-SPAM. **No email sends at all until this is a real street address or PO box.** |
+| `DAILY_SEND_CAP` | Default 40, shared across both pipelines |
+| `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET` | Sending and delivery events |
+| `MS_TENANT_ID` / `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_MAILBOX` | Reading replies from Outlook |
+| `SERPAPI_API_KEY` / `PRODUCERFORGE_OLLAMA_API_KEY` | Insurance search (100 requests/month each) |
+| `INSURANCE_FROM_EMAIL` / `INSURANCE_MAILING_ADDRESS` | Optional — insurance mail defaults to the company's sender and address |
+
+Production values live in Vercel, not here. `vercel env pull` refreshes a stale
+local `.env.local`; a local key that has drifted will 401 while production works
+fine.
 
 ---
 
@@ -99,7 +122,7 @@ stay in sync). The main path:
 |--------|---------|
 | New | Discovered, not yet scored |
 | Scored | Scored below the outreach bar (20), or holding a placeholder 50 awaiting re-score |
-| Ready for Outreach | Scored ≥ 20 — eligible for automated email |
+| Ready for Outreach | Scored ≥ 20 (never exactly 50) — eligible for automated email |
 | Email 1/2/3 Sent | Position in the 3-touch sequence |
 | Replied | Reply received, awaiting classification |
 | Booking Link Sent | Classified Interested — Calendly link emailed |
@@ -127,6 +150,30 @@ Duplicates are skipped.
 
 ---
 
+## Insurance Workspace
+
+`/crm/insurance` is the second pipeline's control room. Three switches, all off
+by default:
+
+| Switch | What it starts |
+|--------|----------------|
+| `enabled` | Scheduled discovery, enrichment and qualification. Nothing leaves the building. |
+| `sending_enabled` | Real email, up to three touches, capped with the HVAC pipeline at one shared daily budget. |
+| `autopilot` | A reply classified "not interested" suppresses the record without you. That is the only automated action. |
+
+Before turning sending on, open a record and hit **Preview the next touch** —
+that is exactly what a stranger receives.
+
+Discovery only imports sources that can become a lead: quote farms, listicles
+and job boards are refused, carriers are refused for buyers but kept for
+recruiting (a captive agent is a recruiting target). Enrichment looks for a
+phone as well as an address, and the board says how each record can be worked —
+email, call, or not reachable yet. Records that turn out to be the same person
+are merged on a matching email, or on a matching phone *and* name; a shared
+office number alone never merges two people.
+
+Verify with `npm run test:insurance`.
+
 ## Tech Stack
 
 - **Next.js 14** — App Router
@@ -139,6 +186,20 @@ Duplicates are skipped.
 - **Vercel** — Deployment
 
 ---
+
+## Tests
+
+```bash
+npm test              # 7 suites: reply policy, automation contract, AI
+                      # normalisation, cron workflow, database retry,
+                      # insurance, email extraction
+npm run ai:health     # probes every AI provider with real calls
+npm run verify:live   # exercises the deployed routes
+```
+
+The automation contract test reads the source and asserts the properties that
+have broken before — 207 checks — so a regression fails the build instead of the
+pipeline.
 
 ## AI Providers
 

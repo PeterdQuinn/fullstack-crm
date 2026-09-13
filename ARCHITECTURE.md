@@ -5,16 +5,22 @@ businesses, finds their contact details, researches them, scores them, writes
 and sends a three-touch email sequence, reads the replies, and books the
 meeting. A human is required for the sales conversation and nothing else.
 
+**Two pipelines run in it.** The HVAC-and-trades pipeline is live. The insurance
+pipeline — producer recruiting and buyer research across five states — runs the
+same five stages behind its own switches, and shares the outbox so both draw on
+one daily sending budget. They share a database and nothing else.
+
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
-| **Size** | ~16,000 lines across `app/` and `lib/` · 55 API routes · 13 CRM pages · 44 libs · 21 migrations |
+| **Size** | ~19,000 lines across `app/` and `lib/` · 61 API routes · 14 CRM pages · 50 libs · 21 migrations |
 | **Deploy** | Vercel, auto-deploy from `main` → `fullstack-crm-nine.vercel.app` |
 | **Scheduler** | GitHub Actions (`.github/workflows/cron.yml`) — `vercel.json` declares no crons |
-| **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic accepted as a second door; `CRON_SECRET` on every `/api/cron/*` verb; provider signatures on webhooks |
+| **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic as a second door; `CRON_SECRET` on every `/api/cron/*` verb and on `/api/scrape-phone`; provider signatures on webhooks. See **Security**. |
 | **Targeting** | Owner-editable niches × US cities, stored in `automation_settings`, rotated one pairing per run by `next_discovery_target()` |
 | **Outreach markets** | `lib/outreach-markets.ts` defaults to `*` (any named niche) and still fails closed on a lead with no market. Narrow it with `OUTREACH_MARKETS`. |
-| **Master switch** | `automation_settings.enabled`. Every scheduled stage checks it before doing anything. Toggled at `/crm/automation`. |
+| **Master switch** | `automation_settings.enabled` for HVAC, toggled at `/crm/automation`. Insurance has three of its own — `enabled`, `sending_enabled`, `autopilot` — at `/crm/insurance`. |
+| **Score bar** | 20, defined once in `lib/score-thresholds.ts` and mirrored by `save_automation_score`. An exact 50 is excluded everywhere: it is what gets written when every AI provider is down. |
 
 ---
 
@@ -277,9 +283,18 @@ policies).
 | `appointments` / `call_logs` / `lead_notes` | Close-stage records |
 | `cron_failures` | Legacy automation error trail |
 | `lead_discovery_config` | Google weekly quota counter |
+| `insurance_prospects` | The insurance record: contact, licence evidence, stage, score, sequence state, `duplicate_of` |
+| `insurance_activities` | Append-only timeline: discovered, enriched, scored, stage, note, email, reply, suppression |
+| `insurance_tasks` | Due insurance work — queued touches and a human's read-the-reply |
+| `insurance_settings` | The three insurance switches, tracks, states, queries, cursor, caps |
+| `insurance_search_cache` / `insurance_api_usage` | One-hour search cache and the atomic monthly request counter |
+
+`email_outbox` carries **both** pipelines: `lead_id` for an HVAC lead,
+`insurance_prospect_id` for an insurance record, never both.
 
 Database functions carry the transactional work: `claim_email_outbox`,
-`finalize_email_outbox`, `save_automation_score`, `next_discovery_target`.
+`finalize_email_outbox`, `save_automation_score`, `next_discovery_target`,
+`save_insurance_score`, `next_insurance_target`, `reserve_insurance_request`.
 
 29 lead statuses drive the UI, coloured from one source of truth
 (`tailwind status.*` → `lib/status-colors.ts`). Queue membership lives in
@@ -335,6 +350,7 @@ Desktop sidebar, mobile bottom tab bar (`app/crm/_components/CrmNav.tsx`).
 | `leads` | Full searchable table |
 | `suppressed` | Why each lead is suppressed, and what can still be done |
 | `reports` | Every stage, the send funnel with rates, and supply |
+| `insurance` | The second pipeline's control room — three switches, run-now buttons, a stage board per track, the due-task queue, the activity feed, and a per-record panel with the score, its reasoning, the next touch previewed exactly as it will send, and that record's own history |
 
 Theme: NY Jets palette — Gotham Green `#125740` primary (`brand`), Kelly Green
 accent, Stealth Black, Streak White. Status colours stay distinct from the brand
@@ -348,6 +364,30 @@ while it was sending.
 
 ---
 
+## Security
+
+Reviewed 2026-09-13. Five findings, all fixed and verified against production.
+
+| Was | Now |
+|---|---|
+| `/api/scrape-phone` answered **200 to anyone on the internet** — it fetches a caller-supplied URL, follows redirects, and on the slow path launches a headless browser | Requires the cron secret or a signed session, and refuses any non-public URL (localhost, private ranges, embedded credentials, non-http schemes) |
+| `/api/appointments` was public; inert only because Google Calendar is unconfigured | Behind the middleware matcher |
+| An inbound sender's address went straight into `ilike`, where `%` and `_` are wildcards — a sender could match unrelated leads, and autopilot would then act on the match | Patterns escaped before every `ilike` |
+| Nothing between an attacker and unlimited guesses at one password | Per-IP brake on `/api/auth/login`, 8 attempts per 15 minutes |
+| The session signing key derived half its entropy from `CRON_SECRET`, which lives in GitHub Actions | `SESSION_SECRET` when set; the derived key remains a fallback |
+
+Eight packages nothing imported were removed, taking dependency advisories from
+22 to 2. Both survivors need Next 16, a major upgrade; the critical one is a
+self-hosted Image Optimizer DoS that does not apply on Vercel.
+
+**The route matcher is the perimeter.** `/api/cron` and `/api/webhooks` are
+exempt on purpose — they carry their own secret and signature checks — and
+anything else added outside `/crm`, `/api/admin`, `/api/crm`, `/api/email`,
+`/api/ai`, `/api/appointments` is public until it is listed. Both holes found in
+the review were routes that had quietly landed outside it.
+
+---
+
 ## Cost controls
 
 - Google Places weekly cap, reserved in the DB before any HTTP call, refunded
@@ -357,20 +397,35 @@ while it was sending.
 - Free/cheap AI tiers at the head of every provider chain
 - `DAILY_SEND_CAP` (default 40) overridable by env, so a cold sending domain can
   be warmed slowly
+- Insurance search capped at 100 requests per provider per month, reserved
+  atomically before the call, with a one-hour result cache
+- Domains that can never yield a lead are refused before import, so a wasted
+  search is not also a wasted row
 - Per-request timeouts and retry/backoff on every external call
 
 ---
 
 ## Testing
 
-`npm test` runs four suites — reply policy, the automation contract, AI
-normalisation, and the cron workflow. The contract test is the important one:
-it reads the source and asserts the properties that have broken before, so a
-regression fails the build rather than the pipeline. 180 checks in the automation contract alone.
+`npm test` runs seven suites — reply policy, the automation contract, AI
+normalisation, the cron workflow, database retry, insurance, and email
+extraction. The contract test is the important one: it reads the source and
+asserts the properties that have broken before, so a regression fails the build
+rather than the pipeline. **207 checks in the automation contract alone.**
 
 `scripts/outbox-database-test.sql` exercises the outbox transaction against a
-real database inside `BEGIN … ROLLBACK`: reservation, replay, saved
+real database inside its own `BEGIN … ROLLBACK`: reservation, replay, saved
 log/status/audit/followup, suppression survival, and the expired-retry cutoff.
+It carries its own transaction rather than trusting the caller — run bare it
+once left a lead, two outbox rows and an audit entry in production.
+
+**Tests cover the wiring, not only the rules.** Three failures in the insurance
+deduplication all reported success: a PostgREST `.or()` built from a formatted
+phone number matched nothing and raised nothing, and the duplicate check was
+gated on what a scrape had just returned rather than on what the record held.
+Both printed `0 merged`, which is indistinguishable from "nothing to merge". The
+rules had unit tests the whole time and were never wrong; the wiring had none.
+There are now contract checks for both shapes.
 
 ---
 
@@ -392,6 +447,12 @@ log/status/audit/followup, suppression survival, and the expired-retry cutoff.
 | `lib/status-colors.ts` | Single source of truth for status colours |
 | `lib/lead-stats.ts` | Single source of truth for KPIs |
 | `lib/audit.ts` | Append-only change trail |
+| `lib/score-thresholds.ts` | The score bar, defined once for six gates |
+| `lib/email-extract.ts` | Finding an address in markup, and ranking what is found |
+| `lib/insurance/pipeline.ts` | The insurance stages: discover, enrich, qualify, send |
+| `lib/insurance/outreach.ts` | Insurance copy, the ten send refusals, the outbox hand-off |
+| `lib/insurance/sources.ts` | What may be imported, and how a record can be worked |
+| `lib/insurance/dedupe.ts` | When two records are one person — and when they are not |
 | `supabase/migrations/` | Schema history (021 current) |
 
 ## Insurance pipeline (`insurance-pipeline`, 07:15 and 13:15 Phoenix)
@@ -447,7 +508,21 @@ scoring), `sending_enabled` (mail actually leaves), `autopilot` (a classified
 reply and note is appended to `insurance_activities`, which is what the
 workspace timeline reads.
 
-`lib/insurance/pipeline.ts` · `lib/insurance/outreach.ts` · `app/api/cron/insurance-pipeline/`
+**What it produced on first contact with live data.** The original queries
+returned ten LinkedIn profiles and ten SEO pages — 21 records, zero of them
+contactable. After the source policy and the phone-aware enrichment: 50 active
+records, 20 reachable, 16 qualified, named producers in four states scored
+80–95. The measured yield on eight Michigan agency pages was 5 emails and 7
+phones. Most reachable records are **phone-only**, which is the honest channel
+for recruiting; sending is for the minority that publish an address.
+
+**Buyer-intent search does not find buyers.** Every buyers run returned quote
+farms, listicles and competitors' landing pages — the qualifier scored them 5–30
+and parked all of them, correctly, at Research. Anyone publicly asking about
+insurance is buried under agencies optimised for that exact phrase. The track
+remains available and the rotation is currently set to recruiting only.
+
+`lib/insurance/pipeline.ts` · `lib/insurance/outreach.ts` · `lib/insurance/sources.ts` · `lib/insurance/dedupe.ts` · `app/api/cron/insurance-pipeline/`
 
 ## Insurance workspace
 
