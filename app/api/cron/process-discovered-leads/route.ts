@@ -87,42 +87,59 @@ async function handleGET(req: NextRequest) {
       throw poolError;
     }
 
-    let newLeads = (pool || []).filter((l) => !scoredIds.has(l.id)).slice(0, BATCH);
-
     // Leads whose ONLY score is the placeholder written while every provider was
     // down. They are invisible to the anti-join above — they do have a summary
     // row — and the sender excludes an exact 50 as unevaluated, so nothing in
-    // the pipeline ever looked at them again. 24 leads sat in this state,
-    // including addresses enrichment had just found. They are re-scored here,
-    // after genuinely new leads, so a backlog never starves discovery.
-    if (newLeads.length < BATCH) {
+    // the pipeline ever looked at them again.
+    //
+    // One slot per run is reserved for a placeholder lead THAT HAS AN EMAIL,
+    // ahead of the unscored backlog. Those are the only leads in the whole
+    // system that a re-score converts straight into a send; behind 45 unscored
+    // new leads at three a run they would have waited five days while the
+    // sender had nothing to send.
+    const placeholderLeads = async (limit: number, mustHaveEmail: boolean) => {
+      if (limit <= 0) return [] as any[];
       const { data: placeholders, error: placeholderError } = await supabase
         .from("lead_ai_summaries")
         .select("lead_id")
         .eq("lead_score", FALLBACK_SCORE)
         .eq("main_pain_point", FALLBACK_PAIN_POINT)
-        .limit(BATCH * 10);
+        .limit(200);
       if (placeholderError) {
         console.error("Failed to load placeholder scores:", placeholderError);
         throw placeholderError;
       }
       const ids = (placeholders || []).map((row) => row.lead_id);
-      if (ids.length) {
-        const { data: stale, error: staleError } = await supabase
-          .from("leads")
-          .select("*")
-          .in("id", ids)
-          .is("archived_at", null)
-          .eq("opt_out", false)
-          .neq("status", "Do Not Contact")
-          .order("updated_at", { ascending: true })
-          .limit(BATCH - newLeads.length);
-        if (staleError) {
-          console.error("Failed to load leads holding a placeholder score:", staleError);
-          throw staleError;
-        }
-        newLeads = [...newLeads, ...(stale || [])];
+      if (!ids.length) return [] as any[];
+
+      let query = supabase
+        .from("leads")
+        .select("*")
+        .in("id", ids)
+        .is("archived_at", null)
+        .eq("opt_out", false)
+        .neq("status", "Do Not Contact");
+      if (mustHaveEmail) query = query.not("email", "is", null).neq("email", "");
+      const { data: stale, error: staleError } = await query
+        .order("updated_at", { ascending: true })
+        .limit(limit);
+      if (staleError) {
+        console.error("Failed to load leads holding a placeholder score:", staleError);
+        throw staleError;
       }
+      return stale || [];
+    };
+
+    const mailablePlaceholders = await placeholderLeads(1, true);
+    const unscored = (pool || [])
+      .filter((l) => !scoredIds.has(l.id))
+      .slice(0, BATCH - mailablePlaceholders.length);
+    let newLeads = [...mailablePlaceholders, ...unscored];
+    // Spare capacity goes to the rest of the placeholder backlog.
+    if (newLeads.length < BATCH) {
+      const seen = new Set(newLeads.map((l: any) => l.id));
+      const rest = await placeholderLeads(BATCH - newLeads.length, false);
+      newLeads = [...newLeads, ...rest.filter((l: any) => !seen.has(l.id))];
     }
 
     if (!newLeads || newLeads.length === 0) {
