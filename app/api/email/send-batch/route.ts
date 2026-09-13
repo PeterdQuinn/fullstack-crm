@@ -1,3 +1,4 @@
+import { FALLBACK_SCORE, SCORE_SEND_THRESHOLD } from "@/lib/score-thresholds";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendEmail } from "@/lib/resend";
@@ -55,7 +56,8 @@ export async function POST(req: NextRequest) {
       .neq("email", "")
       .lt("email_sent_count", 3)
       .is("archived_at", null)
-      .gt("lead_ai_summaries.lead_score", 50)
+      .gte("lead_ai_summaries.lead_score", SCORE_SEND_THRESHOLD)
+      .neq("lead_ai_summaries.lead_score", FALLBACK_SCORE)
       .in("status", ["Ready for Outreach", "Email 1 Sent", "Email 2 Sent", "Follow-Up Scheduled"])
       .maybeSingle();
 

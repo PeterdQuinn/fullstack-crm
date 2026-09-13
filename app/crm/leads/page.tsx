@@ -1,5 +1,6 @@
 "use client";
 
+import { scoreAllowsSend } from "@/lib/score-thresholds";
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Lead, LeadStatus, CallOutcome, CallLog, LeadNote, Appointment,
@@ -1084,7 +1085,7 @@ function EmailTab({ lead, updateLead }: { lead: Lead; updateLead: (id: string, u
   const inApprovedMarket = marketApproved(lead);
   const canSend = Boolean(
     lead.email &&
-    summary?.lead_score > 50 &&
+    scoreAllowsSend(summary?.lead_score) &&
     sendableStatuses.includes(lead.status) &&
     !lead.opt_out &&
     !lead.bounced &&

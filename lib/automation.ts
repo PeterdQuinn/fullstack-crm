@@ -8,6 +8,7 @@ import { logStatusChange } from "@/lib/audit";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { checkMailability } from "@/lib/email-validation";
 import { verifiedOutreachDetail } from "@/lib/internet-intelligence";
+import { FALLBACK_SCORE, SCORE_KEEP_THRESHOLD, SCORE_SEND_THRESHOLD, scoreAllowsSend } from "@/lib/score-thresholds";
 
 // Shared automation-pipeline logic, callable in-process (from the cron) or via
 // the /api/admin/automation-pipeline HTTP route (from the UI). Running it
@@ -45,24 +46,13 @@ export const DAILY_SEND_CAP = Math.max(1, Number(process.env.DAILY_SEND_CAP) || 
 // A lead must have all of these (non-null, non-empty) to be scored. City/state
 // and other fields (socials, employees, founded_year, ...) may stay null.
 const REQUIRED_FIELDS = ["business_name", "email", "phone"] as const;
-// Real (non-fallback) scores strictly below this are deleted.
-// Lowered 80 -> 50: with the old prompt every real score landed in the 10-35
-// band, so an 80 bar deleted essentially every lead the moment the phase ran.
-// 50 keeps the pipeline flowing. NOTE: a kept lead is NOT automatically a
-// sendable one — see SCORE_SEND_THRESHOLD.
-const SCORE_KEEP_THRESHOLD = 50;
-// Minimum score to actually EMAIL a lead. Deliberately one above the keep
-// threshold, because 50 is the exact value lib/ai-scoring.ts writes when EVERY
-// provider fails (`provider: "fallback"`). The two gates previously read
-// `>= 50` to keep and `> 50` to send with no constant naming the gap, so leads
-// stuck at the fallback value were retained forever and silently never mailed.
-// The gap is real and intentional — a fallback 50 means "never evaluated", and
-// mailing an unevaluated lead is worse than not mailing it — but it is now
-// named and documented instead of being an accident of two magic numbers.
-// lead_ai_summaries has no `provider` column, so a fallback 50 cannot be
-// distinguished from a genuine 50 after the fact; excluding 50 is the only
-// safe test available.
-const SCORE_SEND_THRESHOLD = SCORE_KEEP_THRESHOLD + 1;
+// Real (non-fallback) scores strictly below SCORE_KEEP_THRESHOLD are retired.
+// The bar sits at 20, not 50: the 50 bar retired every lead the model scored in
+// the 20-49 band and mailed only the top slice, while the real constraint on
+// this pipeline is how many leads have a usable email address at all.
+// SCORE_SEND_THRESHOLD is the same number — a kept lead is a mailable lead —
+// with the exact fallback 50 still excluded (see lib/score-thresholds.ts).
+
 
 // Only these statuses are eligible for an automated outreach email. A lead that
 // has replied, been sent a booking link, booked, or reached a terminal state
@@ -395,7 +385,8 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         // "Booked" with email_sent_count < 3 would be handed another COLD email,
         // directly contradicting the reply automation that just moved it there.
         .in("status", SENDABLE_STATUSES as unknown as string[])
-        .gt("lead_ai_summaries.lead_score", 50)
+        .gte("lead_ai_summaries.lead_score", SCORE_SEND_THRESHOLD)
+        .neq("lead_ai_summaries.lead_score", FALLBACK_SCORE)
         .is("archived_at", null);
       // The market gate is applied in JS, not here: approved markets can sit in
       // either `industry` or `niche` (discovery fills only `niche` for some
@@ -471,7 +462,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
         : lead.lead_ai_summaries;
       const score = summary?.lead_score || 0;
 
-      if (score < SCORE_SEND_THRESHOLD || !lead.email) {
+      if (!scoreAllowsSend(score) || !lead.email) {
         skipped++;
         continue;
       }

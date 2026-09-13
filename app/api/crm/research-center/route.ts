@@ -1,3 +1,4 @@
+import { FALLBACK_SCORE, SCORE_SEND_THRESHOLD, scoreAllowsSend } from "@/lib/score-thresholds";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateLeadSummary } from "@/lib/grok";
@@ -217,7 +218,7 @@ export async function POST(req: NextRequest) {
       const market = String(lead.industry || lead.niche || "").toLowerCase();
       if (!lead.email) return NextResponse.json({ error: "An email address is required before approval" }, { status: 409 });
       if (market !== "hvac") return NextResponse.json({ error: "Only HVAC leads can enter this email workflow" }, { status: 409 });
-      if (!score || score.lead_score <= 50) return NextResponse.json({ error: "A reviewed score above 50 is required" }, { status: 409 });
+      if (!score || !scoreAllowsSend(score.lead_score)) return NextResponse.json({ error: `A reviewed score of at least ${SCORE_SEND_THRESHOLD} is required (an exact ${FALLBACK_SCORE} means the scorers were down)` }, { status: 409 });
       if (score.confidence_level === "low" && researchReviewed !== true) return NextResponse.json({ error: "Low confidence research must be checked against its sources before approval" }, { status: 409 });
       updates = { status: "Ready for Outreach" }; reason = "Approved for Email Workspace";
     } else if (action === "move_calls") {

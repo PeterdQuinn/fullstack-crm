@@ -1,3 +1,4 @@
+import { FALLBACK_SCORE, SCORE_SEND_THRESHOLD } from "@/lib/score-thresholds";
 import { NextResponse } from "next/server";
 import { EMAIL_QUEUE_STATUSES } from "@/lib/queue-definitions";
 import { createClient } from "@supabase/supabase-js";
@@ -57,7 +58,8 @@ export async function GET() {
       .neq("email", "")
       .lt("email_sent_count", 3)
       .is("archived_at", null)
-      .gt("lead_ai_summaries.lead_score", 50)
+      .gte("lead_ai_summaries.lead_score", SCORE_SEND_THRESHOLD)
+      .neq("lead_ai_summaries.lead_score", FALLBACK_SCORE)
       // Market gate is applied in JS below (lib/outreach-markets.ts), not here.
       // This used to be `.or("industry.ilike.HVAC,niche.ilike.HVAC")`, which
       // meant the workspace never listed a lead that send-batch would happily

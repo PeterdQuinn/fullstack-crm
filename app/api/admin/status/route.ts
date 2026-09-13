@@ -1,3 +1,4 @@
+import { FALLBACK_SCORE, SCORE_SEND_THRESHOLD } from "@/lib/score-thresholds";
 import { DAILY_SEND_CAP } from "@/lib/automation";
 import { phoenixDayStartIso } from "@/lib/lead-stats";
 import { NextRequest, NextResponse } from "next/server";
@@ -47,7 +48,8 @@ export async function GET(req: NextRequest) {
     const { data: highScoreLeads } = await supabase
       .from("lead_ai_summaries")
       .select("lead_id, lead_score")
-      .gt("lead_score", 50);
+      .gte("lead_score", SCORE_SEND_THRESHOLD)
+      .neq("lead_score", FALLBACK_SCORE);
 
     const leadsHighScore = new Set(highScoreLeads?.map(s => s.lead_id) || []).size;
 
