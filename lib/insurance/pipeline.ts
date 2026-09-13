@@ -301,21 +301,26 @@ export interface QualifyResult {
   errors: string[];
 }
 
-export async function qualifyInsuranceProspects(batchSize = 5): Promise<QualifyResult> {
+export async function qualifyInsuranceProspects(batchSize = 10): Promise<QualifyResult> {
   const db = insuranceDb();
   const result: QualifyResult = { processed: 0, scored: 0, qualified: 0, errors: [] };
 
-  const { data: prospects, error } = await db
+  // Reachable records are scored first. A score on a record with no email and
+  // no phone changes nothing that can be acted on today, while a scored
+  // producer with a phone number is work the owner can pick up this morning.
+  const { data: pool, error } = await db
     .from("insurance_prospects")
-    .select("id, name, track, state, source, email, score, stage")
+    .select("id, name, track, state, source, email, phone, score, stage")
     .is("score", null)
     .neq("stage", "Do not contact")
     .order("created_at", { ascending: true })
-    .limit(Math.min(batchSize, 20));
+    .limit(200);
   if (error) {
     result.errors.push(`Cannot read qualification candidates: ${error.message}`);
     return result;
   }
+  const reach = (p: any) => (p.email?.trim() ? 0 : p.phone?.trim() ? 1 : 2);
+  const prospects = (pool || []).sort((a, b) => reach(a) - reach(b)).slice(0, Math.min(batchSize, 20));
 
   for (const prospect of prospects || []) {
     result.processed++;
