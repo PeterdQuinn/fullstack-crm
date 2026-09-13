@@ -23,8 +23,14 @@ console.log("PASS client deadline exceeds every cron server deadline");
 // Execute the actual workflow shell with a fake transport; no network or mail.
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "crm-cron-test-"));
 try {
+  fs.writeFileSync(path.join(temp, "sleep"), '#!/bin/bash\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(path.join(temp, "curl"), `#!/bin/bash
 echo call >> calls
+if [ "\${TEST_RECOVER:-}" = "yes" ] && [ "$(wc -l < calls)" -gt 1 ]; then
+  printf '%s' '{"success":true}' > body.json
+  printf 200
+  exit 0
+fi
 printf '%s' "$TEST_BODY" > body.json
 printf '%s' "$TEST_HTTP"
 exit "$TEST_EXIT"
@@ -44,6 +50,20 @@ exit "$TEST_EXIT"
     assert.equal(result.status, expected, `${name}: ${result.stderr}`);
     assert.ok(result.stdout.includes(message), `${name}: ${result.stdout}`);
     assert.equal(fs.readFileSync(path.join(temp, "calls"), "utf8"), "call\n", "never automatically repeat a side-effecting request");
+    console.log(`PASS ${name}`);
+  }
+  for (const [name, body, recover, expectedCalls, expectedStatus] of [
+    ['pre-start outage recovers', { success: false, stageStarted: false, retryable: true }, 'yes', 2, 0],
+    ['persistent outage stops after three attempts', { success: false, stageStarted: false, retryable: true }, '', 3, 1],
+    ['started work is never repeated', { success: false, stageStarted: true, retryable: true }, '', 1, 1],
+    ['permanent error is never retried', { success: false, stageStarted: false, retryable: false }, '', 1, 1],
+  ]) {
+    fs.writeFileSync(path.join(temp, 'calls'), '');
+    const result = spawnSync('bash', ['-c', shell], { cwd: temp, encoding: 'utf8',
+      env: { PATH: `${temp}:${process.env.PATH}`, APP_URL: 'https://example.invalid', CRON_SECRET: 'test-only',
+        TEST_BODY: JSON.stringify(body), TEST_HTTP: '500', TEST_EXIT: '0', TEST_RECOVER: recover } });
+    assert.equal(result.status, expectedStatus, `${name}: ${result.stdout} ${result.stderr}`);
+    assert.equal(fs.readFileSync(path.join(temp, 'calls'), 'utf8').trim().split('\n').length, expectedCalls, name);
     console.log(`PASS ${name}`);
   }
 } finally {

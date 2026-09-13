@@ -48,7 +48,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Select routes for this trigger
         id: pick
@@ -86,23 +86,33 @@ jobs:
           # Fail loudly on an unset secret rather than emitting a bare 401.
           [ -n "${CRON_SECRET:-}" ] || { echo "::error::CRON_SECRET secret is empty"; exit 1; }
 
-          echo "→ GET $APP_URL/api/cron/$ROUTE"
-          # Discovery and follow-ups can run for 120s. Wait beyond the server's
-          # deadline so a slow successful run is not reported as a client failure.
-          # Do not retry here: a disconnected request may already have sent mail.
-          if CODE=$(curl -sS -o body.json -w '%{http_code}' \
-                      --connect-timeout 15 --max-time 150 \
-                      -H "Authorization: Bearer $CRON_SECRET" \
-                      "$APP_URL/api/cron/$ROUTE"); then
-            :
-          else
-            CURL_EXIT=$?
-            echo "::error::$ROUTE transport failed (curl exit $CURL_EXIT, HTTP $CODE). Server work may still have completed; inspect logs before rerunning."
-            exit "$CURL_EXIT"
-          fi
+          for ATTEMPT in 1 2 3; do
+            echo "→ GET $APP_URL/api/cron/$ROUTE"
+            # Discovery and follow-ups can run for 120s. Wait beyond the server's
+            # deadline so a slow successful run is not reported as a client failure.
+            # A disconnected request may already have sent mail: never retry it.
+            if CODE=$(curl -sS -o body.json -w '%{http_code}' \
+                        --connect-timeout 15 --max-time 150 \
+                        -H "Authorization: Bearer $CRON_SECRET" \
+                        "$APP_URL/api/cron/$ROUTE"); then
+              :
+            else
+              CURL_EXIT=$?
+              echo "::error::$ROUTE transport failed (curl exit $CURL_EXIT, HTTP $CODE). Server work may still have completed; inspect logs before rerunning."
+              exit "$CURL_EXIT"
+            fi
 
-          echo "HTTP $CODE"
-          cat body.json; echo
+            echo "HTTP $CODE"
+            cat body.json; echo
+            # Retry only an explicit confirmation that no stage work started.
+            # Unknown errors and lost responses must never repeat email work.
+            if [ "$CODE" = "500" ] && [ "$ATTEMPT" -lt 3 ] && python3 -c 'import json; b=json.load(open("body.json")); raise SystemExit(0 if b.get("success") is False and b.get("stageStarted") is False and b.get("retryable") is True else 1)' 2>/dev/null; then
+              echo "Database unavailable before processing; retrying in $((ATTEMPT * 10)) seconds"
+              sleep "$((ATTEMPT * 10))"
+              continue
+            fi
+            break
+          done
 
           # A 200 alone is NOT success: the unauthenticated health check on some
           # routes also returns 200. Treat a health-check shape as a failure so a

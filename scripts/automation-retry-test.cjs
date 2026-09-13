@@ -40,7 +40,7 @@ const { retryAutomationDb } = load('lib/automation-db-retry.ts', {});
     }};
     const { withAutomationRun } = load('lib/automation-runs.ts', {
       'node:crypto': require('node:crypto'),
-      './automation-db-retry': { retryAutomationDb: op => retryAutomationDb(op, async () => {}) },
+      './automation-db-retry': { retryAutomationDb: op => retryAutomationDb(op, async () => {}), isTransientAutomationDbError: result => result.status === 504 },
       'next/server': { NextResponse: { json: (body, options) => ({ body, status: options?.status ?? 200 }) } },
       '@supabase/supabase-js': { createClient: () => db },
     });
@@ -52,6 +52,7 @@ const { retryAutomationDb } = load('lib/automation-db-retry.ts', {});
     assert.equal(stages, permanent ? 0 : 1, 'stage runs once only after persistence succeeds');
     assert.equal(updates, permanent ? 0 : 1);
     assert.equal(result.status, permanent ? 500 : 200);
+    if (permanent) { assert.equal(result.body.stageStarted, false); assert.equal(result.body.retryable, true); }
   }
   console.log('PASS temporary recovery, bounded failure, permanent errors, stable run ID, and single stage execution');
 })().catch(error => { console.error(error); process.exit(1); });
