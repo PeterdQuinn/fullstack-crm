@@ -408,9 +408,21 @@ DISCOVER → ENRICH → QUALIFY → SEND → REPLIES
   and saves what the search returns as *Research* records, deduplicated on the
   source URL — the same key the manual "Save for review" button uses, so a
   scheduled run and a human can never create two records for one page.
-- **Enrich** reads the source page with `lib/email-extract`, so it sees the
-  Cloudflare-obfuscated and JSON-LD addresses the HVAC scraper now sees, and
-  applies the same vendor-domain rejection.
+- **Enrich** reads the source page with `lib/email-extract`, and an agency's
+  `/contact` and `/about` as well as the page a search engine happened to rank.
+  It looks for a **phone as well as an address**: the best recruiting records
+  come off profile networks that will never publish an address, and a producer
+  with a phone is a lead that can be worked today. Measured on eight live
+  Michigan agency pages: 5 emails, 7 phones.
+
+**What gets imported at all** is decided by `lib/insurance/sources.ts`. The first
+live run imported ten LinkedIn profiles and ten quote farms and produced zero
+contactable leads, so quote farms, comparison sites, job boards and general
+reference are refused before import. Carriers are refused for *buyers*, where
+they are competitors, and kept for *recruiting*, where a captive agent's page is
+one of the best targets there is. The workspace labels every record by how it can
+be worked — email, call, or not reachable yet — instead of implying that anything
+without an address is worthless.
 - **Qualify** scores how clearly the SOURCE identifies one person worth writing
   to. It is never a judgment about a person's licence, income or intent, and it
   fails loudly rather than writing a placeholder.
