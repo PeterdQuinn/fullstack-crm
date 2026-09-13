@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { getChain, runChainJson } from "@/lib/ai-providers";
 import { bestEmail } from "@/lib/email-extract";
 import { looksLikeRealEmail } from "@/lib/email-validation";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 import { insuranceDb, reserveInsuranceRequest } from "./db";
 import { searchInsurance } from "./search";
 import { safePublicUrl, INSURANCE_STATES, type InsuranceState, type InsuranceTrack } from "./types";
+import { isImportable, sourceKind, DEFAULT_QUERIES, buildQuery, hostOf } from "./sources";
 import { sendInsuranceTouch, sendRefusal } from "./outreach";
 
 // The insurance pipeline, stage by stage.
@@ -50,6 +52,8 @@ export interface DiscoverResult {
   found: number;
   imported: number;
   duplicates: number;
+  /** Results refused before import because the domain can never yield a lead. */
+  filtered: number;
   provider?: string;
   warning?: string;
 }
@@ -68,8 +72,13 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
 
   const track = target.track as InsuranceTrack;
   const state = target.state as InsuranceState;
+  // The owner's own queries win. Otherwise rotate the curated set, which aims
+  // at pages that publish a way to reach someone — the first live run returned
+  // ten LinkedIn profiles and ten quote farms, and produced zero contactable
+  // leads out of twenty records.
   const saved = (settings.queries || []).filter((q) => q.track === track).map((q) => q.query);
-  const query = saved.length ? saved[Number(target.cursor || 0) % saved.length] : "";
+  const pool = saved.length ? saved : (DEFAULT_QUERIES[track] || []).map((template) => buildQuery(template, INSURANCE_STATES[state]));
+  const query = pool.length ? pool[Number(target.cursor || 0) % pool.length] : "";
 
   const result = await searchInsurance(
     { track, state, query },
@@ -82,9 +91,17 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
 
   let imported = 0;
   let duplicates = 0;
+  let filtered = 0;
   for (const source of result.sources) {
     const url = safePublicUrl(source.url);
     if (!url) continue;
+    // A quote farm, a listicle or a carrier's own site cannot become a lead,
+    // whatever the query was. Importing it only fills the board with rows that
+    // score 10 and sit at Research forever.
+    if (!isImportable(url)) {
+      filtered++;
+      continue;
+    }
     const source_key = createHash("sha256").update(url).digest("hex");
     const { data: existing } = await db
       .from("insurance_prospects")
@@ -107,6 +124,7 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
         source_key,
         stage: "Research",
         discovered_by: "automation",
+        website: sourceKind(url) === "agency" ? `https://${hostOf(url)}` : "",
       })
       .select("id")
       .single();
@@ -118,7 +136,7 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
     await activity(created.id, "discovered", `Found by scheduled search of ${INSURANCE_STATES[state]}`, { query: result.query, provider: result.provider, url });
   }
 
-  return { track, state, query: result.query, found: result.sources.length, imported, duplicates, provider: result.provider, warning: result.warning };
+  return { track, state, query: result.query, found: result.sources.length, imported, duplicates, filtered, provider: result.provider, warning: result.warning };
 }
 
 // ── 2. Enrich ──────────────────────────────────────────────────────────────
@@ -126,7 +144,37 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
 export interface EnrichResult {
   processed: number;
   emailsFound: number;
+  phonesFound: number;
   errors: string[];
+}
+
+// A US number as it appears in page text. Validated with libphonenumber before
+// it is saved, because a date, a licence number and a price all look like
+// digits to a regex.
+const PHONE_PATTERN = /(\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]\d{3}[\s.\-]\d{4}/g;
+
+/** The first number on the page that is a real, dialable US number. */
+function bestPhone(html: string): string | null {
+  const text = html.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
+  const seen = new Set<string>();
+  for (const match of text.match(PHONE_PATTERN) || []) {
+    const cleaned = match.trim();
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    const parsed = parsePhoneNumberFromString(cleaned, "US");
+    if (parsed?.isValid()) return parsed.formatNational();
+  }
+  return null;
+}
+
+/** A business site's likeliest contact pages, tried after the page itself. */
+function contactPages(website: string): string[] {
+  try {
+    const origin = new URL(website).origin;
+    return ["/contact", "/contact-us", "/about", "/our-team", "/agents"].map((path) => `${origin}${path}`);
+  } catch {
+    return [];
+  }
 }
 
 const UA = {
@@ -145,12 +193,16 @@ const UA = {
 export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_000): Promise<EnrichResult> {
   const startedAt = Date.now();
   const db = insuranceDb();
-  const result: EnrichResult = { processed: 0, emailsFound: 0, errors: [] };
+  const result: EnrichResult = { processed: 0, emailsFound: 0, phonesFound: 0, errors: [] };
 
+  // Anything still missing a way to reach it. Phone matters as much as email
+  // here: the best recruiting records come off profile networks that will never
+  // publish an address, and a producer with a phone number is a lead you can
+  // work today.
   const { data: prospects, error } = await db
     .from("insurance_prospects")
-    .select("id, name, source, website, email, stage")
-    .eq("email", "")
+    .select("id, name, source, website, email, phone, stage")
+    .or("email.eq.,phone.eq.")
     .eq("opt_out", false)
     .neq("stage", "Do not contact")
     .order("updated_at", { ascending: true })
@@ -163,33 +215,50 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
   for (const prospect of prospects || []) {
     if (Date.now() - startedAt > deadlineMs) break;
     result.processed++;
-    const targets = [prospect.website, prospect.source?.url].map((value) => safePublicUrl(value)).filter(Boolean);
-    let found: string | null = null;
-    for (const url of targets) {
+
+    const targets = [prospect.source?.url, prospect.website]
+      .map((value) => safePublicUrl(value))
+      .filter(Boolean);
+    // An agency site keeps its details on /contact far more often than on the
+    // page a search engine happened to rank.
+    if (prospect.website && sourceKind(prospect.website) === "agency") {
+      targets.push(...contactPages(prospect.website));
+    }
+
+    let email: string | null = null;
+    let phone: string | null = null;
+    for (const url of [...new Set(targets)].slice(0, 4)) {
+      if (email && phone) break;
       try {
         const response = await fetch(url, { headers: UA, signal: AbortSignal.timeout(8000), redirect: "follow" });
         if (!response.ok) continue;
         const html = await response.text();
-        const candidate = bestEmail(html, new URL(url).host);
-        if (candidate && looksLikeRealEmail(candidate)) {
-          found = candidate;
-          break;
+        if (!email) {
+          const candidate = bestEmail(html, new URL(url).host);
+          if (candidate && looksLikeRealEmail(candidate)) email = candidate;
         }
+        if (!phone) phone = bestPhone(html);
       } catch {
         // A page that will not load is not an error worth failing the run over.
       }
     }
 
     const updates: Record<string, unknown> = { enriched_at: new Date().toISOString(), updated_at: new Date().toISOString() };
-    if (found) updates.email = found;
+    if (email && !prospect.email) updates.email = email;
+    if (phone && !prospect.phone) updates.phone = phone;
+
     const { error: saveError } = await db.from("insurance_prospects").update(updates).eq("id", prospect.id);
     if (saveError) {
       result.errors.push(`${prospect.name}: ${saveError.message}`);
       continue;
     }
-    if (found) {
+    if (email && !prospect.email) {
       result.emailsFound++;
-      await activity(prospect.id, "enriched", `Found contact address ${found}`, { email: found });
+      await activity(prospect.id, "enriched", `Found contact address ${email}`, { email });
+    }
+    if (phone && !prospect.phone) {
+      result.phonesFound++;
+      await activity(prospect.id, "enriched", `Found phone number ${phone}`, { phone });
     }
   }
 

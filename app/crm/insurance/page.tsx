@@ -8,6 +8,7 @@ import {
   INSURANCE_STATES, STAGES, BOOKING_URL, INSURANCE_WEBSITE, licenseAgeDays,
   type InsuranceTrack, type InsuranceState, type InsuranceSource, type InsuranceProspect,
 } from "@/lib/insurance/types";
+import { reachability } from "@/lib/insurance/sources";
 
 // The insurance workspace.
 //
@@ -322,8 +323,14 @@ export default function InsurancePage() {
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                         <span>{prospect.state}</span>
-                        {prospect.email ? <span className="inline-flex items-center gap-1 text-emerald-700"><Mail size={11} /> address</span>
-                          : <span className="text-slate-400">no address</span>}
+                        {(() => {
+                          const reach = reachability(prospect);
+                          return reach.channel === "email"
+                            ? <span className="inline-flex items-center gap-1 font-semibold text-emerald-700"><Mail size={11} /> email</span>
+                            : reach.channel === "phone"
+                              ? <span className="inline-flex items-center gap-1 font-semibold text-sky-700"><Phone size={11} /> call</span>
+                              : <span className="text-slate-400">no contact yet</span>;
+                        })()}
                         {(prospect.email_sent_count || 0) > 0 && <span className="inline-flex items-center gap-1"><Send size={11} />{prospect.email_sent_count}</span>}
                         {prospect.replied_at && <span className="font-semibold text-teal-700">replied</span>}
                       </div>
@@ -491,6 +498,14 @@ export default function InsurancePage() {
               ))}
             </div>
 
+            <div className="mb-4 flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-xs">
+              {(() => {
+                const reach = reachability(selected);
+                const tone = reach.channel === "email" ? "text-emerald-800" : reach.channel === "phone" ? "text-sky-800" : "text-slate-500";
+                const Icon = reach.channel === "phone" ? Phone : Mail;
+                return <><Icon size={14} className={tone} /><span className={`font-semibold ${tone}`}>{reach.channel === "email" ? "Emailable" : reach.channel === "phone" ? "Phone only" : "Not reachable yet"}</span><span className="text-slate-500">— {reach.note}</span></>;
+              })()}
+            </div>
             <form className="space-y-4" onSubmit={saveRecord}>
               <p className="text-xs leading-relaxed text-slate-500">{selected.source.snippet}</p>
               <label className="block text-xs font-medium text-slate-600">Name

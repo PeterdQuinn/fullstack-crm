@@ -112,5 +112,38 @@ function load(file) {
   assert.equal(refused.sent, false);
   assert.equal(sent.length, 1, 'a refused send never reaches the provider');
 
-  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, and one-key sends');
+
+  // ── source policy ───────────────────────────────────────────────────────
+  // The first live run imported ten LinkedIn profiles and ten quote farms and
+  // produced zero contactable leads. These are the rules that stop that.
+  const sources = load('lib/insurance/sources.ts');
+  for (const junk of ['https://quickquote.com/az', 'https://www.insuranceopedia.com/best', 'https://www.statefarm.com/agent/us/az/phoenix/dale-wilson', 'https://www.indeed.com/q-insurance-agent', 'https://financial-advisorpro.com/term-life-mesa']) {
+    assert.equal(sources.isImportable(junk), false, `must refuse ${junk}`);
+  }
+  for (const keep of ['https://mycornerstoneinsurance.com/about/', 'https://www.linkedin.com/in/chajon', 'https://www.experience.com/reviews/john-7318415']) {
+    assert.equal(sources.isImportable(keep), true, `must keep ${keep}`);
+  }
+  assert.equal(sources.sourceKind('https://www.linkedin.com/in/chajon'), 'profile');
+  assert.equal(sources.sourceKind('https://www.experience.com/reviews/john-7318415'), 'directory');
+  assert.equal(sources.sourceKind('https://mycornerstoneinsurance.com/about/'), 'agency');
+  assert.equal(sources.sourceKind('https://someagency.com/blog/best-life-insurance-2026'), 'content');
+
+  // How a record can actually be worked, which is what the board shows.
+  assert.equal(sources.reachability({ email: 'a@b.com', phone: '' }).channel, 'email');
+  assert.equal(sources.reachability({ email: '', phone: '(602) 555-0100' }).channel, 'phone');
+  const manual = sources.reachability({ email: '', phone: '', source: { url: 'https://www.linkedin.com/in/x' } });
+  assert.equal(manual.channel, 'manual');
+  assert.match(manual.note, /Profile network/);
+
+  // The hosted search API returned NOTHING for queries loaded with quotes and
+  // OR operators, so the curated set must stay plain.
+  for (const track of ['recruiting', 'buyers']) {
+    for (const template of sources.DEFAULT_QUERIES[track]) {
+      assert.ok(!/["]|\bOR\b|site:|intitle:/.test(template), `query must not use search operators: ${template}`);
+      assert.ok(template.includes('{state}'), `query must be state-aware: ${template}`);
+    }
+  }
+  assert.equal(sources.buildQuery('insurance agent {state} contact', 'Arizona'), 'insurance agent Arizona contact');
+
+  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, one-key sends, source filtering, and reachability');
 })().catch(error => { console.error(error); process.exit(1); });
