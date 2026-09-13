@@ -246,6 +246,11 @@ check("the outbox database test cannot commit its own fixtures",
 const dedupeLib = read("lib/insurance/dedupe.ts");
 check("a shared office number alone never merges two records",
   dedupeLib.includes("sameName(record.name, other.name)") && dedupeLib.includes('reason: "phone and name"'));
+// A formatted phone contains PostgREST filter grammar. Built into an `.or()`
+// it matched nothing and reported no error, so phone deduplication was dead.
+check("duplicate lookup never builds a filter out of a phone number",
+  !/\.or\(`email\.eq/.test(read("lib/insurance/pipeline.ts")) &&
+  read("lib/insurance/pipeline.ts").includes('.eq("email", email)'));
 check("a merged record is linked, not deleted",
   read("supabase/migrations/021_insurance_duplicates.sql").includes("duplicate_of uuid references") &&
   read("lib/insurance/pipeline.ts").includes("duplicate_of: keep.id"));

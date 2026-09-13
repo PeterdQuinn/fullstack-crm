@@ -160,13 +160,36 @@ export interface EnrichResult {
  */
 async function mergeIfDuplicate(record: { id: string; name?: string | null; email?: string | null; phone?: string | null; created_at?: string | null }): Promise<boolean> {
   const db = insuranceDb();
-  const { data: others, error } = await db
-    .from("insurance_prospects")
-    .select("id, name, email, phone, created_at, stage, notes")
-    .is("duplicate_of", null)
-    .or(`email.eq.${record.email || "__none__"},phone.eq.${record.phone || "__none__"}`)
-    .limit(20);
-  if (error || !others?.length) return false;
+  const email = (record.email || "").trim();
+  const phone = (record.phone || "").trim();
+  if (!email && !phone) return false;
+
+  // Two queries, not one `.or()`. A formatted phone number contains "(", ")"
+  // and a comma — all three are PostgREST filter grammar, so
+  // `or=(phone.eq.(989) 772-9487)` silently matched NOTHING rather than
+  // erroring, and phone deduplication was dead without ever reporting it.
+  // `.eq()` escapes its own value; comparison itself happens in JS, where
+  // normalizePhone makes "(989) 772-9487" and "989.772.9487" the same number.
+  const columns = "id, name, email, phone, created_at, stage, notes";
+  const [byEmail, byPhone] = await Promise.all([
+    email
+      ? db.from("insurance_prospects").select(columns).is("duplicate_of", null).eq("email", email).limit(20)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    phone
+      ? db.from("insurance_prospects").select(columns).is("duplicate_of", null).neq("phone", "").limit(500)
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ]);
+  if (byEmail.error || byPhone.error) {
+    console.error(`Duplicate lookup failed: ${byEmail.error?.message || byPhone.error?.message}`);
+    return false;
+  }
+  const seen = new Set<string>();
+  const others = [...(byEmail.data || []), ...(byPhone.data || [])].filter((row) => {
+    if (seen.has(row.id)) return false;
+    seen.add(row.id);
+    return true;
+  });
+  if (!others.length) return false;
 
   const match = findDuplicate(record as any, others as any);
   if (!match) return false;
