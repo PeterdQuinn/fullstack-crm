@@ -36,7 +36,26 @@ async function run(req: NextRequest) {
     return NextResponse.json({ success: false, error: `Unknown phase: ${requested}` }, { status: 400 });
   }
 
-  const settings = await insuranceSettings();
+  // A stage whose tables are not installed yet is not a broken stage.
+  //
+  // The daily digest reads automation_runs and raises CRM ALERT on a failed
+  // run, which is the dead-man switch for the whole system. Letting this route
+  // fail twice a day until migration 020 is applied would train the reader to
+  // ignore that alarm — the one outcome the digest cannot survive.
+  let settings;
+  try {
+    settings = await insuranceSettings();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/insurance_settings|schema cache|does not exist/i.test(message)) {
+      return NextResponse.json({
+        success: true,
+        notInstalled: true,
+        message: "The insurance pipeline tables are not installed yet — run supabase/migrations/020_insurance_pipeline.sql",
+      });
+    }
+    throw error;
+  }
   // The insurance switch is separate from the HVAC one on purpose: one pipeline
   // being paused says nothing about whether the other should be.
   if (!settings.enabled) {
