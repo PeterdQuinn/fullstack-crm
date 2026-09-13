@@ -212,11 +212,32 @@ check("only a complete sentence can be pasted into outreach", (() => {
 // Supply, not the send cap, was the binding constraint: 9 enrichment attempts
 // a day against 126 leads holding a website but no email address.
 const enrichLib = read("lib/enrich.ts");
+// The numbers are read, not pinned: the batch size is tuned as the scraper gets
+// faster, and pinning a literal made a throughput improvement fail the build.
+// What must hold is the shape — a real batch, and a deadline strictly under the
+// route's own ceiling so the loop stops before the platform kills it.
+const enrichRoute = read("app/api/cron/enrich-leads/route.ts");
+const enrichBatch = Number(/enrichLeadsBatch\(batchSize = (\d+)/.exec(enrichLib)?.[1]);
+const routeBatch = Number(/Number\(body\.batchSize\) \|\| (\d+)/.exec(enrichRoute)?.[1]);
+const enrichDeadline = Number((/deadlineMs = ([\d_]+)/.exec(enrichLib)?.[1] || "").replace(/_/g, ""));
+const enrichCeiling = Number((/maxDuration = ([\d_]+)/.exec(enrichRoute)?.[1] || "").replace(/_/g, "")) * 1000;
 check("enrichment works a real batch, not three leads a day",
-  enrichLib.includes("enrichLeadsBatch(batchSize = 12") &&
-  read("app/api/cron/enrich-leads/route.ts").includes("Number(body.batchSize) || 12"));
+  enrichBatch >= 12 && routeBatch >= 12 && routeBatch === enrichBatch);
 check("a bigger enrichment batch cannot outrun the route budget",
-  enrichLib.includes("deadlineMs = 45_000") && enrichLib.includes("Date.now() - startedAt > deadlineMs"));
+  enrichDeadline > 0 && enrichCeiling > 0 && enrichDeadline < enrichCeiling &&
+  enrichLib.includes("Date.now() - startedAt > deadlineMs"));
+
+// Finding the address is the whole supply problem: 17 of 20 live sites with a
+// published address returned nothing to a `$("body").text()` scan.
+const extractor = read("lib/email-extract.ts");
+check("email extraction reads the markup, not just body text",
+  read("app/api/scrape-phone/route.ts").includes("bestEmail(html, siteHost)") &&
+  extractor.includes("data-cfemail") && extractor.includes("cdn-cgi/l/email-protection"));
+check("a vendor's address is never mailed as the prospect",
+  extractor.includes("belongsToBusiness") && extractor.includes("CONSUMER_PROVIDERS"));
+check("a blocked page is retried as a real navigation before being written off",
+  read("app/api/scrape-phone/route.ts").includes("NAVIGATION_HEADERS") &&
+  read("app/api/scrape-phone/route.ts").includes("alternateHost"));
 // Measured: enrichment plus research in one route finished at 137s against a
 // 120s ceiling, because a deadline only stops another lead being *started*.
 check("research is its own stage, not a passenger on enrichment",

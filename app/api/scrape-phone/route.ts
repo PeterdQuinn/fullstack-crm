@@ -6,6 +6,7 @@ import { extractHvacSignals, hvacGaps, HvacSignals } from "@/lib/hvac-signals";
 import { parsePhoneNumberFromString } from "libphonenumber-js";
 import nlp from "compromise";
 import type { WithContext, Organization, Person } from "schema-dts";
+import { bestEmail } from "@/lib/email-extract";
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -146,42 +147,13 @@ function extractPhone($: cheerio.CheerioAPI): string | null {
 
 // ── email ─────────────────────────────────────────────────────────────────────
 
-function extractEmail($: cheerio.CheerioAPI): string | null {
-  let email: string | null = null;
-
-  // mailto: links
-  $("a[href^='mailto:']").each((_, el) => {
-    if (email) return;
-    const raw = $(el).attr("href")!.replace(/^mailto:/i, "").split("?")[0].trim();
-    if (raw.includes("@")) email = raw;
-  });
-  if (email) return email;
-
-  // Meta tags
-  const metaEmail = $('meta[name="email"]').attr("content") ||
-                   $('meta[property="email"]').attr("content");
-  if (metaEmail && metaEmail.includes("@")) return metaEmail;
-
-  // Data attributes
-  $("[data-email]").each((_, el) => {
-    if (email) return;
-    const e = $(el).attr("data-email");
-    if (e && e.includes("@")) email = e;
-  });
-  if (email) return email;
-
-  // Aggressive text scan - look in common patterns
-  const bodyText = $("body").text();
-  const matches = bodyText.match(EMAIL_RE) || [];
-
-  for (const m of matches) {
-    if (!m.includes("example.") && !m.includes("yourname") && !m.includes("noreply") && !m.includes("donotreply")) {
-      email = m;
-      break;
-    }
-  }
-
-  return email;
+function extractEmail(html: string, siteHost?: string): string | null {
+  // Everything about finding and ranking an address lives in lib/email-extract.
+  // It reads the MARKUP, not `$("body").text()`: Cloudflare-obfuscated mailtos,
+  // JSON-LD, meta tags and inline scripts all carry addresses that a text scan
+  // cannot see, and it prefers an address on the site's own domain over a web
+  // designer's or a sprite reference.
+  return bestEmail(html, siteHost);
 }
 
 // ── owner ─────────────────────────────────────────────────────────────────────
@@ -386,12 +358,12 @@ function extractAddress($: cheerio.CheerioAPI): string | null {
 
 // ── full page parse ───────────────────────────────────────────────────────────
 
-function parsePage(html: string, businessName?: string): PageData {
+function parsePage(html: string, businessName?: string, siteHost?: string): PageData {
   const $ = cheerio.load(html);
   const sw = detectSoftware(html);
   return {
     phone:            extractPhone($),
-    email:            extractEmail($),
+    email:            extractEmail(html, siteHost),
     owner:            ownerFromJsonLd($) || ownerFromText($),
     current_software: sw.current_software,
     booking_detected: sw.booking_detected,
@@ -528,26 +500,78 @@ async function launchBrowser() {
 
 // ── fetchers ──────────────────────────────────────────────────────────────────
 
-async function fetchStatic(url: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-    signal: AbortSignal.timeout(5000),
-  });
+const BROWSER_HEADERS: Record<string, string> = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
+// A full navigation header set. Measured on live leads: 4 of 20 sites answered
+// the header set above with a 403 challenge page. Bot filters look for the
+// Sec-Fetch/sec-ch-ua headers a real Chrome navigation always sends, so a
+// blocked request is retried once with all of them rather than written off as
+// "this business has no website".
+const NAVIGATION_HEADERS: Record<string, string> = {
+  ...BROWSER_HEADERS,
+  "Sec-Fetch-Dest": "document",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "none",
+  "Sec-Fetch-User": "?1",
+  "Upgrade-Insecure-Requests": "1",
+  "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not:A-Brand";v="99"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+  "Referer": "https://www.google.com/",
+};
+
+async function fetchOnce(url: string, headers: Record<string, string>, timeoutMs: number): Promise<string> {
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs), redirect: "follow" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
 }
 
+/** `https://example.com` <-> `https://www.example.com`, or null when neither applies. */
+function alternateHost(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    parsed.hostname = parsed.hostname.startsWith("www.")
+      ? parsed.hostname.slice(4)
+      : `www.${parsed.hostname}`;
+    return parsed.href;
+  } catch { return null; }
+}
+
+async function fetchStatic(url: string, timeoutMs = 5000): Promise<string> {
+  try {
+    return await fetchOnce(url, BROWSER_HEADERS, timeoutMs);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Bot filter, not an absent page: retry once as a real navigation.
+    if (/HTTP (?:401|403|405|406|429)/.test(message)) {
+      return fetchOnce(url, NAVIGATION_HEADERS, timeoutMs);
+    }
+
+    // A transport error (TLS served for one host only, DNS on the apex) is
+    // routinely fixed by the www/apex twin. Live leads failed with exactly
+    // this and were being recorded as unreachable.
+    if (!/^HTTP \d/.test(message)) {
+      const alternate = alternateHost(url);
+      if (alternate) {
+        try { return await fetchOnce(alternate, NAVIGATION_HEADERS, timeoutMs); } catch {}
+      }
+    }
+    throw error;
+  }
+}
+
 // ── multi-page crawl ──────────────────────────────────────────────────────────
 
-async function crawlPages(urls: string[]): Promise<PageData[]> {
+async function crawlPages(urls: string[], siteHost?: string): Promise<PageData[]> {
   const settled = await Promise.allSettled(
-    urls.slice(0, 6).map(async (u) => {
+    urls.slice(0, 8).map(async (u) => {
       const html = await fetchStatic(u);
-      return parsePage(html);
+      return parsePage(html, undefined, siteHost);
     })
   );
 
@@ -679,8 +703,11 @@ export async function POST(req: NextRequest) {
 
   // Phase 1 — static homepage
   try {
-    homeHtml = await fetchStatic(url);
-    data = parsePage(homeHtml, business_name);
+    // The homepage gets a longer budget than a subpage: live lead sites run
+    // 100KB-900KB and 5s was timing them out, which read downstream as "no
+    // email exists" rather than "we gave up".
+    homeHtml = await fetchStatic(url, 8000);
+    data = parsePage(homeHtml, business_name, base.host);
     debug.phases.push({
       phase: 1,
       name: "Static Homepage",
@@ -696,9 +723,16 @@ export async function POST(req: NextRequest) {
   if (!isComplete(data)) {
     const discovered  = homeHtml ? discoverLinks(homeHtml, base) : [];
     const staticUrls  = STATIC_PATHS.map((p) => `${base.origin}${p}`);
-    const candidates  = [...new Set([...discovered, ...staticUrls])].filter((u) => u !== url && u !== `${url}/`);
+    // Contact pages first. crawlPages fetches a bounded number of URLs, and
+    // discovered nav links used to fill that budget before /contact was ever
+    // tried — on a site with a wide nav, the one page that always carries the
+    // address was the page never fetched.
+    const contactFirst = (u: string) => (/\/contact/i.test(new URL(u).pathname) ? 0 : 1);
+    const candidates  = [...new Set([...discovered, ...staticUrls])]
+      .filter((u) => u !== url && u !== `${url}/`)
+      .sort((a, b) => contactFirst(a) - contactFirst(b));
     try {
-      const results = await crawlPages(candidates);
+      const results = await crawlPages(candidates, base.host);
       for (const r of results) { data = mergeData(data, r); if (isComplete(data)) break; }
       debug.phases.push({
         phase: 2,
@@ -757,7 +791,7 @@ export async function POST(req: NextRequest) {
       ];
       for (const target of targets) {
         if (isComplete(data)) break;
-        try { data = mergeData(data, parsePage(await playwrightPage(ctx, target, 1500))); } catch {}
+        try { data = mergeData(data, parsePage(await playwrightPage(ctx, target, 1500), undefined, base.host)); } catch {}
       }
     }
 

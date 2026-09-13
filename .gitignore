@@ -24,3 +24,7 @@ prod.env
 # Temp output from scripts/automation-contract-test.mjs (removed on success,
 # left behind when a run fails partway).
 .automation-contract-build/
+
+# Temp output from scripts/email-extract-test.mjs
+.email-extract-build/
+.reply-policy-build/

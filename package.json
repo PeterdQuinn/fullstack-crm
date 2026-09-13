@@ -12,14 +12,15 @@
     "test:reply-policy": "node scripts/reply-policy-test.mjs",
     "test:automation": "node scripts/automation-contract-test.mjs",
     "test:cron": "node scripts/cron-workflow-test.mjs",
-    "test": "npm run test:reply-policy && npm run test:automation && npm run ai:normalize-test && npm run test:cron && npm run test:automation-retry && npm run test:insurance",
+    "test": "npm run test:reply-policy && npm run test:automation && npm run ai:normalize-test && npm run test:cron && npm run test:automation-retry && npm run test:insurance && npm run test:email-extract",
     "verify": "node scripts/verify-pipeline.mjs",
     "verify:routes": "node scripts/verify-pipeline.mjs --routes",
     "verify:live": "node scripts/verify-pipeline.mjs --routes --live",
     "score:batch": "node scripts/batch-score.mjs",
     "score:dry": "node scripts/batch-score.mjs --dry-run",
     "test:automation-retry": "node scripts/automation-retry-test.cjs",
-    "test:insurance": "node scripts/insurance-test.cjs"
+    "test:insurance": "node scripts/insurance-test.cjs",
+    "test:email-extract": "node scripts/email-extract-test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",

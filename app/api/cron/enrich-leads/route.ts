@@ -36,7 +36,10 @@ export async function POST(req: NextRequest) {
 
 async function runEnrich(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
-  const batchSize = Math.min(Number(body.batchSize) || 12, 20);
+  // The scheduled run sends no body, so this default is what actually governs
+  // throughput. It tracks enrichLeadsBatch's own default — 20 leads inside a
+  // 75s deadline, comfortably under the route's 120s ceiling.
+  const batchSize = Math.min(Number(body.batchSize) || 20, 25);
 
   try {
     const result = await enrichLeadsBatch(batchSize);

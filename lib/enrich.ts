@@ -51,7 +51,11 @@ export type EnrichResult = {
 // that fed the sender roughly three new addresses a day, so the daily send cap
 // was never the binding constraint; supply was. deadlineMs stops the loop
 // starting another lead near the route's 120s ceiling.
-export async function enrichLeadsBatch(batchSize = 12, deadlineMs = 45_000): Promise<EnrichResult> {
+//
+// 20 against a 75s deadline, not 12 against 45s: measured on live leads the
+// static scrape now averages ~2s, so the old budget left most of the route's
+// 120s ceiling unused while 196 leads waited with a website and no address.
+export async function enrichLeadsBatch(batchSize = 20, deadlineMs = 75_000): Promise<EnrichResult> {
   const startedAt = Date.now();
   // Leads with a website to scrape but no email yet — those unblock the email
   // queue. Ordered oldest-touched-first, and every processed lead's updated_at
@@ -67,7 +71,7 @@ export async function enrichLeadsBatch(batchSize = 12, deadlineMs = 45_000): Pro
     .neq("status", "Do Not Contact")
     .is("archived_at", null)
     .order("updated_at", { ascending: true })
-    .limit(Math.min(batchSize, 20));
+    .limit(Math.min(batchSize, 25));
 
   if (error || !leads) {
     return { processed: 0, updated: 0, emailsFound: 0, socialsFound: 0, errors: 0, error: error?.message };
