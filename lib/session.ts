@@ -13,7 +13,13 @@ export const SESSION_COOKIE = "fscrm_session";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 function secret(): string {
-  // Derived from credentials that already exist; no new env var to forget to set.
+  // SESSION_SECRET when set. The fallback derives from credentials that already
+  // exist so nothing breaks without it, but CRON_SECRET is shared with GitHub
+  // Actions and every scheduler that has ever held it: half the signing key
+  // lives outside this system. Set SESSION_SECRET to a long random value and
+  // that stops being true. Changing it signs everyone out once, nothing more.
+  const dedicated = process.env.SESSION_SECRET;
+  if (dedicated && dedicated.length >= 16) return dedicated;
   return `${process.env.APP_PASSWORD || ""}:${process.env.CRON_SECRET || ""}`;
 }
 

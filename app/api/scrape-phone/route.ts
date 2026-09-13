@@ -7,6 +7,7 @@ import { parsePhoneNumberFromString } from "libphonenumber-js";
 import nlp from "compromise";
 import type { WithContext, Organization, Person } from "schema-dts";
 import { bestEmail } from "@/lib/email-extract";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
@@ -634,12 +635,52 @@ async function playwrightPage(ctx: any, url: string, wait = 2000): Promise<strin
   } finally { await page.close(); }
 }
 
+/**
+ * Only the CRM itself may drive the scraper.
+ *
+ * This route is deliberately outside the middleware matcher — lib/enrich.ts and
+ * the scoring cron call it over HTTP from the server — and that left it
+ * answering 200 to anyone on the internet. It fetches a caller-supplied URL,
+ * follows redirects, and in the slow path launches a headless browser, so an
+ * anonymous caller had a general-purpose fetch-and-render proxy plus a way to
+ * burn function time at will. Internal callers send the cron secret; a signed
+ * operator session is accepted so the browser tools keep working.
+ */
+async function authorized(req: NextRequest): Promise<boolean> {
+  const secret = process.env.CRON_SECRET;
+  if (secret && req.headers.get("authorization") === `Bearer ${secret}`) return true;
+  return verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value);
+}
+
+/**
+ * A public web address, or "" — the same test lib/insurance/types.ts applies.
+ *
+ * Without it a caller could aim the scraper at cloud metadata, at a private
+ * range, or at file:/// and read back whatever the extractors found. DNS names
+ * that resolve to private space are not caught here; the credential check above
+ * is what keeps strangers away from that.
+ */
+function publicWebUrl(value: string): string {
+  try {
+    const url = new URL(value.startsWith("http") ? value : `https://${value}`);
+    if (!["http:", "https:"].includes(url.protocol)) return "";
+    if (url.username || url.password) return "";
+    const host = url.hostname.toLowerCase();
+    if (!host.includes(".") || host.endsWith(".local") || host.endsWith(".internal")) return "";
+    if (/^(localhost|127\.|10\.|0\.|169\.254\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/.test(host)) return "";
+    return url.href;
+  } catch { return ""; }
+}
+
 export async function POST(req: NextRequest) {
+  if (!(await authorized(req))) {
+    return NextResponse.json({ error: "Unauthorized", confidence: 0 }, { status: 401 });
+  }
   const raw = await req.json();
   const business_name: string = raw.business_name || "";
   const city: string          = raw.city || "";
   const website: string       = (raw.website && raw.website !== "N/A" && raw.website.trim() !== "")
-    ? raw.website.trim() : "";
+    ? publicWebUrl(String(raw.website).trim()) : "";
   // Fast mode (used by the enrichment cron): static-only scrape, skipping the
   // slow Playwright + directory phases so the request returns in ~10s.
   const fast: boolean = raw.fast === true;

@@ -10,7 +10,44 @@ function safeEqual(a: string, b: string): boolean {
   return mismatch === 0;
 }
 
+// Best-effort brute-force brake.
+//
+// One username, one password, and nothing between an attacker and unlimited
+// guesses. This is per-instance memory, so a serverless fleet weakens it — it
+// is a brake, not a lock, and a long random APP_PASSWORD is still what actually
+// protects the account. It costs nothing and turns an unbounded online attack
+// into a slow one.
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const MAX_ATTEMPTS = 8;
+const attempts = new Map<string, { count: number; first: number }>();
+
+function tooManyAttempts(ip: string): boolean {
+  const now = Date.now();
+  const seen = attempts.get(ip);
+  if (!seen || now - seen.first > ATTEMPT_WINDOW_MS) return false;
+  return seen.count >= MAX_ATTEMPTS;
+}
+
+function recordFailure(ip: string): void {
+  const now = Date.now();
+  const seen = attempts.get(ip);
+  if (!seen || now - seen.first > ATTEMPT_WINDOW_MS) attempts.set(ip, { count: 1, first: now });
+  else seen.count++;
+  // Bound the map so a spray across forged IPs cannot grow it without limit.
+  if (attempts.size > 5000) {
+    for (const [key, value] of attempts) if (now - value.first > ATTEMPT_WINDOW_MS) attempts.delete(key);
+  }
+}
+
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown";
+  if (tooManyAttempts(ip)) {
+    return NextResponse.json(
+      { error: "Too many sign-in attempts. Try again in a few minutes." },
+      { status: 429, headers: { "Retry-After": "900" } }
+    );
+  }
+
   const { username, password } = await req.json().catch(() => ({ username: "", password: "" }));
 
   const expectedUser = process.env.APP_USERNAME;
@@ -23,8 +60,10 @@ export async function POST(req: NextRequest) {
   const userOk = safeEqual(String(username || ""), expectedUser);
   const passOk = safeEqual(String(password || ""), expectedPass);
   if (!userOk || !passOk) {
+    recordFailure(ip);
     return NextResponse.json({ error: "Incorrect username or password." }, { status: 401 });
   }
+  attempts.delete(ip);
 
   const response = NextResponse.json({ success: true });
   response.cookies.set({

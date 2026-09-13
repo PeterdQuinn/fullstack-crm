@@ -36,6 +36,17 @@ const PUBLIC_MAILBOX_DOMAINS = new Set([
   "sbcglobal.net", "att.net", "cox.net", "charter.net", "bellsouth.net",
 ]);
 
+/**
+ * PostgREST `ilike` treats % and _ as wildcards, and the values below come
+ * straight off an inbound message. A sender whose local part contains % would
+ * match leads it has nothing to do with — and with autopilot on, the CRM then
+ * acts: a Calendly link to someone who never wrote, or a lead marked Do Not
+ * Contact by a stranger.
+ */
+function literal(value: string): string {
+  return value.replace(/([\\%_])/g, "\\$1");
+}
+
 /** "Re: Question about Acme's software" -> "question about acme's software" */
 function normalizeSubject(subject: string | null | undefined): string {
   return (subject || "").replace(/^\s*(?:re|fw|fwd)\s*:\s*/i, "").trim().toLowerCase();
@@ -48,7 +59,7 @@ function normalizeSubject(subject: string | null | undefined): string {
 async function findLeadForReply(address: string, subject: string | null | undefined) {
   const { data: exact } = await supabase
     .from("leads").select("id, business_name, status, email")
-    .ilike("email", address).is("archived_at", null).limit(1);
+    .ilike("email", literal(address)).is("archived_at", null).limit(1);
   if (exact?.[0]) return { lead: exact[0], matchedBy: "address" as const };
 
   // Tier 2: the reply quotes a subject we actually sent. Strongest non-address
@@ -58,7 +69,7 @@ async function findLeadForReply(address: string, subject: string | null | undefi
     const { data: sent } = await supabase
       .from("outreach_log").select("lead_id, subject")
       .eq("direction", "outbound").eq("channel", "email")
-      .ilike("subject", threadSubject).limit(2);
+      .ilike("subject", literal(threadSubject)).limit(2);
     // Only trust it when exactly one lead was sent that subject; the templates
     // embed the company name, so a collision means we cannot tell them apart.
     const leadIds = [...new Set((sent || []).map((r: any) => r.lead_id))];

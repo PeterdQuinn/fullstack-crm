@@ -21,7 +21,7 @@ async function scrapeLeadData(lead: any) {
       `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/scrape-phone`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.CRON_SECRET}` },
         body: JSON.stringify({
           website: lead.website || undefined,
           business_name: lead.business_name,

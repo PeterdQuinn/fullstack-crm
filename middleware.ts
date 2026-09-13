@@ -96,6 +96,9 @@ export const config = {
     "/crm",
     "/crm/:path*",
     "/api/admin/:path*",
+    // Unauthenticated it would let anyone create events on the owner's calendar
+    // the moment GOOGLE_REFRESH_TOKEN is configured.
+    "/api/appointments",
     "/api/crm/:path*",
     "/api/email/:path*",
     "/api/ai/:path*",
