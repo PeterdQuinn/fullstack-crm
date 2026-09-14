@@ -3,15 +3,12 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archivo, IBM_Plex_Mono, Inter } from "next/font/google";
+const display = { variable: "" };
+const body = { variable: "" };
+const mono = { variable: "" };
 
-
-const display = Archivo({ subsets: ["latin"], weight: ["700", "800"], variable: "--font-display" });
-const body = Inter({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-body" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400"], variable: "--font-mono" });
-
-// Where a successful sign-in lands. This is the CRM's existing front door.
-const DASHBOARD_ROUTE = "/crm/unified-dashboard";
+// One login, then choose the company workspace.
+const DASHBOARD_ROUTE = "/workspace";
 
 export default function LoginPage() {
   const router = useRouter();

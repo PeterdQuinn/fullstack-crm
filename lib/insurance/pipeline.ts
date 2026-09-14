@@ -1,3 +1,5 @@
+import { load as loadHtml } from "cheerio";
+import { assessLanguages, retainLanguageEvidence, recruitingLanguageQuery, DEFAULT_LANGUAGE_TARGETING, type LanguageTargeting, type LanguageSource } from "./languages";
 import { createHash } from "node:crypto";
 import { getChain, runChainJson } from "@/lib/ai-providers";
 import { bestEmail } from "@/lib/email-extract";
@@ -9,6 +11,8 @@ import { safePublicUrl, INSURANCE_STATES, type InsuranceState, type InsuranceTra
 import { isImportable, sourceKind, DEFAULT_QUERIES, hostOf } from "./sources";
 import { findDuplicate, survivor } from "./dedupe";
 import { sendInsuranceTouch, sendRefusal } from "./outreach";
+import { fitIsCurrent, type TargetProfiles } from "./fit";
+import { researchInsuranceFit } from "./fit-research";
 
 // The insurance pipeline, stage by stage.
 //
@@ -30,6 +34,8 @@ export interface InsuranceSettings {
   daily_send_cap: number;
   sequence_gap_days: number;
   min_score: number;
+  targeting?: TargetProfiles;
+  recruiting_languages?: LanguageTargeting;
 }
 
 export async function insuranceSettings(): Promise<InsuranceSettings> {
@@ -78,8 +84,11 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
   // ten LinkedIn profiles and ten quote farms, and produced zero contactable
   // leads out of twenty records.
   const saved = (settings.queries || []).filter((q) => q.track === track).map((q) => q.query);
-  const pool = saved.length ? saved : [...(DEFAULT_QUERIES[track] || [])];
-  const query = pool.length ? pool[Number(target.cursor || 0) % pool.length] : "";
+  const profile = settings.targeting?.[track];
+  const pool = profile ? [profile.search_terms] : saved.length ? saved : [...(DEFAULT_QUERIES[track] || [])];
+  const cycle = Math.floor(Number(target.cursor || 0) / Math.max(1, settings.tracks.length * settings.states.length));
+  const baseQuery = pool.length ? pool[cycle % pool.length] : "";
+  const query = track === 'recruiting' ? recruitingLanguageQuery(baseQuery, cycle, settings.recruiting_languages || DEFAULT_LANGUAGE_TARGETING) : baseQuery;
 
   const result = await searchInsurance(
     { track, state, query },
@@ -123,6 +132,7 @@ export async function discoverInsuranceProspects(settings: InsuranceSettings): P
         name: source.title.slice(0, 200),
         source: { ...source, url },
         source_key,
+        ...(track === 'recruiting' ? { language_assessment: assessLanguages(source.title.slice(0, 200), [{ url, title: source.title, text: source.snippet, kind: 'search_excerpt' }]) } : {}),
         stage: "Research",
         discovered_by: "automation",
         website: sourceKind(url) === "agency" ? `https://${hostOf(url)}` : "",
@@ -266,15 +276,7 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
   // here: the best recruiting records come off profile networks that will never
   // publish an address, and a producer with a phone number is a lead you can
   // work today.
-  const { data: prospects, error } = await db
-    .from("insurance_prospects")
-    .select("id, name, source, website, email, phone, stage, created_at")
-    .is("duplicate_of", null)
-    .or("email.eq.,phone.eq.")
-    .eq("opt_out", false)
-    .neq("stage", "Do not contact")
-    .order("updated_at", { ascending: true })
-    .limit(Math.min(batchSize, 20));
+  const { data: prospects, error } = await db.rpc('insurance_enrichment_candidates', { p_limit: Math.min(batchSize, 20) });
   if (error) {
     result.errors.push(`Cannot read enrichment candidates: ${error.message}`);
     return result;
@@ -293,6 +295,7 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
       targets.push(...contactPages(prospect.website));
     }
 
+    const languageSources: LanguageSource[] = [{ url: prospect.source?.url || '', title: prospect.source?.title || '', text: prospect.source?.snippet || '', kind: 'search_excerpt' }];
     let email: string | null = null;
     let phone: string | null = null;
     for (const url of [...new Set(targets)].slice(0, 4)) {
@@ -301,6 +304,12 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
         const response = await fetch(url, { headers: UA, signal: AbortSignal.timeout(8000), redirect: "follow" });
         if (!response.ok) continue;
         const html = await response.text();
+        if (prospect.track === 'recruiting') {
+          const $ = loadHtml(html);
+          $('script,style,noscript,nav,footer,header').remove();
+          $('p,div,li,br,h1,h2,h3').append('\n');
+          languageSources.push({ url: response.url || url, title: $('title').text() || prospect.source?.title || '', text: $('body').text().slice(0, 100000), kind: 'webpage' });
+        }
         if (!email) {
           const candidate = bestEmail(html, new URL(url).host);
           if (candidate && looksLikeRealEmail(candidate)) email = candidate;
@@ -312,6 +321,7 @@ export async function enrichInsuranceProspects(batchSize = 8, deadlineMs = 45_00
     }
 
     const updates: Record<string, unknown> = { enriched_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    if (prospect.track === 'recruiting') updates.language_assessment = retainLanguageEvidence(prospect.language_assessment, assessLanguages(prospect.name, languageSources));
     if (email && !prospect.email) updates.email = email;
     if (phone && !prospect.phone) updates.phone = phone;
 
@@ -381,31 +391,38 @@ export interface QualifyResult {
   errors: string[];
 }
 
-export async function qualifyInsuranceProspects(batchSize = 10): Promise<QualifyResult> {
+export async function qualifyInsuranceProspects(batchSize = 10, prospectId?: string): Promise<QualifyResult> {
   const db = insuranceDb();
   const result: QualifyResult = { processed: 0, scored: 0, qualified: 0, errors: [] };
 
+  const currentSettings = await insuranceSettings();
   // Reachable records are scored first. A score on a record with no email and
   // no phone changes nothing that can be acted on today, while a scored
   // producer with a phone number is work the owner can pick up this morning.
-  const { data: pool, error } = await db
-    .from("insurance_prospects")
-    .select("id, name, track, state, source, email, phone, score, stage")
-    .is("duplicate_of", null)
-    .is("score", null)
-    .neq("stage", "Do not contact")
-    .order("created_at", { ascending: true })
-    .limit(200);
+  const { data: pool, error } = await db.rpc('insurance_fit_candidates', {
+    p_id: prospectId || null, p_limit: Math.max(1, Math.min(batchSize, 20)),
+  });
   if (error) {
     result.errors.push(`Cannot read qualification candidates: ${error.message}`);
     return result;
   }
-  const reach = (p: any) => (p.email?.trim() ? 0 : p.phone?.trim() ? 1 : 2);
-  const prospects = (pool || []).sort((a, b) => reach(a) - reach(b)).slice(0, Math.min(batchSize, 20));
+  const prospects = (pool || []).filter((p: any) => {
+    const profile = currentSettings.targeting?.[p.track as "recruiting" | "buyers"];
+    return prospectId || (profile ? !fitIsCurrent(p.fit_assessment, profile, p) : p.score == null);
+  }).slice(0, Math.min(batchSize, 20));
 
   for (const prospect of prospects || []) {
     result.processed++;
     try {
+      const profile = currentSettings.targeting?.[prospect.track as "recruiting" | "buyers"];
+      if (profile) {
+        // Expanded search is reserved for the explicit research action; scheduled
+        // qualification uses discovery evidence without spending another search.
+        const { assessment, score } = await researchInsuranceFit(prospect, profile, false);
+        result.scored++;
+        if (assessment.verdict === 'potential_fit' && score >= currentSettings.min_score) result.qualified++;
+        continue;
+      }
       const scored = await runChainJson<{ score: number; reason: string; confidence: string }>(
         getChain("scoring"),
         qualifyPrompt(prospect),
@@ -480,20 +497,7 @@ export async function sendInsuranceOutreach(settings: InsuranceSettings, perRun 
 
   const followUpIds = [...new Set((dueTasks || []).map((t) => t.prospect_id))];
 
-  const { data: firstTouch, error: firstError } = await db
-    .from("insurance_prospects")
-    .select("*")
-    .eq("stage", "Qualified")
-    .is("duplicate_of", null)
-    .eq("email_sent_count", 0)
-    .eq("opt_out", false)
-    .eq("bounced", false)
-    .eq("complained", false)
-    .neq("email", "")
-    .gte("score", settings.min_score)
-    .is("replied_at", null)
-    .order("score", { ascending: false })
-    .limit(perRun);
+  const { data: firstTouch, error: firstError } = await db.rpc('insurance_first_touches', { p_limit: perRun });
   if (firstError) {
     result.errors.push(`Cannot read outreach candidates: ${firstError.message}`);
     return result;
@@ -507,7 +511,7 @@ export async function sendInsuranceOutreach(settings: InsuranceSettings, perRun 
   result.eligible = queue.length;
 
   for (const prospect of queue) {
-    const refusal = sendRefusal(prospect, settings.min_score);
+    const refusal = sendRefusal(prospect, settings.min_score, settings.targeting?.[prospect.track as "recruiting" | "buyers"]);
     if (refusal) {
       result.skipped++;
       result.refusals[refusal] = (result.refusals[refusal] || 0) + 1;

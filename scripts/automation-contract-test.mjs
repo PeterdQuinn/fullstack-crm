@@ -261,7 +261,8 @@ check("a merged record is linked, not deleted",
   read("lib/insurance/pipeline.ts").includes("duplicate_of: keep.id"));
 check("a merged record can never be mailed",
   read("supabase/migrations/021_insurance_duplicates.sql").includes("Recipient was merged into another record") &&
-  read("app/api/crm/insurance/workspace/route.ts").includes('.is("duplicate_of", null)'));
+  read("app/api/crm/insurance/workspace/route.ts").includes("insurance_workspace_prospects") &&
+  /function public\.insurance_workspace_prospects[\s\S]*?p\.duplicate_of is null/.test(read("supabase/migrations/023_insurance_bilingual_priority.sql")));
 
 // A placeholder score is not a judgment, and for 24 leads it was also a dead
 // end: the anti-join skips them (they have a summary) and the sender skips them

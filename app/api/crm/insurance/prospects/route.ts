@@ -1,3 +1,4 @@
+import { assessLanguages } from "@/lib/insurance/languages";
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { insuranceDb, INSURANCE_MONTHLY_CAP } from "@/lib/insurance/db";
@@ -7,7 +8,7 @@ export const maxDuration = 30;
 export async function GET() {
   const db = insuranceDb();
   const [prospects, usage] = await Promise.all([
-    db.from("insurance_prospects").select("*").order("updated_at", { ascending: false }).limit(500),
+    db.rpc('insurance_workspace_prospects', { p_limit: 500 }),
     db.from("insurance_api_usage").select("provider,used").eq("month", new Date().toISOString().slice(0, 7)),
   ]);
   if (prospects.error || usage.error) return NextResponse.json({ error: "Insurance workspace could not be loaded" }, { status: 503 });
@@ -21,10 +22,11 @@ async function save(req: NextRequest, creating: boolean) {
     const body = JSON.parse(raw);
     const record = prospectInput(body, creating);
     const db = insuranceDb();
+    const language_assessment = record.track === 'recruiting' ? assessLanguages(record.name, [{ url: record.source.url, title: record.source.title, text: record.source.snippet, kind: 'search_excerpt' }]) : null;
     const source_key = createHash("sha256").update(record.source.url).digest("hex");
     if (creating) {
       // A duplicate save never overwrites existing notes, contacts, or stages.
-      const { error } = await db.from("insurance_prospects").upsert({ ...record, source_key }, { onConflict: "track,state,source_key", ignoreDuplicates: true });
+      const { error } = await db.from("insurance_prospects").upsert({ ...record, source_key, language_assessment }, { onConflict: "track,state,source_key", ignoreDuplicates: true });
       if (error) throw new Error("Could not save this insurance prospect");
       const { data, error: readError } = await db.from("insurance_prospects").select("*").eq("track", record.track).eq("state", record.state).eq("source_key", source_key).single();
       if (readError) throw new Error("Saved record could not be reloaded");
@@ -32,7 +34,11 @@ async function save(req: NextRequest, creating: boolean) {
     }
     if (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)) throw new InsuranceInputError("Invalid prospect ID");
     if (typeof body.updated_at !== "string") throw new InsuranceInputError("Reload the record before saving");
-    const { data, error } = await db.from("insurance_prospects").update({ ...record, source_key, updated_at: new Date().toISOString() })
+    const { data: previous, error: previousError } = await db.from("insurance_prospects").select("name,track,state,source").eq("id", body.id).eq("updated_at", body.updated_at).maybeSingle();
+    if (previousError) throw new Error("Could not read the current prospect");
+    if (!previous) return NextResponse.json({ error: "This record changed in another window. Reload before saving." }, { status: 409 });
+    const changedIdentity = previous.name !== record.name || previous.track !== record.track || previous.state !== record.state || JSON.stringify(previous.source) !== JSON.stringify(record.source);
+    const { data, error } = await db.from("insurance_prospects").update({ ...record, source_key, ...(changedIdentity ? { language_assessment } : {}), updated_at: new Date().toISOString() })
       .eq("id", body.id).eq("updated_at", body.updated_at).select("*").maybeSingle();
     if (error) throw new Error("Could not update this insurance prospect");
     if (!data) return NextResponse.json({ error: "This record changed in another window. Reload before saving." }, { status: 409 });

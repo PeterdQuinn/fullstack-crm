@@ -8,6 +8,8 @@ import {
   INSURANCE_STATES, STAGES, BOOKING_URL, INSURANCE_WEBSITE, licenseAgeDays,
   type InsuranceTrack, type InsuranceState, type InsuranceSource, type InsuranceProspect,
 } from "@/lib/insurance/types";
+import { CompanyFit, TargetingForm } from "./_components/CompanyFit";
+import type { FitAssessment, TargetProfiles } from "@/lib/insurance/fit";
 import { reachability } from "@/lib/insurance/sources";
 
 // The insurance workspace.
@@ -19,18 +21,20 @@ import { reachability } from "@/lib/insurance/sources";
 // that puts mail in a stranger's inbox.
 
 type Prospect = InsuranceProspect & {
+  fit_assessment?: FitAssessment;
   company?: string; title?: string; city?: string; website?: string;
   score?: number | null; score_reason?: string; score_confidence?: string; scored_at?: string | null;
   email_sent_count?: number; last_contacted_at?: string | null; replied_at?: string | null;
   opt_out?: boolean; bounced?: boolean; complained?: boolean; suppression_reason?: string;
   enriched_at?: string | null; discovered_by?: string;
+  language_assessment?: { status?: string; languages?: string[]; checked_at?: string };
 };
 type Task = { id: string; prospect_id: string; task_type: string; due_at: string; status: string; notes: string };
 type ActivityRow = { id: string; prospect_id: string; kind: string; summary: string; detail: any; actor: string; created_at: string };
 type Settings = {
   enabled: boolean; sending_enabled: boolean; autopilot: boolean;
   tracks: string[]; states: string[]; queries: { track: string; query: string }[];
-  daily_send_cap: number; sequence_gap_days: number; min_score: number;
+  daily_send_cap: number; sequence_gap_days: number; min_score: number; targeting?: TargetProfiles;
 };
 type Workspace = {
   settings: Settings | null; prospects: Prospect[]; tasks: Task[]; activities: ActivityRow[];
@@ -90,6 +94,18 @@ export default function InsurancePage() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [agentOnly, setAgentOnly] = useState(true);
+  const [multiStateOnly, setMultiStateOnly] = useState(true);
+  const [bilingualOnly, setBilingualOnly] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selectTab = useCallback((next: "board" | "discover" | "tasks" | "activity") => {
+    setTab(next);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", next === "board" ? "/insurance/pipeline" : `/insurance/${next}`);
+      window.dispatchEvent(new Event("hashchange"));
+    }
+  }, []);
+  useEffect(() => { const sync = () => { const path = window.location.pathname.split("/").filter(Boolean).pop(); const requested = path === "discover" || path === "tasks" || path === "activity" ? path : (window.location.hash.replace("#", "") || "board"); if (requested === "discover" || requested === "tasks" || requested === "activity" || requested === "board") setTab(requested); }; sync(); window.addEventListener("hashchange", sync); return () => window.removeEventListener("hashchange", sync); }, []);
 
   const load = useCallback(async () => {
     try {
@@ -104,7 +120,14 @@ export default function InsurancePage() {
   useEffect(() => { void load(); }, [load]);
 
   const settings = data?.settings;
-  const prospects = useMemo(() => (data?.prospects || []).filter((p) => p.track === track), [data, track]);
+  const prospects = useMemo(() => (data?.prospects || []).filter((p) => {
+    if (p.track !== track) return false;
+    if (agentOnly && (!p.npn || !p.name || /agency|company|group|llc|inc\.?$/i.test(p.name))) return false;
+    if (multiStateOnly && (p.licenses?.filter((l) => String(l.status || "active").toLowerCase() === "active").length || 0) < 2) return false;
+    if (bilingualOnly && p.language_assessment?.status !== "supported") return false;
+    return true;
+  }), [data, track, agentOnly, multiStateOnly, bilingualOnly]);
+  useEffect(() => { setSelectedIds((ids) => ids.filter((id) => prospects.some((p) => p.id === id))); }, [prospects]);
   const stages = STAGES[track] as readonly string[];
   const timeline = useMemo(
     () => (data?.activities || []).filter((a) => !selected || a.prospect_id === selected.id),
@@ -140,7 +163,7 @@ export default function InsurancePage() {
     try {
       const saved = await api("prospects", { track: searchedFor.track, state: searchedFor.state, name: source.title, source });
       await load();
-      setSelected(saved.prospect); setDraft(null); setPreview(null); setTab("board");
+      setSelected(saved.prospect); setDraft(null); setPreview(null); selectTab("board");
       setNotice("Saved for review. Confirm who this is before any outreach.");
     } catch (e) { setError((e as Error).message); } finally { setBusy(""); }
   }
@@ -186,7 +209,7 @@ export default function InsurancePage() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-teal-700">
-            <ShieldCheck size={16} /> Peter Quinn · Insurance
+            <ShieldCheck size={16} /> The Learning Lantern Academy · Insurance
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">People. Conversations. Growth.</h1>
           <p className="mt-2 text-sm text-slate-500">
@@ -278,6 +301,33 @@ export default function InsurancePage() {
         </section>
       )}
 
+      <section className="rounded-xl border border-teal-200 bg-teal-50 p-4" aria-label="Academy workflow">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="font-bold text-teal-950">Your five-state license verification</h2><p className="mt-1 text-xs text-teal-800">Run each public lookup, review the evidence, then save only records that match you.</p></div>
+          <div className="flex flex-wrap gap-2">{(["AZ", "MI", "SC", "OH", "VA"] as const).map((code) => <button key={code} className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-teal-900 ring-1 ring-teal-200" onClick={() => { selectTab("discover"); setTrack("recruiting"); setState(code); setQuery("Peter Quinn"); }}>{code}</button>)}</div>
+        </div>
+        <div className="mt-4 grid gap-2 text-xs text-teal-900 md:grid-cols-4"><span><b>1.</b> Set target</span><span><b>2.</b> Discover public records</span><span><b>3.</b> Verify evidence</span><span><b>4.</b> Qualify and contact</span></div>
+      </section>
+
+      <section aria-label="Choose a job" className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div><p className="text-xs font-bold uppercase tracking-widest text-teal-700">Start here</p><h2 className="mt-1 text-xl font-bold text-slate-950">What do you need right now?</h2></div>
+          <p className="text-xs text-slate-500">Results come from your ProducerForge records, public SBS/state lookups, and documented web evidence.</p>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          {[
+            ["Find producers", "Search by state, city, NPN, or specialty.", "discover", "recruiting"],
+            ["Verify licenses", "Review multi-state license evidence.", "discover", "recruiting"],
+            ["Find bilingual producers", "Prioritize documented language evidence.", "discover", "recruiting"],
+            ["Work the pipeline", "Review qualified people, tasks, and replies.", "board", "recruiting"],
+          ].map(([title, description, destination, selectedTrack]) => (
+            <button key={title} className="min-h-[132px] min-w-0 rounded-xl border border-slate-200 p-4 text-left transition hover:border-teal-500 hover:bg-teal-50" onClick={() => { selectTab(destination as any); setTrack(selectedTrack as any); if (title === "Find bilingual producers") setQuery("bilingual insurance producer"); }}>
+              <span className="block break-words text-sm font-bold leading-5 text-slate-900">{title}</span><span className="mt-1 block line-clamp-3 break-words text-xs leading-5 text-slate-500">{description}</span><span className="mt-3 block text-xs font-bold text-teal-700">Open →</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* ── track + tabs ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2">
         {(["recruiting", "buyers"] as const).map((value) => (
@@ -287,22 +337,33 @@ export default function InsurancePage() {
             {value === "recruiting" ? "Producer recruiting" : "Buyer signals"}
           </button>
         ))}
-        <div className="ml-auto flex gap-5 border-b border-slate-200">
+        <div className="sticky top-0 z-10 ml-auto flex gap-5 border-b border-slate-200 bg-slate-50 pt-1">
           {(["board", "discover", "tasks", "activity"] as const).map((value) => (
-            <button key={value} onClick={() => setTab(value)}
+            <button key={value} aria-current={tab === value ? "page" : undefined} onClick={() => selectTab(value)}
               className={`border-b-2 pb-2 text-sm font-semibold capitalize ${tab === value ? "border-teal-700 text-teal-800" : "border-transparent text-slate-500"}`}>
-              {value}{value === "tasks" && data?.stats.tasksDue ? ` (${data.stats.tasksDue})` : ""}
+              {value === "board" ? "Pipeline" : value === "discover" ? "Discover" : value === "tasks" ? `Tasks${data?.stats.tasksDue ? ` (${data.stats.tasksDue})` : ""}` : "Activity"}
             </button>
           ))}
         </div>
       </div>
+
+      {track === "recruiting" && <div className="flex flex-wrap gap-4 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-slate-700">
+        <label className="flex items-center gap-2"><input type="checkbox" checked={agentOnly} onChange={(e) => setAgentOnly(e.target.checked)} /> Agents only</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={multiStateOnly} onChange={(e) => setMultiStateOnly(e.target.checked)} /> 2+ active state licenses</label>
+        <label className="flex items-center gap-2"><input type="checkbox" checked={bilingualOnly} onChange={(e) => setBilingualOnly(e.target.checked)} /> Verified bilingual</label>
+        <span className="ml-auto text-slate-500">Showing {prospects.length} matching agents</span>
+      </div>}
+
+      <TargetingForm key={`${track}:${JSON.stringify(settings?.targeting?.[track])}`} profile={settings?.targeting?.[track]} busy={!!busy} save={profile => act({ action: "targeting", track, profile }, "targeting", "Targeting saved. Research prospects against these requirements before outreach.")} />
 
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
       {notice && <div role="status" className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">{notice}</div>}
 
       {/* ── board ──────────────────────────────────────────────────────── */}
       {tab === "board" && (
-        <section className="flex gap-3 overflow-x-auto pb-3">
+        <section className="space-y-3">
+          {selectedIds.length > 0 && <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm font-semibold text-teal-900"><span>{selectedIds.length} selected</span><select className="rounded-lg border border-teal-300 bg-white px-2 py-1.5 text-xs" defaultValue="" onChange={(e) => { if (e.target.value) void act({ action: "bulk-stage", ids: selectedIds, stage: e.target.value }, "bulk-stage", `${selectedIds.length} records moved`); }}><option value="">Move to…</option>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select><button className="ml-auto text-xs underline" onClick={() => setSelectedIds([])}>Clear</button></div>}
+          <div className="flex gap-3 overflow-x-auto pb-3">
           {stages.map((stage) => {
             const column = prospects.filter((p) => p.stage === stage);
             return (
@@ -313,7 +374,9 @@ export default function InsurancePage() {
                 </div>
                 <div className="space-y-2">
                   {column.slice(0, 40).map((prospect) => (
-                    <button key={prospect.id} onClick={() => { setSelected(prospect); setDraft(null); setPreview(null); }}
+                    <div key={prospect.id} className="relative">
+                    <input aria-label={`Select ${prospect.name}`} type="checkbox" checked={selectedIds.includes(prospect.id)} onChange={(e) => setSelectedIds((ids) => e.target.checked ? [...ids, prospect.id] : ids.filter((id) => id !== prospect.id))} className="absolute left-2 top-2 z-10 h-4 w-4 accent-teal-700" />
+                    <button onClick={() => { setSelected(prospect); setDraft(null); setPreview(null); }}
                       className={`w-full rounded-lg border bg-white p-3 text-left hover:border-teal-500 ${selected?.id === prospect.id ? "border-teal-600 ring-1 ring-teal-600" : "border-slate-200"}`}>
                       <div className="flex items-start justify-between gap-2">
                         <span className="line-clamp-2 text-sm font-semibold text-slate-900">{prospect.name}</span>
@@ -334,13 +397,14 @@ export default function InsurancePage() {
                         {(prospect.email_sent_count || 0) > 0 && <span className="inline-flex items-center gap-1"><Send size={11} />{prospect.email_sent_count}</span>}
                         {prospect.replied_at && <span className="font-semibold text-teal-700">replied</span>}
                       </div>
-                    </button>
+                    </button></div>
                   ))}
                   {column.length === 0 && <p className="px-2 py-4 text-xs text-slate-400">Nothing here</p>}
                 </div>
               </div>
             );
           })}
+          </div>
         </section>
       )}
 
@@ -415,7 +479,7 @@ export default function InsurancePage() {
                   <Clock size={12} /> {due ? "due" : new Date(task.due_at).toLocaleDateString()}
                 </span>
                 <button className="text-sm font-semibold text-slate-900 hover:text-teal-700"
-                  onClick={() => { if (prospect) { setSelected(prospect); setTab("board"); } }}>
+                  onClick={() => { if (prospect) { setSelected(prospect); selectTab("board"); } }}>
                   {prospect?.name || "Unknown record"}
                 </button>
                 <span className="text-sm text-slate-500">{task.notes || task.task_type.replace(/_/g, " ")}</span>
@@ -449,7 +513,7 @@ export default function InsurancePage() {
                   <span className="text-slate-700">
                     {prospect && (
                       <button className="font-semibold text-slate-900 hover:text-teal-700"
-                        onClick={() => { setSelected(prospect); setTab("board"); }}>{prospect.name}</button>
+                        onClick={() => { setSelected(prospect); selectTab("board"); }}>{prospect.name}</button>
                     )}{prospect ? " — " : ""}{row.summary}
                   </span>
                 </li>
@@ -476,6 +540,15 @@ export default function InsurancePage() {
               <button onClick={() => setSelected(null)} className="rounded-lg p-2 hover:bg-slate-100"><X size={18} /></button>
             </div>
 
+            {selected.track === "recruiting" && <div className="mb-4 rounded-lg border border-indigo-100 bg-indigo-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold text-indigo-950">License verification</h3><span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-indigo-900">{selected.licenses?.length || 0} states found</span></div>
+              {selected.licenses?.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{selected.licenses.map((license, index) => <div key={`${license.state}-${license.license_number || index}`} className="rounded-md bg-white p-2.5 text-xs"><div className="flex justify-between font-bold text-slate-900"><span>{license.state}</span><span className="text-emerald-700">{license.status || "Status unknown"}</span></div><div className="mt-1 text-slate-600">{license.line_of_authority?.join(", ") || "Lines not reported"}</div>{license.expires_on && <div className="mt-1 text-slate-500">Expires {license.expires_on}</div>}{license.source_url && <a className="mt-1 block text-teal-700 underline" href={license.source_url} target="_blank" rel="noreferrer">Evidence ↗</a>}</div>)}</div> : <p className="mt-2 text-xs text-indigo-800">No multi-state license records have been verified yet. Use Discover and save the public evidence.</p>}
+            </div>}
+
+            <CompanyFit person={selected} profile={settings?.targeting?.[selected.track]} busy={!!busy} research={() => { void (async () => {
+              const response = await act({ action: "research-fit", id: selected.id }, "research-fit", "Company-fit assessment saved.");
+              if (response?.warning) setNotice(`Assessment saved. ${response.warning}`);
+            })(); }} />
             {/* score */}
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg bg-slate-50 p-3">
               <span className={`rounded-full px-3 py-1 text-sm font-bold ${scoreTone(selected.score)}`}>{selected.score ?? "unscored"}</span>

@@ -4,6 +4,12 @@ const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 const cache = new Map();
+const sent = [];
+const testFetch = async (url, options) => {
+  assert.equal(url, 'https://api.resend.com/emails', 'unexpected network request');
+  sent.push(JSON.parse(options.body));
+  return { ok: true, json: async () => ({ id: 'test-message' }) };
+};
 function load(file) {
   file = path.resolve(file);
   if (cache.has(file)) return cache.get(file);
@@ -13,7 +19,7 @@ function load(file) {
     { exports, require: name => load(name.startsWith('@/')
         ? path.resolve(process.cwd(), name.slice(2) + '.ts')
         : path.resolve(path.dirname(file), name + '.ts')),
-      URL, URLSearchParams, AbortSignal, fetch, console, Date, setTimeout, process });
+      URL, URLSearchParams, AbortSignal, fetch: testFetch, console, Date, setTimeout, process });
   return exports;
 }
 (async () => {
@@ -50,12 +56,11 @@ function load(file) {
   // The copy that reaches a stranger, and the rules about who may receive it.
   // Everything below is loaded with the network and the database stubbed: what
   // is under test is the decision, not the delivery.
-  const sent = [];
   cache.set(path.resolve('lib/resend.ts'), { sendEmail: async (to, subject) => { sent.push({ to, subject }); return { id: 'test-message' }; } });
   cache.set(path.resolve('lib/email-templates.ts'), { COMPANY_MAILING_ADDRESS: '535 E Southern Ave Ste 6, Mesa, AZ 85204', mailingAddressConfigured: () => true });
   const saved = [];
   cache.set(path.resolve('lib/insurance/db.ts'), {
-    insuranceDb: () => ({ from: () => ({ upsert: async (row) => { saved.push(row); return { error: null }; } }) }),
+    insuranceDb: () => ({ from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: { targeting: {} }, error: null }) }) }), update: () => ({ eq: async () => ({ error: null }) }), upsert: async (row) => { saved.push(row); return { error: null }; } }) }),
     reserveInsuranceRequest: async () => true,
     INSURANCE_MONTHLY_CAP: 100,
   });
@@ -105,6 +110,7 @@ function load(file) {
 
   const outcome = await sendInsuranceTouch(person, { dailyCap: 10, minScore: 40 });
   assert.equal(outcome.sent, true);
+  assert.equal(outcome.messageId, 'test-message');
   assert.equal(saved[0].insurance_prospect_id, person.id, 'the outbox row carries the prospect so finalization can do the bookkeeping');
   assert.equal(saved[0].idempotency_key, `ins-${person.id}-touch-1`, 'a replay reuses one key rather than mailing twice');
   assert.equal(saved[0].send_limit, 10);
@@ -196,5 +202,52 @@ function load(file) {
   // Nothing to match on is not a match.
   assert.equal(dedupe.findDuplicate({ id: 'i', name: 'Nobody', email: '', phone: '' }, [a, office1]), null);
 
-  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, one-key sends, source filtering, reachability, and duplicate detection');
+
+  // Company fit is evidence-based and distinct from the old source score.
+  const fit = load('lib/insurance/fit.ts');
+  const profile = fit.targetProfile({ company: 'Example Agency', offer: 'Life insurance producer opportunity', must_haves: ['Life insurance experience'], dealbreakers: ['Retired from insurance'], search_terms: 'life insurance producer' });
+  assert.throws(() => fit.targetProfile({ ...profile, must_haves: [] }));
+  assert.throws(() => fit.targetProfile({ ...profile, company: '' }));
+  assert.throws(() => fit.targetProfile({ ...profile, dealbreakers: Array(9).fill('x') }));
+  const subject = { ...person, source: { url: 'https://example.com/dana', title: 'Dana Reyes', snippet: 'Dana Reyes is a life insurance producer based in Arizona.', published: null } };
+  const evidence = [{ ...subject.source, observed_at: new Date().toISOString() }];
+  const matches = fit.fitCriteria(profile, subject).map(c => ({ result: c.kind === 'required' ? 'supported' : 'unknown', source_url: subject.source.url, quote: subject.source.snippet }));
+  const goodFit = fit.assessFit(profile, subject, evidence, { checks: matches }, 'test');
+  assert.equal(goodFit.verdict, 'potential_fit');
+  assert.equal(goodFit.confidence, 'medium', 'excerpts never become high-confidence verification');
+  assert.equal(fit.fitIsCurrent(goodFit, profile, subject), true);
+  assert.equal(sendRefusal({ ...subject, fit_assessment: goodFit }, 40, profile), null);
+  assert.equal(sendRefusal(subject, 40, profile), 'company fit needs research', 'high source score alone cannot qualify');
+  assert.equal(fit.fitIsCurrent(goodFit, { ...profile, offer: 'Different offer' }, subject), false);
+  assert.equal(fit.fitIsCurrent(goodFit, profile, { ...subject, name: 'Another Person' }), false);
+  assert.equal(fit.fitIsCurrent(goodFit, profile, subject, Date.now() + 31 * 86400000), false);
+  assert.equal(fit.fitIsCurrent({ ...goodFit, assessed_at: '2099-01-01' }, profile, subject), false);
+  for (const change of [ { source_url: 'https://invented.example/claim' }, { quote: 'Dana is eager to change agencies and earns a million dollars.' }, { result: 'yes' } ]) {
+    const tampered = matches.map((m, i) => i === 0 ? { ...m, ...change } : m);
+    assert.equal(fit.assessFit(profile, subject, evidence, { checks: tampered }, 'test').verdict, 'needs_research', 'invented citations and malformed output cannot pass');
+  }
+  assert.equal(fit.assessFit(profile, subject, evidence, {}, 'test').verdict, 'needs_research');
+  const failed = matches.map((m, i) => i === 0 ? { ...m, result: 'contradicted' } : m);
+  assert.equal(fit.assessFit(profile, subject, evidence, { checks: failed }, 'test').verdict, 'not_fit');
+  const excluded = matches.map((m, i) => i === matches.length - 1 ? { ...m, result: 'supported' } : m);
+  assert.equal(fit.assessFit(profile, subject, evidence, { checks: excluded }, 'test').verdict, 'not_fit');
+  assert.match(fit.fitPrompt(profile, { ...subject, track: 'buyers' }, evidence), /explicitly asked for insurance help/);
+  // Research persists a verdict and updates qualification for this exact person.
+  const fitWrites = [];
+  cache.set(path.resolve('lib/ai-providers.ts'), { getChain: () => [], runChainJson: async () => ({ data: { checks: matches }, provider: 'test' }) });
+  cache.set(path.resolve('lib/insurance/db.ts'), { insuranceDb: () => ({
+    from: table => ({ update: value => ({ eq: async (key, id) => { fitWrites.push({ table, value, id }); return { error: null }; } }), insert: async () => ({ error: null }) }),
+    rpc: async (name, args) => { fitWrites.push({ name, args }); return { error: null }; },
+  }) });
+  const { researchInsuranceFit } = load('lib/insurance/fit-research.ts');
+  const researched = await researchInsuranceFit(subject, profile, false);
+  assert.equal(researched.assessment.verdict, 'potential_fit');
+  assert.equal(researched.score, 100);
+  assert.equal(fitWrites[0].id, subject.id);
+  assert.equal(fitWrites[1].args.p_id, subject.id);
+  assert.equal(fitWrites[1].name, 'save_insurance_score');
+  assert.equal(researched.assessment.evidence[0].observed_at, null, 'old discovery evidence never gets a fabricated retrieval date');
+
+
+  console.log('PASS insurance validation, unknown license dates, deduplication, search fallback, quota, suppression, instant draft fallback, outreach copy, send refusals, one-key sends, source filtering, reachability, duplicate detection, company-fit evidence and research persistence');
 })().catch(error => { console.error(error); process.exit(1); });

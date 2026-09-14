@@ -7,7 +7,8 @@ if (!token) {
   if (token.startsWith("go-keyring-base64:")) token = Buffer.from(token.slice("go-keyring-base64:".length), "base64").toString();
 }
 const query = fs.readFileSync(process.argv[2], "utf8");
-const response = await fetch("https://api.supabase.com/v1/projects/opqzcdukaaoejrvtzdum/database/query", {
+const projectRef = process.env.INSURANCE_SUPABASE_PROJECT_REF || process.env.SUPABASE_PROJECT_REF || "opqzcdukaaoejrvtzdum";
+const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
   method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   body: JSON.stringify({ query }), signal: AbortSignal.timeout(60000),
 });

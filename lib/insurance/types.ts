@@ -23,12 +23,26 @@ export interface InsuranceProspect {
   npn: string;
   first_licensed_on: string | null;
   license_source_url: string;
+  licenses?: InsuranceLicense[];
   stage: string;
   notes: string;
   next_follow_up: string | null;
   source: InsuranceSource;
   created_at: string;
   updated_at: string;
+}
+
+export interface InsuranceLicense {
+  state: string;
+  license_number?: string;
+  npn?: string;
+  line_of_authority?: string[];
+  status?: string;
+  issued_on?: string;
+  expires_on?: string;
+  source_url: string;
+  source_name?: string;
+  verified_at?: string;
 }
 
 export function safePublicUrl(value: unknown): string {

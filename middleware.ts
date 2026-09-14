@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
+import { SESSION_COOKIE, verifySessionToken, verifyWorkspaceToken, WORKSPACE_COOKIE, createWorkspaceToken, SESSION_MAX_AGE } from "@/lib/session";
 
 // Single-user HTTP Basic Auth for the CRM UI and its private API surface.
 // Protected prefixes are defined in `config.matcher` below:
-//   /crm, /api/admin, /api/crm, /api/email, /api/ai
+//   /crm, /workspace, /api/admin, /api/crm, /api/email, /api/ai
 // Intentionally NOT covered here:
 //   /api/cron/*     -> protected by CRON_SECRET inside each route
 //   /api/webhooks/* -> protected by provider signature (e.g. Svix) inside the route
@@ -27,6 +27,30 @@ function requireAuth(): NextResponse {
   });
 }
 
+async function enforceWorkspace(req: NextRequest): Promise<NextResponse> {
+  const { pathname } = req.nextUrl;
+  if (pathname === "/api/workspace/select" || pathname.startsWith("/workspace")) return NextResponse.next();
+  const workspace = await verifyWorkspaceToken(req.cookies.get(WORKSPACE_COOKIE)?.value);
+  const insurancePath = pathname === "/insurance" || pathname.startsWith("/insurance/") || pathname === "/crm/insurance" || pathname.startsWith("/crm/insurance/") || pathname === "/api/crm/insurance" || pathname.startsWith("/api/crm/insurance/");
+  const requiredWorkspace = insurancePath ? "producerforge" : "fss";
+  if (workspace === requiredWorkspace) return NextResponse.next();
+
+  // The URL is authoritative for the current company. Set the signed cookie
+  // automatically so clicking between dashboards never strands the operator
+  // on an authentication screen. Database clients remain route-specific.
+  const response = NextResponse.next();
+  response.cookies.set({
+    name: WORKSPACE_COOKIE,
+    value: await createWorkspaceToken(requiredWorkspace),
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: SESSION_MAX_AGE,
+  });
+  return response;
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
@@ -47,8 +71,9 @@ export async function middleware(req: NextRequest) {
   // The /login form exchanges these same credentials for a signed cookie. The
   // signature is verified here (not merely checked for presence), so this is
   // the same trust level as the Basic header below — just a nicer transport.
-  if (await verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value)) {
-    return NextResponse.next();
+  const sessionValid = await verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value);
+  if (sessionValid) {
+    return enforceWorkspace(req);
   }
 
   const expectedUser = process.env.APP_USERNAME;
@@ -86,7 +111,7 @@ export async function middleware(req: NextRequest) {
     return requireAuth();
   }
 
-  return NextResponse.next();
+  return enforceWorkspace(req);
 }
 
 export const config = {
@@ -95,6 +120,10 @@ export const config = {
     // The CRM and its private APIs below stay behind Basic Auth.
     "/crm",
     "/crm/:path*",
+    "/insurance",
+    "/insurance/:path*",
+    "/workspace",
+    "/workspace/:path*",
     "/api/admin/:path*",
     // Unauthenticated it would let anyone create events on the owner's calendar
     // the moment GOOGLE_REFRESH_TOKEN is configured.
@@ -102,5 +131,6 @@ export const config = {
     "/api/crm/:path*",
     "/api/email/:path*",
     "/api/ai/:path*",
+    "/api/workspace/select",
   ],
 };

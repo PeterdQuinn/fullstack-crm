@@ -1,12 +1,11 @@
 import Link from "next/link";
-import { Archivo, IBM_Plex_Mono, Inter } from "next/font/google";
 import { PipelineRail, Reveal } from "./_landing/Reveal";
 
 // Fonts are loaded here rather than in the root layout so this page owns its
 // own type without changing anything the CRM renders.
-const display = Archivo({ subsets: ["latin"], weight: ["600", "700", "800"], variable: "--font-display" });
-const body = Inter({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-body" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono" });
+const display = { variable: "" };
+const body = { variable: "" };
+const mono = { variable: "" };
 
 const PIPELINE = [
   ["DISCOVER", "Google Places and OpenStreetMap, deduplicated before a single row is written."],

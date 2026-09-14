@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { insuranceDb } from "@/lib/insurance/db";
 import { STAGES, type InsuranceTrack } from "@/lib/insurance/types";
+import { languageTargeting } from "@/lib/insurance/languages";
+import { targetProfile } from "@/lib/insurance/fit";
+import { researchInsuranceFit } from "@/lib/insurance/fit-research";
 import { InsuranceInputError } from "@/lib/insurance/validation";
 import {
   insuranceSettings,
@@ -39,6 +42,21 @@ export async function POST(req: NextRequest) {
     const body = JSON.parse(raw);
     const action = String(body.action || "");
 
+    if (action === "language-targeting") {
+      let config;
+      try { config = languageTargeting(body.settings); } catch (error) { throw new InsuranceInputError((error as Error).message); }
+      const { error } = await db.from('insurance_settings').update({ recruiting_languages: config, updated_at: new Date().toISOString() }).eq('id', 'owner');
+      if (error) throw new Error(`Could not save language targeting: ${error.message}`);
+      return NextResponse.json({ recruiting_languages: config });
+    }
+    if (action === "targeting") {
+      if (body.track !== "recruiting" && body.track !== "buyers") throw new InsuranceInputError("Choose a track");
+      let profile;
+      try { profile = targetProfile(body.profile); } catch (error) { throw new InsuranceInputError((error as Error).message); }
+      const { error } = await db.rpc("save_insurance_targeting", { p_track: body.track, p_profile: profile });
+      if (error) throw new Error(`Could not save targeting: ${error.message}`);
+      return NextResponse.json({ ok: true });
+    }
     // ── settings ───────────────────────────────────────────────────────────
     if (action === "settings") {
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -92,10 +110,30 @@ export async function POST(req: NextRequest) {
       throw new InsuranceInputError("Unknown phase");
     }
 
+    if (action === "bulk-stage") {
+      if (!Array.isArray(body.ids) || body.ids.length < 1 || body.ids.length > 100) throw new InsuranceInputError("Choose 1–100 records");
+      const stage = String(body.stage || "");
+      if (!Object.values(STAGES).some((stages) => (stages as readonly string[]).includes(stage))) throw new InsuranceInputError("Invalid pipeline stage");
+      const ids = body.ids.filter((id: unknown) => typeof id === "string" && UUID.test(id));
+      if (ids.length !== body.ids.length) throw new InsuranceInputError("Invalid record selection");
+      const now = new Date().toISOString();
+      const { error } = await db.from("insurance_prospects").update({ stage, updated_at: now }).in("id", ids);
+      if (error) throw new Error(`Could not move selected records: ${error.message}`);
+      await db.from("insurance_activities").insert(ids.map((id: string) => ({ prospect_id: id, kind: "bulk_stage", summary: `Bulk moved to ${stage}`, detail: { stage }, actor: "owner" })));
+      return NextResponse.json({ ok: true, count: ids.length });
+    }
+
     // ── everything else needs a record ─────────────────────────────────────
     if (typeof body.id !== "string" || !UUID.test(body.id)) throw new InsuranceInputError("Invalid prospect ID");
     const { data: prospect, error: readError } = await db.from("insurance_prospects").select("*").eq("id", body.id).single();
     if (readError || !prospect) throw new InsuranceInputError("That prospect no longer exists");
+
+    if (action === "research-fit") {
+      const settings = await insuranceSettings();
+      const profile = settings.targeting?.[prospect.track as InsuranceTrack];
+      if (!profile) throw new InsuranceInputError("Save this track's company targeting profile first");
+      return NextResponse.json(await researchInsuranceFit(prospect, profile));
+    }
 
     if (action === "stage") {
       const stage = String(body.stage || "");
@@ -132,7 +170,7 @@ export async function POST(req: NextRequest) {
       const settings = await insuranceSettings();
       return NextResponse.json({
         preview: { subject: rendered.subject, body: rendered.messageText, touch: rendered.touch },
-        refusal: sendRefusal(prospect, settings.min_score),
+        refusal: sendRefusal(prospect, settings.min_score, settings.targeting?.[prospect.track as InsuranceTrack]),
       });
     }
 
@@ -149,7 +187,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "qualify") {
-      const result = await qualifyInsuranceProspects(1);
+      const result = await qualifyInsuranceProspects(1, prospect.id);
       return NextResponse.json({ result });
     }
 

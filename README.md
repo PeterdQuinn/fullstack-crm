@@ -7,10 +7,10 @@ sequence, and booked when they reply — with a manual call/DM workflow on top.
 
 **Leads come from the Discovery pipeline, not a pre-loaded file.**
 
-**There are two pipelines.** HVAC and trades runs from `/crm/automation`.
-Insurance — producer recruiting and buyer research across AZ, SC, VA, OH and MI
-— runs the same five stages from `/crm/insurance` behind its own three switches.
-They share one database and one daily sending budget, and nothing else.
+**There are two isolated workspaces.** HVAC and trades runs from `/crm/automation`.
+Insurance — The Learning Lantern Academy — has its own database, dashboard, API
+routes, tables, switches, and sending controls. It targets insurance producers
+and buyer signals across AZ, SC, VA, OH and MI.
 
 While a pipeline's switch is off, nothing is discovered, scored, or sent. While
 it is on, the schedule in `ARCHITECTURE.md` runs without you.
@@ -44,7 +44,7 @@ NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 ```
 
-5. Also run every file in `supabase/migrations/` in order (001 → 021)
+5. Also run every file in `supabase/migrations/` in order (001 → 027)
 6. Restart `npm run dev`, open **/crm/automation** to set your niches and cities,
    then **/crm/discovery** to pull your first leads
 
@@ -57,11 +57,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
 | `APP_USERNAME` / `APP_PASSWORD` | The CRM login. Make the password long and random — the per-IP brake slows a brute force, it does not stop one. |
 | `SESSION_SECRET` | Signs the session cookie. Without it the key is derived from `APP_PASSWORD` + `CRON_SECRET`, and `CRON_SECRET` lives in GitHub Actions. |
 | `COMPANY_MAILING_ADDRESS` | CAN-SPAM. **No email sends at all until this is a real street address or PO box.** |
-| `DAILY_SEND_CAP` | Default 40, shared across both pipelines |
+| `DAILY_SEND_CAP` | Default 40 for the FSS/HVAC workspace |
 | `RESEND_API_KEY` / `RESEND_WEBHOOK_SECRET` | Sending and delivery events |
 | `MS_TENANT_ID` / `MS_CLIENT_ID` / `MS_CLIENT_SECRET` / `MS_MAILBOX` | Reading replies from Outlook |
 | `SERPAPI_API_KEY` / `PRODUCERFORGE_OLLAMA_API_KEY` | Insurance search (100 requests/month each) |
 | `INSURANCE_FROM_EMAIL` / `INSURANCE_MAILING_ADDRESS` | Optional — insurance mail defaults to the company's sender and address |
+| `INSURANCE_SUPABASE_URL` / `INSURANCE_SUPABASE_SERVICE_ROLE_KEY` | ProducerForge database used only by the insurance workspace |
 
 Production values live in Vercel, not here. `vercel env pull` refreshes a stale
 local `.env.local`; a local key that has drifted will 401 while production works
@@ -152,13 +153,15 @@ Duplicates are skipped.
 
 ## Insurance Workspace
 
-`/crm/insurance` is the second pipeline's control room. Three switches, all off
-by default:
+The production insurance dashboard is at `/insurance`. Its sections have stable
+URLs: `/insurance/pipeline`, `/insurance/discover`, `/insurance/tasks`, and
+`/insurance/activity`. `/crm/insurance` remains a compatibility entry point.
+Three switches are off by default:
 
 | Switch | What it starts |
 |--------|----------------|
 | `enabled` | Scheduled discovery, enrichment and qualification. Nothing leaves the building. |
-| `sending_enabled` | Real email, up to three touches, capped with the HVAC pipeline at one shared daily budget. |
+| `sending_enabled` | Real insurance email, up to three touches, capped by the insurance daily budget. |
 | `autopilot` | A reply classified "not interested" suppresses the record without you. That is the only automated action. |
 
 Before turning sending on, open a record and hit **Preview the next touch** —
@@ -172,7 +175,27 @@ email, call, or not reachable yet. Records that turn out to be the same person
 are merged on a matching email, or on a matching phone *and* name; a shared
 office number alone never merges two people.
 
-Verify with `npm run test:insurance`.
+**Company fit.** Apply migration `022_insurance_company_fit.sql`, then save a
+company targeting profile for each track in the insurance workspace. Define the
+actual offer, must-haves, dealbreakers and search terms. Open a prospect and use
+**Research company fit** for a sourced assessment. Unknown required facts hold
+outreach; the report shows each supporting excerpt and its source. This uses
+public search excerpts, not authoritative license verification. Saving a profile
+activates fit checks for that track, including already queued email retries.
+
+**Bilingual-first recruiting backend.** Migration `023_insurance_bilingual_priority.sql`
+adds language evidence and prioritizes supported bilingual producers, then possible
+language clues, then the remaining prospects. This works before company targeting
+is configured. Default: any explicitly stated bilingual ability; preferred languages
+can be set through the insurance action API. Search uses language-focused and
+broader passes. Migration `027_insurance_multi_license.sql` stores per-state license
+records, and the dashboard filters agents to 2+ active states while showing status,
+lines of authority, expiration, and evidence links. The board supports selecting
+records and bulk stage changes, with each change recorded in the insurance timeline.
+Authoritative state-list ingestion remains a planned connector; the app does not
+invent license or language facts.
+
+Verify with `npm run test:insurance` and `npm run test:insurance-languages`.
 
 ## Tech Stack
 
@@ -190,7 +213,7 @@ Verify with `npm run test:insurance`.
 ## Tests
 
 ```bash
-npm test              # 7 suites: reply policy, automation contract, AI
+npm test              # 8 suites: reply policy, automation contract, AI
                       # normalisation, cron workflow, database retry,
                       # insurance, email extraction
 npm run ai:health     # probes every AI provider with real calls

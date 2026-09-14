@@ -5,10 +5,11 @@ businesses, finds their contact details, researches them, scores them, writes
 and sends a three-touch email sequence, reads the replies, and books the
 meeting. A human is required for the sales conversation and nothing else.
 
-**Two pipelines run in it.** The HVAC-and-trades pipeline is live. The insurance
-pipeline — producer recruiting and buyer research across five states — runs the
-same five stages behind its own switches, and shares the outbox so both draw on
-one daily sending budget. They share a database and nothing else.
+**Two isolated workspaces run in it.** The HVAC-and-trades pipeline is live in
+the FSS database. The Learning Lantern Academy insurance workspace targets
+producer recruiting and buyer research across five states in the separate
+ProducerForge database. Credentials, tables, outbox, switches, and budgets are
+kept separate; the applications share code patterns only.
 
 | | |
 |---|---|
@@ -19,7 +20,7 @@ one daily sending budget. They share a database and nothing else.
 | **Auth** | Signed session cookie from `/login` (`lib/session.ts`), verified in middleware; HTTP Basic as a second door; `CRON_SECRET` on every `/api/cron/*` verb and on `/api/scrape-phone`; provider signatures on webhooks. See **Security**. |
 | **Targeting** | Owner-editable niches × US cities, stored in `automation_settings`, rotated one pairing per run by `next_discovery_target()` |
 | **Outreach markets** | `lib/outreach-markets.ts` defaults to `*` (any named niche) and still fails closed on a lead with no market. Narrow it with `OUTREACH_MARKETS`. |
-| **Master switch** | `automation_settings.enabled` for HVAC, toggled at `/crm/automation`. Insurance has three of its own — `enabled`, `sending_enabled`, `autopilot` — at `/crm/insurance`. |
+| **Master switch** | `automation_settings.enabled` for HVAC, toggled at `/crm/automation`. Insurance has three of its own — `enabled`, `sending_enabled`, `autopilot` — at `/insurance`. |
 | **Score bar** | 20, defined once in `lib/score-thresholds.ts` and mirrored by `save_automation_score`. An exact 50 is excluded everywhere: it is what gets written when every AI provider is down. |
 
 ---
@@ -288,9 +289,11 @@ policies).
 | `insurance_tasks` | Due insurance work — queued touches and a human's read-the-reply |
 | `insurance_settings` | The three insurance switches, tracks, states, queries, cursor, caps |
 | `insurance_search_cache` / `insurance_api_usage` | One-hour search cache and the atomic monthly request counter |
+| `insurance_email_outbox` | Insurance-only outbound queue and delivery state |
 
-`email_outbox` carries **both** pipelines: `lead_id` for an HVAC lead,
-`insurance_prospect_id` for an insurance record, never both.
+The HVAC `email_outbox` belongs to the FSS database. Insurance uses
+`insurance_email_outbox` in the ProducerForge database; no insurance row is
+written to the FSS outbox.
 
 Database functions carry the transactional work: `claim_email_outbox`,
 `finalize_email_outbox`, `save_automation_score`, `next_discovery_target`,
@@ -350,7 +353,7 @@ Desktop sidebar, mobile bottom tab bar (`app/crm/_components/CrmNav.tsx`).
 | `leads` | Full searchable table |
 | `suppressed` | Why each lead is suppressed, and what can still be done |
 | `reports` | Every stage, the send funnel with rates, and supply |
-| `insurance` | The second pipeline's control room — three switches, run-now buttons, a stage board per track, the due-task queue, the activity feed, and a per-record panel with the score, its reasoning, the next touch previewed exactly as it will send, and that record's own history |
+| `insurance` | The Learning Lantern Academy control room — dedicated pipeline, discover, tasks, and activity routes; three switches; stage board; agent/license/language filters; bulk stage actions; fit evidence; outreach preview; and record history |
 
 Theme: NY Jets palette — Gotham Green `#125740` primary (`brand`), Kelly Green
 accent, Stealth Black, Streak White. Status colours stay distinct from the brand
@@ -453,13 +456,12 @@ There are now contract checks for both shapes.
 | `lib/insurance/outreach.ts` | Insurance copy, the ten send refusals, the outbox hand-off |
 | `lib/insurance/sources.ts` | What may be imported, and how a record can be worked |
 | `lib/insurance/dedupe.ts` | When two records are one person — and when they are not |
-| `supabase/migrations/` | Schema history (021 current) |
+| `supabase/migrations/` | Schema history (027 current) |
 
 ## Insurance pipeline (`insurance-pipeline`, 07:15 and 13:15 Phoenix)
 
-A second autonomous pipeline beside the HVAC one, with its own switch, its own
-tables and its own copy — and deliberately sharing the outbox, because
-reputation belongs to the sending domain rather than to a pipeline.
+A second autonomous pipeline beside the HVAC one, with its own switch, tables,
+database, outbox, copy, and sending budget.
 
 ```
 DISCOVER → ENRICH → QUALIFY → SEND → REPLIES
@@ -493,11 +495,9 @@ without an address is worthless.
 - **Qualify** scores how clearly the SOURCE identifies one person worth writing
   to. It is never a judgment about a person's licence, income or intent, and it
   fails loudly rather than writing a placeholder.
-- **Send** mails up to three touches, `sequence_gap_days` apart, through
-  `email_outbox`. Migration 020 extends `claim_email_outbox` so insurance sends
-  draw on the same daily budget as HVAC ones, and `finalize_email_outbox` so the
-  activity record, the sequence counter, the stage change and the next task
-  commit inside the send transaction.
+- **Send** mails up to three touches, `sequence_gap_days` apart, through the
+  insurance-only `insurance_email_outbox`. Insurance delivery state and daily
+  limits never touch the FSS `email_outbox`.
 - **Replies** are matched by exact address only — a lead is a business and can be
   matched by thread or domain; a prospect is a person, and guessing which person
   replied cannot be walked back. The only automated action is suppression.
@@ -526,10 +526,14 @@ remains available and the rotation is currently set to recruiting only.
 
 ## Insurance workspace
 
-`/crm/insurance` is the control room for that pipeline: the three switches, the
-run-now buttons, a stage board per track, the due-task queue, a global activity
-feed, and a per-record panel with the score and its reason, the next touch
-previewed exactly as it will send, and the record's own history. Migration 018 adds isolated prospects, search cache, and atomic monthly usage counters; HVAC automation does not query these tables. Saved profiles support notes, stages, evidence-backed license dates, and follow-up dates. Unknown dates stay unknown.
+`/insurance` is the control room. Stable section routes are `/insurance/pipeline`,
+`/insurance/discover`, `/insurance/tasks`, and `/insurance/activity`. The workspace
+includes switches, run-now buttons, a stage board per track, agent-only and
+multi-license filters, bilingual evidence filters, bulk stage actions, the due-task
+queue, an activity feed, and a per-record panel with fit score, evidence, outreach
+preview, notes, and history. Migrations 024–027 create the isolated insurance
+schema and state-by-state license storage; HVAC automation does not query these
+tables.
 
 Search uses the imported `PRODUCERFORGE_OLLAMA_API_KEY` against the hosted web-search API, with `SERPAPI_API_KEY` as fallback. Results are source snippets for review, not verified license records or confirmed buyers. Repeated searches are cached for one hour. Requests have deadlines; each provider is capped at 100 requests per month. No localhost AI service or filesystem usage counter is required.
 
@@ -542,6 +546,107 @@ shopping. A record discovered by the pipeline is named after its source page, so
 a name is only used in a greeting when it actually looks like a person's name;
 `scripts/insurance-test.cjs` asserts both, along with the ten reasons a send is
 refused. Official licence feeds, carrier integrations, and migration of existing
-ProducerForge records are still not implemented.
+ProducerForge records are surfaced as a read-only fallback when the insurance
+prospect table is empty; explicit saves write to the insurance schema. Official
+state license feeds and carrier integrations are not yet connected. Public
+language evidence is ranked conservatively and is not a language test.
 
 Verification: `npm run test:insurance`; live search, persistence, and draft checks use the authenticated `/api/crm/insurance/*` routes. Secrets remain server-side.
+
+
+## Insurance company fit (migration 022)
+
+Apply `supabase/migrations/022_insurance_company_fit.sql` before deploying this
+version. It adds per-track `insurance_settings.targeting`, a JSON
+`insurance_prospects.fit_assessment`, the atomic profile update and candidate
+selection functions, and an insurance-only outbox trigger. No HVAC targeting
+rules change.
+
+The workspace now lets the owner define the company, actual offer, must-haves,
+dealbreakers and discovery terms independently for recruiting and buyers.
+An unconfigured track retains source-based qualification; it is explicitly
+labelled as having no company targeting configured. Saving a profile activates
+company-fit requirements for that track's sends, including queued retries.
+
+Scheduled qualification evaluates saved discovery excerpts. The individual
+**Research company fit** action spends at most one search operation (provider
+fallback may reserve one request per provider), using the existing monthly
+quota, and assesses the resulting excerpts together. Sources are search
+excerpts, not fetched full pages or verified licensing data. A saved source's
+original retrieval time is unknown and displayed as such. The model returns
+criterion matches with exact quotations. The application rejects unknown URLs
+and quotations absent from the supplied excerpts, then computes potential fit,
+not fit, or needs research. This validates citation grounding, not semantic
+truth: human source review and authoritative license checks remain necessary.
+No public-source assessment is labelled high confidence, buying intent, or a
+promise that a producer wants to move.
+
+Required criteria include individual identity, evidence of the selected state,
+and relevance to the offer; buyer relevance requires an explicit insurance
+question. Missing required evidence holds outreach. Positive evidence of a
+dealbreaker rejects fit; unknown dealbreakers remain visible. Fit expires after
+30 days or a change to profile/name/state/track/source. Expiry measures assessment
+age, not source publication freshness. The send helper and database trigger both
+require a current potential-fit assessment when a target profile exists. The
+legacy minimum score, suppression, sequence and sending controls still apply.
+
+Run `npm run test:insurance` for profile validation, fabricated citations,
+missing evidence, supported contradictions and exclusions, expired/changed
+assessments, and outreach gating. Apply and test the SQL in a database before
+production rollout; local unit tests do not execute database triggers.
+
+
+## Bilingual-first producer recruiting (migration 023)
+
+Apply `supabase/migrations/023_insurance_bilingual_priority.sql` after 022 and
+before deploying the matching backend. `insurance_settings.recruiting_languages`
+defaults to `{ "enabled": true, "preferred_languages": [] }`: prioritize any
+explicitly stated bilingual/multilingual ability. `preferred_languages` can
+specify a pair (for example English and Spanish); every requested language must
+appear together in the same supported statement. Empty preferences do not imply
+English/Spanish. This preference ranks candidates, not their qualification.
+
+`lib/insurance/languages.ts` extracts explicit language declarations from named
+public search profiles and fetched page text. It stores original excerpts,
+source URLs, source kinds, attribution, languages and check timestamps in
+`insurance_prospects.language_assessment`. No model calls or contact-provider
+charges are added. Names, ethnicity, location, and page language never establish
+language ability. Agency/team claims remain possible clues. Unsupported claims,
+negations and job requirements do not become confirmed individual abilities.
+This conservative rule parser can miss valid claims and is not language testing.
+
+The priority groups are: 0 supported bilingual match; 1 possible language clue
+requiring confirmation; 2 remaining/unknown language prospects. Assessments
+expire after 30 days, or when the record name changes. Preferred-language changes
+are evaluated against existing evidence immediately. The SQL priority function
+is used before LIMIT in enrichment, qualification, initial outreach and workspace
+selection. Suppression, score, company fit and daily caps continue to apply;
+due follow-ups retain their existing precedence. Buyer records are not assessed
+for language and receive the ordinary priority value. Existing recruiting rows
+are included for language enrichment even if their contact details are complete.
+A six-hour recruiting enrichment cooldown prevents unreachable records occupying
+every batch. Less-informative refreshes preserve stronger evidence only until
+its original expiry; they never renew that evidence's timestamp.
+
+Discovery uses two language-focused passes followed by one general pass per
+track/state rotation cycle. It makes one search operation per run, preserving the
+existing provider fallback and monthly quotas. General prospects are retained.
+This is public-profile search and enrichment, not a new state licensing-list
+connector or an imported national producer database.
+
+Authenticated backend API:
+- `POST /api/crm/insurance/action` with
+  `{ "action": "language-targeting", "settings": { "enabled": true, "preferred_languages": ["English", "Spanish"] } }`
+- `GET /api/crm/insurance/recruiting-queue?group=bilingual&limit=50&offset=0`
+  (`group`: `all`, `bilingual`, `possible`, `other`). Returns sorted prospects,
+  per-group counts across the whole active recruiting queue, the filtered total,
+  pagination, settings, and supported language names. Counts reflect the current
+  preferences. With priority disabled, all records fall in `other`.
+- Existing workspace/prospect reads now return records in backend priority order
+  and expose stored language evidence. No UI language controls are added here.
+
+`npm run test:insurance-languages` tests attribution, preferred pairs, stale
+assessments, broad-search rotation, discovery writes, and webpage enrichment with
+network/database fakes. `scripts/insurance-language-database-test.sql` exercises
+priority, filtering, counts and pagination in a rollback transaction after the
+migrations are applied.

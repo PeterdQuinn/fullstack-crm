@@ -1,7 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 
 export function insuranceDb() {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+  const url = process.env.INSURANCE_SUPABASE_URL;
+  const key = process.env.INSURANCE_SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Insurance Supabase credentials are not configured");
+  return createClient(url, key, {
     global: { fetch: (input, init) => fetch(input, { ...init, cache: "no-store", signal: init?.signal || AbortSignal.timeout(8000) }) },
   });
 }

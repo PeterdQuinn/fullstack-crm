@@ -10,7 +10,10 @@
 const encoder = new TextEncoder();
 
 export const SESSION_COOKIE = "fscrm_session";
+export const WORKSPACE_COOKIE = "fscrm_workspace";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days
+
+export type Workspace = "fss" | "producerforge";
 
 function secret(): string {
   // SESSION_SECRET when set. The fallback derives from credentials that already
@@ -59,4 +62,22 @@ export async function verifySessionToken(token: string | undefined): Promise<boo
 
   const expiresAt = Number(expiry);
   return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+
+export async function createWorkspaceToken(workspace: Workspace): Promise<string> {
+  const payload = `${workspace}.${Date.now() + SESSION_MAX_AGE * 1000}`;
+  return `${payload}.${await hmac(payload)}`;
+}
+
+export async function verifyWorkspaceToken(token: string | undefined): Promise<Workspace | null> {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3 || (parts[0] !== "fss" && parts[0] !== "producerforge")) return null;
+  const [workspace, expiry, signature] = parts;
+  const expected = await hmac(`${workspace}.${expiry}`);
+  if (expected.length !== signature.length) return null;
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) mismatch |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  if (mismatch !== 0) return null;
+  return Number(expiry) > Date.now() ? (workspace as Workspace) : null;
 }

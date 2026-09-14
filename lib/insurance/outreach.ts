@@ -1,6 +1,6 @@
-import { sendEmail } from "@/lib/resend";
 import { COMPANY_MAILING_ADDRESS, mailingAddressConfigured } from "@/lib/email-templates";
 import { BOOKING_URL, INSURANCE_WEBSITE, type InsuranceProspect, type InsuranceTrack } from "./types";
+import { fitIsCurrent, type FitAssessment, type TargetProfile } from "./fit";
 import { insuranceDb } from "./db";
 
 // Outbound insurance email.
@@ -195,7 +195,8 @@ export type SendRefusal =
   | "already replied"
   | "sequence complete"
   | "stage is closed"
-  | "not qualified yet";
+  | "not qualified yet"
+  | "company fit needs research";
 
 /** Why this prospect may not be mailed right now, or null. */
 export function sendRefusal(
@@ -206,8 +207,11 @@ export function sendRefusal(
     replied_at?: string | null;
     email_sent_count?: number;
     score?: number | null;
+    fit_assessment?: FitAssessment;
+    name?: string; state?: string; track?: string; source?: InsuranceProspect["source"];
   },
-  minScore: number
+  minScore: number,
+  profile?: TargetProfile
 ): SendRefusal | null {
   if (!prospect.email?.trim()) return "no email address";
   if (prospect.opt_out || prospect.complained || prospect.stage === "Do not contact") return "asked not to be contacted";
@@ -216,6 +220,7 @@ export function sendRefusal(
   if ((prospect.email_sent_count || 0) >= MAX_TOUCHES) return "sequence complete";
   if (["Not now", "Meeting booked", "Contracting", "Onboarding", "Active", "Application", "Policy issued"].includes(prospect.stage))
     return "stage is closed";
+  if (profile && (!fitIsCurrent(prospect.fit_assessment, profile, { name: prospect.name || '', state: prospect.state || '', track: prospect.track || '', source: prospect.source }) || prospect.fit_assessment?.verdict !== 'potential_fit')) return "company fit needs research";
   // A record nobody and nothing has judged is not mailed.
   if (prospect.score == null || prospect.score < minScore) return "not qualified yet";
   return null;
@@ -235,7 +240,9 @@ export async function sendInsuranceTouch(
   const blocked = insuranceSendBlockedReason();
   if (blocked) return { sent: false, reason: blocked };
 
-  const refusal = sendRefusal(prospect, options.minScore);
+  const { data: settings, error: settingsError } = await insuranceDb().from('insurance_settings').select('targeting').eq('id', 'owner').single();
+  if (settingsError) throw new Error(`Could not verify insurance targeting: ${settingsError.message}`);
+  const refusal = sendRefusal(prospect, options.minScore, settings?.targeting?.[prospect.track]);
   if (refusal) return { sent: false, reason: refusal };
 
   const rendered = renderInsuranceEmail(prospect);
@@ -244,7 +251,7 @@ export async function sendInsuranceTouch(
   // The outbox row carries the prospect id so finalization can do the
   // bookkeeping inside the send transaction.
   const key = `ins-${prospect.id}-touch-${rendered.touch}`;
-  const { error } = await db.from("email_outbox").upsert(
+  const { error } = await db.from("insurance_email_outbox").upsert(
     {
       idempotency_key: key,
       insurance_prospect_id: prospect.id,
@@ -262,14 +269,10 @@ export async function sendInsuranceTouch(
   );
   if (error) throw new Error(`Insurance email not sent: could not save outgoing message: ${error.message}`);
 
-  const result = await sendEmail(
-    prospect.email.trim(),
-    rendered.subject,
-    rendered.html,
-    undefined,
-    key,
-    { bodyText: rendered.bodyText, source: options.source || "automation", limit: options.dailyCap }
-  );
+  const providerResponse = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY || ""}`, "Content-Type": "application/json", "Idempotency-Key": key }, body: JSON.stringify({ from: process.env.INSURANCE_FROM_EMAIL || process.env.RESEND_FROM_EMAIL || "peter@fullstackservicesllc.net", to: [prospect.email.trim()], reply_to: process.env.INSURANCE_REPLY_TO || process.env.RESEND_FROM_EMAIL, subject: rendered.subject, html: rendered.html }) });
+  const result = await providerResponse.json().catch(() => ({}));
+  if (!providerResponse.ok || !result.id) throw new Error(result.message || "Insurance email provider returned no message ID");
+  await db.from("insurance_email_outbox").update({ status: "sent", provider_message_id: result.id, last_attempt_at: new Date().toISOString() }).eq("idempotency_key", key);
 
-  return { sent: true, touch: rendered.touch, messageId: result?.id };
+  return { sent: true, touch: rendered.touch, messageId: result.id };
 }
