@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/session";
 import { PipelineRail, Reveal } from "./_landing/Reveal";
 
 // Fonts are loaded here rather than in the root layout so this page owns its
@@ -86,7 +89,8 @@ const TIERS = [
   },
 ] as const;
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  if (await verifySessionToken(cookies().get(SESSION_COOKIE)?.value)) redirect("/hq");
   return (
     <main className={`${display.variable} ${body.variable} ${mono.variable} min-h-screen bg-[#F7F9F8] text-[#0B1F17] antialiased`} style={{ fontFamily: "var(--font-body)" }}>
       {/* ── Hero ─────────────────────────────────────────────────────────── */}

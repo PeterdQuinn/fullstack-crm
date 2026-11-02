@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Full Stack Services CRM",
-  description: "Internal Sales CRM Dashboard",
+  title: "Full Stack HQ",
+  description: "Full Stack Services and Peter Quinn operating workspaces",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

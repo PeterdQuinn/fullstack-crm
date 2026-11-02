@@ -127,6 +127,7 @@ function isPast(d?: string) { if (!d) return false; return new Date(d) < new Dat
 
 export default function LeadsWorkspace() {
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [notes, setNotes] = useState<LeadNote[]>([]);
@@ -150,7 +151,7 @@ export default function LeadsWorkspace() {
     const response = await fetch("/api/crm/workspace", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, business_unit: new URLSearchParams(window.location.search).get("business_unit") === "hvac" ? "hvac" : undefined }),
     });
     if (!response.ok) throw new Error((await response.json()).error || "Workspace request failed");
     return response.json();
@@ -159,7 +160,7 @@ export default function LeadsWorkspace() {
   useEffect(() => {
     async function init() {
       try {
-        const response = await fetch("/api/crm/workspace", { cache: "no-store" });
+        const response = await fetch("/api/crm/workspace" + (new URLSearchParams(window.location.search).get("business_unit") === "hvac" ? "?business_unit=hvac" : ""), { cache: "no-store" });
         if (!response.ok) throw new Error("Workspace unavailable");
         const data = await response.json();
         setDbMode("supabase");
@@ -172,6 +173,7 @@ export default function LeadsWorkspace() {
         setLeads((data.leads || []) as Lead[]);
         setLeadScores(data.scores || {});
       } catch {
+        if (new URLSearchParams(window.location.search).get("business_unit") === "hvac") { setLeads([]); setWorkspaceError("HVAC leads are unavailable. Check the database connection and apply HQ migration 031 before using this product line."); return; }
         setLeads(PRELOADED_LEADS
           .filter(l => l.niche === "Landscaping" || l.niche === "HVAC")
           .map((l) => ({ ...l, id: uid(), created_at: now(), updated_at: now() } as Lead)));
@@ -327,8 +329,10 @@ export default function LeadsWorkspace() {
 
   const niches = useMemo(() => [...new Set(leads.map((l) => l.niche).filter(Boolean))], [leads]);
 
+  if (workspaceError) return <div className="p-6"><h1 className="text-2xl font-bold">HVAC Leads</h1><p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{workspaceError}</p></div>;
+
   return (
-    <div className="h-[calc(100dvh-4rem)] md:h-[100dvh] min-h-0 flex flex-col overflow-hidden bg-gray-50">
+    <div className="h-[calc(100dvh-8.5rem)] min-h-0 flex flex-col overflow-hidden bg-gray-50">
       {dbMode === "local" && (
         <div className="flex-shrink-0 bg-status-warm/10 border-b border-status-warm/20 px-4 sm:px-6 py-2 text-sm font-medium text-status-warm flex items-center gap-2">
           <span aria-hidden>⚠️</span>
