@@ -11,6 +11,10 @@ producer recruiting and buyer research across five states in the separate
 ProducerForge database. Credentials, tables, outbox, switches, and budgets are
 kept separate; the applications share code patterns only.
 
+Insurance schema recovery is documented in [supabase/INSURANCE_MIGRATIONS.md](supabase/INSURANCE_MIGRATIONS.md).
+Migration 028 adds the standalone outbox's `send_limit`; migration 029 reconciles
+missing insurance tables and RPCs without clearing data or changing saved settings.
+
 | | |
 |---|---|
 | **Stack** | Next.js 14 (App Router) · TypeScript · Supabase/Postgres · Tailwind |
