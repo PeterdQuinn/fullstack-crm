@@ -1,4 +1,4 @@
-# Full Stack CRM — Architecture
+# Full Stack HQ — Architecture
 
 A single-operator cold-outreach CRM that runs itself. It discovers local
 businesses, finds their contact details, researches them, scores them, writes
@@ -10,6 +10,15 @@ the FSS database. The Learning Lantern Academy insurance workspace targets
 producer recruiting and buyer research across five states in the separate
 ProducerForge database. Credentials, tables, outbox, switches, and budgets are
 kept separate; the applications share code patterns only.
+
+Insurance schema recovery is documented in [supabase/INSURANCE_MIGRATIONS.md](supabase/INSURANCE_MIGRATIONS.md).
+Migration 028 adds the standalone outbox's `send_limit`; migration 029 reconciles
+missing insurance tables and RPCs without clearing data or changing saved settings.
+
+HQ workspace context and records are added by migration 031 (FSS database).
+See [the incremental workspace plan](docs/HQ_WORKSPACE_REFACTOR.md) for the
+two-workspace hierarchy, nested HVAC, permissions and separate insurance context
+migration. Existing CRM and insurance routes remain operational modules.
 
 | | |
 |---|---|

@@ -209,7 +209,7 @@ export default function InsurancePage() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-teal-700">
-            <ShieldCheck size={16} /> The Learning Lantern Academy · Insurance
+            <ShieldCheck size={16} /> Peter Quinn / Insurance
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-slate-950">People. Conversations. Growth.</h1>
           <p className="mt-2 text-sm text-slate-500">

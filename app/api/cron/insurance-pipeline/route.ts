@@ -51,7 +51,7 @@ async function run(req: NextRequest) {
       return NextResponse.json({
         success: true,
         notInstalled: true,
-        message: "The insurance pipeline tables are not installed yet — run supabase/migrations/020_insurance_pipeline.sql",
+        message: "The insurance pipeline schema is incomplete — follow supabase/INSURANCE_MIGRATIONS.md and apply 029_insurance_schema_reconciliation.sql to the insurance database",
       });
     }
     throw error;

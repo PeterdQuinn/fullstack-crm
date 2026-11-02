@@ -8,7 +8,7 @@ const body = { variable: "" };
 const mono = { variable: "" };
 
 // One login, then choose the company workspace.
-const DASHBOARD_ROUTE = "/workspace";
+const DASHBOARD_ROUTE = "/hq";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -51,7 +51,7 @@ export default function LoginPage() {
     >
       <header className="mx-auto w-full max-w-6xl px-5 py-6 sm:px-8">
         <Link href="/" className="font-mono text-xs tracking-[0.2em] text-[#0E7A45]" style={{ fontFamily: "var(--font-mono)" }}>
-          FULL&nbsp;STACK&nbsp;CRM
+          FULL&nbsp;STACK&nbsp;HQ
         </Link>
       </header>
 
@@ -60,7 +60,7 @@ export default function LoginPage() {
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl" style={{ fontFamily: "var(--font-display)" }}>
             Sign in
           </h1>
-          <p className="mt-2 text-sm text-[#4F6058]">Sign in with your CRM credentials.</p>
+          <p className="mt-2 text-sm text-[#4F6058]">Sign in to Full Stack HQ with your existing credentials.</p>
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4" noValidate>
             <label className="block text-sm font-semibold text-[#0B1F17]">

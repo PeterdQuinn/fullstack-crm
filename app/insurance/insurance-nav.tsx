@@ -21,11 +21,11 @@ export function InsuranceNav({ mobile = false }: { mobile?: boolean }) {
     window.addEventListener("hashchange", sync);
     return () => window.removeEventListener("hashchange", sync);
   }, []);
-  return <nav className={mobile ? "fixed inset-x-0 bottom-0 z-40 flex border-t border-slate-200 bg-white" : "flex-1 space-y-1 p-3"} aria-label="Insurance sections">
+  return <nav className={mobile ? "fixed inset-x-0 bottom-0 z-40 flex border-t border-slate-200 bg-white" : "flex gap-1 overflow-x-auto"} aria-label="Insurance sections">
     {NAV.map(([label, href, Icon, key]) => <a key={key} href={href} aria-current={active === key ? "page" : undefined}
       className={mobile
         ? `flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 text-xs font-semibold ${active === key ? "bg-teal-50 text-teal-800" : "text-slate-500"}`
-        : `flex min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold ${active === key ? "bg-teal-100 text-teal-900 ring-1 ring-teal-200" : "text-slate-600 hover:bg-teal-50 hover:text-teal-900"}`}>
+        : `flex shrink-0 min-h-[44px] items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold ${active === key ? "bg-teal-100 text-teal-900 ring-1 ring-teal-200" : "text-slate-600 hover:bg-teal-50 hover:text-teal-900"}`}>
       <Icon size={mobile ? 20 : 18} />{label}
     </a>)}
   </nav>;

@@ -29,8 +29,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ callLogs: calls.data || [], notes: notes.data || [], appointments: appointments.data || [] });
   }
 
+  const businessUnit = req.nextUrl.searchParams.get("business_unit");
+  if (businessUnit && businessUnit !== "hvac") return failure("Unknown business unit", 400);
+  let leadsQuery = supabase.from("leads").select("*").order("created_at", { ascending: false });
+  if (businessUnit) leadsQuery = leadsQuery.eq("business_unit", businessUnit);
   const [leads, summaries] = await Promise.all([
-    supabase.from("leads").select("*").order("created_at", { ascending: false }),
+    leadsQuery,
     supabase.from("lead_ai_summaries").select("lead_id, lead_score"),
   ]);
   const error = leads.error || summaries.error;
@@ -52,7 +56,7 @@ export async function POST(req: NextRequest) {
       if (!body.id || !body.updates || typeof body.updates !== "object") return failure("Lead and updates are required", 400);
       const { data: current, error: readError } = await supabase.from("leads").select("status, opt_out, bounced, complained").eq("id", body.id).single();
       if (readError) return failure("Lead was not found", 404);
-      const { id: ignoredId, created_at: ignoredCreated, ...updates } = body.updates;
+      const { id: ignoredId, created_at: ignoredCreated, workspace_id: ignoredWorkspace, business_unit: ignoredUnit, ...updates } = body.updates;
       if ((current.opt_out || current.status === "Do Not Contact" || current.bounced || current.complained) &&
           (updates.opt_out === false || updates.status && updates.status !== "Do Not Contact")) {
         return failure("This lead is suppressed. Restore requires a dedicated reviewed action.", 409);
@@ -81,7 +85,12 @@ export async function POST(req: NextRequest) {
 
     if (action === "add_leads") {
       if (!Array.isArray(body.leads) || body.leads.length === 0) return failure("At least one lead is required", 400);
-      const { error } = await supabase.from("leads").insert(body.leads);
+      if (body.business_unit && body.business_unit !== "hvac") return failure("Unknown business unit", 400);
+      const leads = body.leads.map((lead: any) => {
+        const { workspace_id, business_unit, ...fields } = lead;
+        return body.business_unit === "hvac" ? { ...fields, workspace_id: "full_stack", business_unit: "hvac" } : fields;
+      });
+      const { error } = await supabase.from("leads").insert(leads);
       if (error) return failure("Could not add the leads");
       return NextResponse.json({ success: true });
     }
@@ -94,7 +103,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "delete_all") {
-      const { error } = await supabase.from("leads").delete().not("id", "is", null);
+      let query = supabase.from("leads").delete().not("id", "is", null);
+      if (body.business_unit === "hvac") query = query.eq("business_unit", "hvac");
+      const { error } = await query;
       if (error) return failure("Could not delete the leads");
       return NextResponse.json({ success: true });
     }

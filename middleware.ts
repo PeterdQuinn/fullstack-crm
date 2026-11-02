@@ -31,7 +31,7 @@ async function enforceWorkspace(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl;
   if (pathname === "/api/workspace/select" || pathname.startsWith("/workspace")) return NextResponse.next();
   const workspace = await verifyWorkspaceToken(req.cookies.get(WORKSPACE_COOKIE)?.value);
-  const insurancePath = pathname === "/insurance" || pathname.startsWith("/insurance/") || pathname === "/crm/insurance" || pathname.startsWith("/crm/insurance/") || pathname === "/api/crm/insurance" || pathname.startsWith("/api/crm/insurance/");
+  const insurancePath = (pathname.startsWith("/hq/record/") && req.nextUrl.searchParams.get("workspace") === "peter_quinn") || pathname.startsWith("/hq/peter-quinn") || pathname === "/insurance" || pathname.startsWith("/insurance/") || pathname === "/crm/insurance" || pathname.startsWith("/crm/insurance/") || pathname === "/api/crm/insurance" || pathname.startsWith("/api/crm/insurance/");
   const requiredWorkspace = insurancePath ? "producerforge" : "fss";
   if (workspace === requiredWorkspace) return NextResponse.next();
 
@@ -118,6 +118,9 @@ export const config = {
   matcher: [
     // "/" is intentionally absent: the marketing landing page is public.
     // The CRM and its private APIs below stay behind Basic Auth.
+    "/hq/:path*",
+    "/api/hq/:path*",
+    "/home",
     "/crm",
     "/crm/:path*",
     "/insurance",
