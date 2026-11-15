@@ -1,0 +1,12 @@
+.env
+.env.*
+prod.env
+node_modules
+.next*
+.vercel
+supabase/.temp
+*.log
+*.bundle
+*.tar.gz
+.*-build
+.automation-contract-tsconfig*.json

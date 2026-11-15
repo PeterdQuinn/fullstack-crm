@@ -29,3 +29,7 @@ prod.env
 # Temp output from scripts/email-extract-test.mjs
 .email-extract-build/
 .reply-policy-build/
+
+# Isolated local audit build
+/.next-phase1-check/
+/.next-cleanup-check/
