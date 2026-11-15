@@ -68,6 +68,16 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Reject cross-origin browser mutations on the entire private CRM surface.
+  const method = req.method || "GET";
+  if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
+    const origin = req.headers.get("origin");
+    const basic = (req.headers.get("authorization") || "").startsWith("Basic ");
+    if ((origin && origin !== req.nextUrl.origin) || (!origin && !basic)) {
+      return new NextResponse("Same-origin request required.", { status: 403 });
+    }
+  }
+
   // The /login form exchanges these same credentials for a signed cookie. The
   // signature is verified here (not merely checked for presence), so this is
   // the same trust level as the Basic header below — just a nicer transport.

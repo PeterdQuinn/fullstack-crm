@@ -15,7 +15,7 @@ const supabase = createClient(
 // Calendly is wired to the owner's Google Calendar, so this single link handles
 // all scheduling + calendar-event creation. No custom free/busy code needed.
 export const CALENDLY_LINK =
-  "https://calendly.com/fullstackservicesllc/full-stack-meeting";
+  "https://calendly.com/fullstackservicesllc/30min";
 
 export async function cancelPendingColdEmailTasks(leadId: string, now = new Date().toISOString()): Promise<void> {
   const { error } = await supabase

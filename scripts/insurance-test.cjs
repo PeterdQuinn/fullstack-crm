@@ -59,8 +59,10 @@ function load(file) {
   cache.set(path.resolve('lib/resend.ts'), { sendEmail: async (to, subject) => { sent.push({ to, subject }); return { id: 'test-message' }; } });
   cache.set(path.resolve('lib/email-templates.ts'), { COMPANY_MAILING_ADDRESS: '535 E Southern Ave Ste 6, Mesa, AZ 85204', mailingAddressConfigured: () => true });
   const saved = [];
+  let mailboxPeers = [];
+  let mailboxError = null;
   cache.set(path.resolve('lib/insurance/db.ts'), {
-    insuranceDb: () => ({ from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: { targeting: {} }, error: null }) }) }), update: () => ({ eq: async () => ({ error: null }) }), upsert: async (row) => { saved.push(row); return { error: null }; } }) }),
+    insuranceDb: () => ({ from: () => ({ select: () => ({ eq: () => ({ single: async () => ({ data: { targeting: {} }, error: null }) }) , is: () => ({ ilike: () => ({ limit: async () => ({ data: mailboxPeers, error: mailboxError }) }) }) }), update: () => ({ eq: async () => ({ error: null }) }), upsert: async (row) => { saved.push(row); return { error: null }; } }) }),
     reserveInsuranceRequest: async () => true,
     INSURANCE_MONTHLY_CAP: 100,
   });
@@ -117,6 +119,18 @@ function load(file) {
   const refused = await sendInsuranceTouch({ ...person, opt_out: true }, { dailyCap: 10, minScore: 40 });
   assert.equal(refused.sent, false);
   assert.equal(sent.length, 1, 'a refused send never reaches the provider');
+  mailboxPeers = [{ id: 'another-record', email: person.email.toUpperCase() }];
+  const shared = await sendInsuranceTouch(person, { dailyCap: 10, minScore: 40 });
+  assert.equal(shared.sent, false);
+  assert.match(shared.reason, /shared mailbox/);
+  mailboxPeers = []; mailboxError = { message: 'fixture lookup failure' };
+  const unverified = await sendInsuranceTouch(person, { dailyCap: 10, minScore: 40 });
+  assert.equal(unverified.sent, false);
+  assert.match(unverified.reason, /identity could not be verified/);
+  assert.equal(sent.length, 1, 'duplicate and failed identity checks never send');
+  assert.equal(saved.length, 1, 'duplicate and failed identity checks never queue');
+  mailboxError = null;
+
 
 
   // ── source policy ───────────────────────────────────────────────────────

@@ -1,9 +1,10 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { randomUUID } from "node:crypto";
+import { canonicalMailbox, mailboxSearch, mailboxSendBlock } from "@/lib/outreach-identity";
+import { sendBlockedReason } from "@/lib/email-templates";
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-const provider = new Resend(process.env.RESEND_API_KEY);
 
 export function trackingForKey(key: string) {
   const match = /^crm-([0-9a-f-]{36})-(email-[123]|booking-link)$/.exec(key);
@@ -19,6 +20,11 @@ async function deliver(item: any): Promise<{ id: string }> {
   if (item.status === "sent") {
     await finalize(item.id);
     return { id: item.provider_message_id };
+  }
+  if (!process.env.RESEND_API_KEY) throw new Error("Email provider is not configured");
+  if (item.lead_id || item.insurance_prospect_id) {
+    const blocked = sendBlockedReason();
+    if (blocked) throw new Error("Email blocked: " + blocked);
   }
   if (item.insurance_prospect_id) {
     // Same guarantee the lead branch below gives: a message saved minutes ago
@@ -49,11 +55,30 @@ async function deliver(item: any): Promise<{ id: string }> {
       throw new Error("Saved email cancelled: recipient no longer eligible");
     }
   }
+  if (item.lead_id) {
+    const owner = await db.from("leads").select("tenant_id").eq("id", item.lead_id).single();
+    if (owner.error || !owner.data?.tenant_id) throw new Error("Cannot verify recipient tenant");
+    const peers = await db.from("leads").select("id,email,tenant_id,status,opt_out,bounced,complained")
+      .eq("tenant_id", owner.data.tenant_id).ilike("email", mailboxSearch(item.recipient)).limit(101);
+    if (peers.error || (peers.data || []).length > 100) throw new Error("Cannot safely resolve canonical mailbox");
+    const matches = (peers.data || []).filter(p => canonicalMailbox(p.email) === canonicalMailbox(item.recipient));
+    const history = matches.length ? await db.from("outreach_log")
+      .select("direction,message_type,sent_at,provider_message_id,replied_at").eq("tenant_id", owner.data.tenant_id)
+      .eq("channel", "email").in("lead_id", matches.map(p => p.id)).limit(1001) : {data:[],error:null};
+    if (history.error || (history.data || []).length > 1000) throw new Error("Cannot verify canonical outreach history");
+    const blocked = mailboxSendBlock(item.recipient, item.message_type, matches, history.data || []);
+    if (blocked) {
+      const saved = await db.from("email_outbox").update({status:"needs_review",error_message:blocked}).eq("id", item.id);
+      if (saved.error) throw new Error("Could not persist mailbox review hold");
+      throw new Error("Email deferred: " + blocked);
+    }
+  }
   const { data, error } = await db.rpc("claim_email_outbox", { p_id: item.id });
   if (error) throw new Error(`Cannot reserve saved email: ${error.message}`);
   const claimed = data?.[0];
   if (!claimed) throw new Error("Email deferred: daily cap, active send, or delivery review required");
   try {
+    const provider = new Resend(process.env.RESEND_API_KEY);
     const result = await provider.emails.send({ from: claimed.sender, to: claimed.recipient,
       subject: claimed.subject, html: claimed.html, replyTo: claimed.reply_to }, { idempotencyKey: claimed.idempotency_key });
     if (result.error || !result.data?.id) throw new Error(result.error?.message || "Provider returned no message ID");

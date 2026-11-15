@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { canonicalMailbox, mailboxSearch } from "@/lib/outreach-identity";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,7 +28,9 @@ export function deduplicateLeads(leads: DiscoveredLead[]): DiscoveredLead[] {
   const deduplicated: DiscoveredLead[] = [];
 
   for (const lead of leads) {
-    const key = `${lead.business_name}|${lead.city}|${lead.phone || ""}`.toLowerCase();
+    const key = canonicalMailbox(lead.email)
+      ? "email:" + canonicalMailbox(lead.email)
+      : `${lead.business_name.trim()}|${(lead.city || "").trim()}|${(lead.phone || "").replace(/\D/g, "")}`.toLowerCase();
     if (!seen.has(key)) {
       seen.add(key);
       deduplicated.push(lead);
@@ -43,7 +46,7 @@ export async function checkLeadExists(lead: DiscoveredLead): Promise<boolean> {
     const { data, error: readError } = await supabase
       .from("leads")
       .select("id")
-      .eq("email", lead.email)
+      .ilike("email", mailboxSearch(canonicalMailbox(lead.email)).slice(1, -1))
       .limit(1).maybeSingle();
     if (readError) throw readError;
     if (data) return true;
@@ -64,7 +67,8 @@ export async function checkLeadExists(lead: DiscoveredLead): Promise<boolean> {
 export async function filterNewLeads(leads: DiscoveredLead[]): Promise<DiscoveredLead[]> {
   const newLeads: DiscoveredLead[] = [];
 
-  for (const lead of leads) {
+  for (const input of deduplicateLeads(leads)) {
+    const lead = normalizeLead(input);
     const exists = await checkLeadExists(lead);
     if (!exists) {
       newLeads.push(lead);
@@ -158,7 +162,8 @@ export async function importLeads(leads: DiscoveredLead[]): Promise<{
 }> {
   const result = { imported: 0, skipped: 0, errors: 0, importedIds: [] as string[] };
 
-  for (const lead of leads) {
+  for (const input of deduplicateLeads(leads)) {
+    const lead = normalizeLead(input);
     try {
       if (!lead.business_name || !(lead.phone || lead.website || lead.email)) {
         result.skipped++;
@@ -168,7 +173,7 @@ export async function importLeads(leads: DiscoveredLead[]): Promise<{
       // Dedupe against existing rows: by email if present, else name + city.
       let exists = false;
       if (lead.email) {
-        const { data, error: readError } = await supabase.from("leads").select("id").eq("email", lead.email).maybeSingle();
+        const { data, error: readError } = await supabase.from("leads").select("id").ilike("email", mailboxSearch(canonicalMailbox(lead.email)).slice(1, -1)).limit(1).maybeSingle();
         if (readError) throw readError;
         exists = !!data;
       }
@@ -178,7 +183,7 @@ export async function importLeads(leads: DiscoveredLead[]): Promise<{
           .select("id")
           .eq("business_name", lead.business_name)
           .eq("city", lead.city || "")
-          .maybeSingle();
+          .limit(1).maybeSingle();
         if (readError) throw readError;
         exists = !!data;
       }
