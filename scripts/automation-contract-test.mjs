@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, ".automation-contract-build");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
-for (const line of read(".env.local").split(/\r?\n/)) {
+for (const line of (!process.env.CI && fs.existsSync(path.join(root, ".env.local")) ? read(".env.local") : "").split(/\r?\n/)) {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
   const i = trimmed.indexOf("=");
