@@ -33,3 +33,6 @@ prod.env
 # Isolated local audit build
 /.next-phase1-check/
 /.next-cleanup-check/
+
+# Isolated coordinated release verification
+/.next-release-check/
