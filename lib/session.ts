@@ -52,6 +52,9 @@ export async function verifySessionToken(token: string | undefined): Promise<boo
   if (parts.length !== 3) return false;
 
   const [username, expiry, signature] = parts;
+  // A predictable fallback secret must never authenticate an unconfigured app.
+  // Renaming the operator also invalidates the previous operator's sessions.
+  if (!process.env.APP_USERNAME || !process.env.APP_PASSWORD || username !== process.env.APP_USERNAME) return false;
   const expected = await hmac(`${username}.${expiry}`);
 
   // Constant-time compare: never leak how much of the signature matched.

@@ -31,10 +31,22 @@ export async function GET(req: NextRequest) {
 
   const businessUnit = req.nextUrl.searchParams.get("business_unit");
   if (businessUnit && businessUnit !== "hvac") return failure("Unknown business unit", 400);
-  let leadsQuery = supabase.from("leads").select("*").order("created_at", { ascending: false });
-  if (businessUnit) leadsQuery = leadsQuery.eq("business_unit", businessUnit);
+  // PostgREST caps each response at 1,000 rows. Fetch every page so older
+  // records remain searchable and dashboard deep links can select them.
+  async function loadAllLeads() {
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; offset < 100000; offset += 1000) {
+      let query = supabase.from("leads").select("*").order("created_at", { ascending: false }).order("id", { ascending: true }).range(offset, offset + 999);
+      if (businessUnit) query = query.eq("business_unit", businessUnit);
+      const page = await query;
+      if (page.error) return { data: null, error: page.error };
+      rows.push(...(page.data || []));
+      if ((page.data || []).length < 1000) return { data: rows, error: null };
+    }
+    return { data: null, error: new Error("Lead workspace exceeds the supported limit; use a scoped view.") };
+  }
   const [leads, summaries] = await Promise.all([
-    leadsQuery,
+    loadAllLeads(),
     supabase.from("lead_ai_summaries").select("lead_id, lead_score"),
   ]);
   const error = leads.error || summaries.error;

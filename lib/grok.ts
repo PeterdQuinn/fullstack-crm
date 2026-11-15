@@ -169,6 +169,10 @@ export async function classifyReply(
     | "Question";
   recommended_action: string;
 }> {
+  // Explicit first-person opt-outs override model output, including prompt injection.
+  if (/\b(?:unsubscribe\s+me|(?:do not|don't|never)\s+(?:email|contact|message)\s+me|stop\s+(?:emailing|contacting|messaging)\s+me|remove\s+(?:me|my\s+(?:email|address)))\b/i.test(replyText) || /^\s*unsubscribe[.!\s]*$/i.test(replyText)) {
+    return { category: "Stop", recommended_action: "Honor the opt-out. Do not contact this person again." };
+  }
   const prompt = `Classify this email reply from a prospect into exactly ONE category.
 
 Reply: "${replyText}"

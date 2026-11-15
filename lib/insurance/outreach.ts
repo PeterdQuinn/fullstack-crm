@@ -2,6 +2,7 @@ import { COMPANY_MAILING_ADDRESS, mailingAddressConfigured } from "@/lib/email-t
 import { BOOKING_URL, INSURANCE_WEBSITE, type InsuranceProspect, type InsuranceTrack } from "./types";
 import { fitIsCurrent, type FitAssessment, type TargetProfile } from "./fit";
 import { insuranceDb } from "./db";
+import { normalizeEmail } from "./dedupe";
 
 // Outbound insurance email.
 //
@@ -240,13 +241,30 @@ export async function sendInsuranceTouch(
   const blocked = insuranceSendBlockedReason();
   if (blocked) return { sent: false, reason: blocked };
 
-  const { data: settings, error: settingsError } = await insuranceDb().from('insurance_settings').select('targeting').eq('id', 'owner').single();
+  const db = insuranceDb();
+  const { data: settings, error: settingsError } = await db.from('insurance_settings').select('targeting').eq('id', 'owner').single();
   if (settingsError) throw new Error(`Could not verify insurance targeting: ${settingsError.message}`);
   const refusal = sendRefusal(prospect, options.minScore, settings?.targeting?.[prospect.track]);
   if (refusal) return { sent: false, reason: refusal };
 
+  // Shared mailboxes can belong to different people or duplicate records. Do
+  // not guess or merge at send time: hold every matching active record for a
+  // human review. Fail closed if the lookup errors or exceeds the safety cap.
+  const mailbox = normalizeEmail(prospect.email);
+  if (!mailbox) return { sent: false, reason: "invalid recipient email" };
+  const pattern = mailbox.replace(/[\\%_]/g, "\\$&");
+  const { data: peers, error: peerError } = await db.from("insurance_prospects")
+    .select("id,email")
+    .is("duplicate_of", null)
+    .ilike("email", pattern)
+    .limit(101);
+  if (peerError) return { sent: false, reason: "recipient identity could not be verified; held for review" };
+  if ((peers || []).length > 100) return { sent: false, reason: "too many mailbox matches; held for review" };
+  if ((peers || []).some((peer) => peer.id !== prospect.id && normalizeEmail(peer.email) === mailbox)) {
+    return { sent: false, reason: "shared mailbox; held for review" };
+  }
+
   const rendered = renderInsuranceEmail(prospect);
-  const db = insuranceDb();
 
   // The outbox row carries the prospect id so finalization can do the
   // bookkeeping inside the send transaction.

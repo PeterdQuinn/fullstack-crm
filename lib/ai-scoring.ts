@@ -212,6 +212,11 @@ SCORING RULES — read carefully:
   "low" when only a name and one contact channel are known, "high" when the
   business, its size, and its current tooling are all evident.
 
+GROUNDING RULES:
+- Only the KNOWN DATA above is evidence. Do not invent costs, savings, customer results, case studies, or operational problems.
+- A subscription alone does not establish excessive cost or a desire to replace it. When no pain is evidenced, main_pain_point must be "Not established from supplied data".
+- Frame unverified benefits as questions to explore. recommended_first_message and recommended_follow_up must not claim facts or results absent from KNOWN DATA.
+
 Return ONLY valid JSON with these fields:
 {
   "lead_score": <0-100>,

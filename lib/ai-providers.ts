@@ -19,6 +19,7 @@
 // steady-state traffic.
 
 import Anthropic from "@anthropic-ai/sdk";
+import { aiFetch, aiRetryDelay, aiBudgetSignal, assertAiBudget } from "./ai-budget";
 
 export interface Provider {
   name: string;
@@ -162,7 +163,7 @@ function retryAfterMs(res: Response): number | undefined {
   return Number.isFinite(dateMs) ? Math.max(0, dateMs - Date.now()) : undefined;
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = aiRetryDelay;
 
 // Retry `fn` on transient HTTP statuses and network errors. Anything else
 // (401, 400, a bad model name) fails immediately — retrying a misconfiguration
@@ -170,6 +171,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function withRetry<T>(label: string, fn: () => Promise<T>): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    assertAiBudget();
     try {
       return await fn();
     } catch (err) {
@@ -200,7 +202,6 @@ const geminiKey = () => process.env.GEMINI_API_KEY;
 const ollamaKey = () => process.env.OLLAMA_API_KEY;
 const anthropicKey = () => process.env.ANTHROPIC_API_KEY;
 const kablewyKey = () => process.env.KABLEWY_API;
-
 // ── Raw callers. Each returns the model's text output or throws. ────────────
 
 // Generic OpenAI-compatible chat completion (Groq speaks
@@ -213,7 +214,7 @@ async function openAICompatible(
   prompt: string
 ): Promise<string> {
   return withRetry(label, async () => {
-    const res = await fetch(url, {
+    const res = await aiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -292,7 +293,7 @@ async function callGemini(prompt: string): Promise<string> {
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
     (auth.queryKey ? `?key=${auth.queryKey}` : "");
   return withRetry("Gemini", async () => {
-    const res = await fetch(
+    const res = await aiFetch(
       url,
       {
         method: "POST",
@@ -334,7 +335,8 @@ async function callGemini(prompt: string): Promise<string> {
 async function callOllama(prompt: string): Promise<string> {
   const key = ollamaKey();
   if (!key) throw new Error("OLLAMA_API_KEY not set");
-  const baseUrl = process.env.OLLAMA_BASE_URL || "https://ollama.com";
+  const baseUrl = (process.env.OLLAMA_BASE_URL || "https://ollama.com").replace(/\/+$/, '');
+  const model = process.env.OLLAMA_MODEL || "gpt-oss:120b-cloud";
   // Bounded so a hung cloud request can't consume a whole serverless function
   // budget. Default matches the timeout the discovery cleanup used when it
   // called Ollama directly, since that is the longest-running caller.
@@ -344,13 +346,14 @@ async function callOllama(prompt: string): Promise<string> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`${baseUrl}/api/generate`, {
+      const res = await aiFetch(`${baseUrl}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
         body: JSON.stringify({
-          model: process.env.OLLAMA_MODEL || "gpt-oss:120b-cloud",
+          model,
           prompt,
           stream: false,
+          ...(process.env.OLLAMA_THINK === "false" ? { think: false } : {}),
         }),
         signal: controller.signal,
       });
@@ -423,7 +426,7 @@ async function callAnthropic(prompt: string): Promise<string> {
     max_tokens: Number(process.env.ANTHROPIC_MAX_TOKENS) || 4096,
     output_config: { effort: "low" },
     messages: [{ role: "user", content: prompt }],
-  });
+  }, { signal: aiBudgetSignal() });
 
   // Safety classifiers can decline with a normal 200 — check before reading
   // content, which is empty or partial on a refusal.
@@ -602,6 +605,7 @@ export async function runChain(chain: Provider[], prompt: string): Promise<Chain
   }
 
   for (const p of chain) {
+    if (aiBudgetSignal()?.aborted) break;
     try {
       const text = await p.call(prompt);
       if (text && text.trim()) {
@@ -669,6 +673,7 @@ export async function runChainJson<T = any>(
   }
 
   for (const p of chain) {
+    if (aiBudgetSignal()?.aborted) break;
     try {
       const raw = await p.call(prompt);
 

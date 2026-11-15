@@ -8,7 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, ".automation-contract-build");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
-for (const line of read(".env.local").split(/\r?\n/)) {
+for (const line of (!process.env.CI && fs.existsSync(path.join(root, ".env.local")) ? read(".env.local") : "").split(/\r?\n/)) {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
   const i = trimmed.indexOf("=");
@@ -71,7 +71,7 @@ try {
 for (const file of fs.readdirSync(out).filter((f) => f.endsWith(".js"))) {
   const target = path.join(out, file);
   const src = fs.readFileSync(target, "utf8");
-  const rewritten = src.replace(
+  const rewritten = src.replaceAll('"./ai-budget"', '"./ai-budget.js"').replace(
     /(\bfrom\s*["'])@\/lib\/([^"']+)(["'])/g,
     (_m, head, mod, tail) => `${head}./${mod}.js${tail}`
   );
@@ -97,7 +97,8 @@ for (const bad of ["logo@2x.png", "no-reply@example.com", "a@sentry.io", "x@gmai
   check(`bad email rejected: ${bad}`, !emailValidation.looksLikeRealEmail(bad));
 }
 
-check("physical mailing address configured", emailTemplates.sendBlockedReason() === null);
+check("mailing address gate matches actual configuration", (emailTemplates.sendBlockedReason() === null) === emailTemplates.mailingAddressConfigured());
+check("missing mailing address blocks sends", emailTemplates.mailingAddressConfigured() || Boolean(emailTemplates.sendBlockedReason()));
 const rendered = emailTemplates.renderOutreachEmail({
   leadId: "contract-test-lead",
   businessName: "Example HVAC",
