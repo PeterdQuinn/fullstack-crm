@@ -142,7 +142,7 @@ export default function LeadsWorkspace() {
   const [showTieDowns, setShowTieDowns] = useState(true);
   const [showObjections, setShowObjections] = useState(true);
   const [tab, setTab] = useState<"details" | "calls" | "notes" | "meeting" | "email" | "replies" | "bookings" | "onboarding" | "activity">("details");
-  const [dbMode, setDbMode] = useState<"local" | "supabase">("local");
+  const [dbMode, setDbMode] = useState<"loading" | "local" | "supabase">(process.env.NEXT_PUBLIC_LEGION_EMBEDDED === "true" ? "loading" : "local");
   const [showDialer, setShowDialer] = useState(false);
   const [generatingAI, setGeneratingAI] = useState(false);
   const [leadScores, setLeadScores] = useState<Record<string, number>>({})
@@ -171,8 +171,11 @@ export default function LeadsWorkspace() {
         // niche was "hvac", "General", "Plumbing", etc. Neither is wanted now
         // that discovery is HVAC-only and the DB is curated.
         setLeads((data.leads || []) as Lead[]);
+        const requestedLead = new URLSearchParams(window.location.search).get('leadId');
+        if (requestedLead && (data.leads || []).some((lead: Lead) => lead.id === requestedLead)) setSelectedId(requestedLead);
         setLeadScores(data.scores || {});
       } catch {
+        if (process.env.NEXT_PUBLIC_LEGION_EMBEDDED === 'true') { setLeads([]); setWorkspaceError('CRM data could not be loaded. Refresh the page or sign in to Legion again.'); return; }
         if (new URLSearchParams(window.location.search).get("business_unit") === "hvac") { setLeads([]); setWorkspaceError("HVAC leads are unavailable. Check the database connection and apply HQ migration 031 before using this product line."); return; }
         setLeads(PRELOADED_LEADS
           .filter(l => l.niche === "Landscaping" || l.niche === "HVAC")
@@ -329,10 +332,12 @@ export default function LeadsWorkspace() {
 
   const niches = useMemo(() => [...new Set(leads.map((l) => l.niche).filter(Boolean))], [leads]);
 
-  if (workspaceError) return <div className="p-6"><h1 className="text-2xl font-bold">HVAC Leads</h1><p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{workspaceError}</p></div>;
+  if (workspaceError) return <div className="p-6"><h1 className="text-2xl font-bold">Leads &amp; pipeline</h1><p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">{workspaceError}</p></div>;
+
+  if (dbMode === "loading") return <div role="status" className="p-8 text-sm text-slate-500">Loading your CRM leads…</div>;
 
   return (
-    <div className="h-[calc(100dvh-8.5rem)] min-h-0 flex flex-col overflow-hidden bg-gray-50">
+    <div className="h-[calc(100dvh-5rem)] min-h-0 flex flex-col overflow-hidden bg-gray-50">
       {dbMode === "local" && (
         <div className="flex-shrink-0 bg-status-warm/10 border-b border-status-warm/20 px-4 sm:px-6 py-2 text-sm font-medium text-status-warm flex items-center gap-2">
           <span aria-hidden>⚠️</span>
@@ -345,12 +350,12 @@ export default function LeadsWorkspace() {
           <div className="min-w-0"><h1 className="text-base sm:text-lg font-bold text-gray-900 truncate">Full Stack Services CRM</h1><p className="text-xs text-gray-500 truncate">{COMPANY_EMAIL} · {COMPANY_PHONE}</p></div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={bulkGenerateAI} disabled={generatingAI} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors disabled:opacity-50">🤖 Gen AI</button>
+          <button onClick={bulkGenerateAI} disabled={generatingAI} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors disabled:opacity-50">Research leads</button>
           <button onClick={deduplicateLeads} className="px-3 min-h-[44px] py-1.5 bg-status-warm text-white text-sm font-medium rounded-lg hover:bg-status-warm transition-colors">Remove Duplicates</button>
-          <button onClick={() => setShowDialer(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors">⚡ Dial</button>
+          <button onClick={() => setShowDialer(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors">Call queue</button>
           <button onClick={() => setShowAddLead(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand transition-colors">+ Add Lead</button>
           <button onClick={() => setShowImport(true)} className="px-3 min-h-[44px] py-1.5 bg-brand text-white text-sm font-medium rounded-lg hover:bg-brand-dark transition-colors">Import CSV</button>
-          <a href="/api/crm/export-leads" className="px-3 min-h-[44px] py-1.5 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors inline-flex items-center">⬇ Export CSV</a>
+          <a href="/api/crm/export-leads" className="px-3 min-h-[44px] py-1.5 bg-gray-700 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors inline-flex items-center">Export CSV</a>
         </div>
       </header>
 
