@@ -71,7 +71,7 @@ try {
 for (const file of fs.readdirSync(out).filter((f) => f.endsWith(".js"))) {
   const target = path.join(out, file);
   const src = fs.readFileSync(target, "utf8");
-  const rewritten = src.replace(
+  const rewritten = src.replaceAll('"./ai-budget"', '"./ai-budget.js"').replace(
     /(\bfrom\s*["'])@\/lib\/([^"']+)(["'])/g,
     (_m, head, mod, tail) => `${head}./${mod}.js${tail}`
   );
@@ -97,7 +97,8 @@ for (const bad of ["logo@2x.png", "no-reply@example.com", "a@sentry.io", "x@gmai
   check(`bad email rejected: ${bad}`, !emailValidation.looksLikeRealEmail(bad));
 }
 
-check("physical mailing address configured", emailTemplates.sendBlockedReason() === null);
+check("mailing address gate matches actual configuration", (emailTemplates.sendBlockedReason() === null) === emailTemplates.mailingAddressConfigured());
+check("missing mailing address blocks sends", emailTemplates.mailingAddressConfigured() || Boolean(emailTemplates.sendBlockedReason()));
 const rendered = emailTemplates.renderOutreachEmail({
   leadId: "contract-test-lead",
   businessName: "Example HVAC",

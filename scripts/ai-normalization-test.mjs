@@ -34,7 +34,7 @@ execFileSync(
 );
 const built = path.join(OUT, "ai-providers.js");
 const sdk = path.join(ROOT, "node_modules", "@anthropic-ai", "sdk", "index.mjs");
-fs.writeFileSync(built, fs.readFileSync(built, "utf8")
+fs.writeFileSync(built, fs.readFileSync(built, "utf8").replaceAll('"./ai-budget"', '"./ai-budget.js"')
   .replace(/from ["']@anthropic-ai\/sdk["']/g, `from "${sdk}"`));
 
 const { flattenTextParts, extractJsonText, geminiAuth } = await import(`file://${built}`);

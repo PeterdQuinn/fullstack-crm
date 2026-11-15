@@ -1,4 +1,5 @@
 import { withAutomationRun } from "@/lib/automation-runs";
+import { withAiBudget } from "@/lib/ai-budget";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { scoreLead, FALLBACK_PAIN_POINT } from "@/lib/ai-scoring";
@@ -14,10 +15,11 @@ const supabase = createClient(
 // are tuned to finish inside this window.
 export const maxDuration = 60;
 
-async function scrapeLeadData(lead: any) {
+async function scrapeLeadData(lead: any, timeoutMs: number) {
   try {
     const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/scrape-phone`, {
       method: "POST",
+      signal: AbortSignal.timeout(timeoutMs),
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.CRON_SECRET}` },
       body: JSON.stringify({
         website: lead.website || undefined,
@@ -50,6 +52,8 @@ async function handleGET(req: NextRequest) {
 
   try {
     console.log("🔄 Starting discovered leads processor...");
+    // Leave fifteen seconds of the route limit for persistence/finalization.
+    const deadlineAt = Date.now() + 45_000;
 
     // Get new leads that haven't been scored yet.
     //
@@ -156,13 +160,16 @@ async function handleGET(req: NextRequest) {
     let scraped = 0;
     let scored = 0;
     let failed = 0;
+    let processed = 0;
 
     for (const lead of newLeads) {
+      if (deadlineAt - Date.now() < 5_000) break;
+      processed++;
       try {
         // Step 1: Scrape for missing data
         if (lead.website && (!lead.email || !lead.phone || !lead.owner_name)) {
           console.log(`Scraping ${lead.business_name}...`);
-          const scrapedData = await scrapeLeadData(lead);
+          const scrapedData = await scrapeLeadData(lead, Math.max(1, Math.min(5_000, deadlineAt - Date.now())));
 
           if (scrapedData.email || scrapedData.phone || scrapedData.owner) {
             const updates: any = {};
@@ -179,7 +186,7 @@ async function handleGET(req: NextRequest) {
 
         // Step 2: Score with AI
         console.log(`Scoring ${lead.business_name}...`);
-        const score = await scoreLead({
+        const score = await withAiBudget(Math.max(1, Math.min(20_000, deadlineAt - Date.now())), () => scoreLead({
           id: lead.id,
           business_name: lead.business_name,
           owner_name: lead.owner_name,
@@ -187,7 +194,7 @@ async function handleGET(req: NextRequest) {
           current_software: lead.current_software,
           technologies: lead.technologies,
           short_description: lead.short_description,
-        });
+        }));
 
         if (!score || score.provider === "fallback") throw new Error("AI scoring unavailable; lead retained for retry");
         const { error: saveError } = await supabase.rpc("save_automation_score", { p_lead_id: lead.id, p_score: score });
@@ -203,11 +210,12 @@ async function handleGET(req: NextRequest) {
 
     return NextResponse.json({
       success: failed === 0,
-      processed: newLeads.length,
+      processed,
+      deferred: newLeads.length - processed,
       scraped,
       scored,
       failed,
-      message: `Processed ${newLeads.length} leads: scraped ${scraped}, scored ${scored}`,
+      message: `Processed ${processed} leads: scraped ${scraped}, scored ${scored}`,
     });
   } catch (error) {
     console.error("Processor error:", error);
