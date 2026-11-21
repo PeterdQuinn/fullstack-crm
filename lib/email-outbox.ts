@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { randomUUID } from "node:crypto";
-import { canonicalMailbox, mailboxSearch, mailboxSendBlock } from "@/lib/outreach-identity";
+import { canonicalMailbox, mailboxSearch, mailboxSendBlock, DUPLICATE_MAILBOX_HOLD, DuplicateMailboxHoldError } from "@/lib/outreach-identity";
 import { sendBlockedReason } from "@/lib/email-templates";
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
@@ -70,6 +70,7 @@ async function deliver(item: any): Promise<{ id: string }> {
     if (blocked) {
       const saved = await db.from("email_outbox").update({status:"needs_review",error_message:blocked}).eq("id", item.id);
       if (saved.error) throw new Error("Could not persist mailbox review hold");
+      if (blocked === DUPLICATE_MAILBOX_HOLD) throw new DuplicateMailboxHoldError();
       throw new Error("Email deferred: " + blocked);
     }
   }

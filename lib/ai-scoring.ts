@@ -188,8 +188,9 @@ export function buildScoringPrompt(lead: LeadScoringInput): string {
   const knownFields = lines.length;
 
   return `You are scoring an outbound sales lead for Full Stack Services LLC, which builds
-custom owned software for US businesses across industries
-to replace recurring SaaS subscriptions.
+AI systems consulting, workflow implementation, and business automation with hands-on guidance.
+Prioritize HVAC, roofing, flooring, and independent insurance agencies.
+Evaluate other markets by their documented workflow fit.
 
 KNOWN DATA (${knownFields} field${knownFields === 1 ? "" : "s"} on file — every field we hold is listed):
 ${lines.join("\n")}
@@ -200,8 +201,8 @@ SCORING RULES — read carefully:
 - Score the BUSINESS as a sales prospect, NOT the completeness of this record.
 - Do NOT deduct points for fields that are absent above. Missing data is normal
   for freshly discovered leads and is reported separately via confidence_level.
-- A reachable, real business in our target industries is a GOOD lead. Anything
-  with a working phone or email plus a website should score at least 60.
+- Reachability helps contact planning. It does not establish a need or justify a minimum score.
+- For a documented need, use the exact wording in Known pain point and map it to AI systems consulting, workflow implementation, or business automation in best_attack_angle.
 - Raise the score for: signs of an established operation (reviews, ratings,
   employees, years in business), an identified owner, a known subscription software
   tool we can displace, and evidence of manual/legacy processes.

@@ -247,15 +247,22 @@ export async function researchInternetPresence(lead: LeadIdentity, previous: Int
 
   const identity = `"${lead.business_name}" ${[lead.city, lead.state].filter(Boolean).join(" ")}`;
   const queries = [
-    `${identity} (site:bbb.org OR contractor license OR permits OR UCC OR fleet OR business registration OR complaints)`,
+    `${identity} ("request service" OR "request an estimate" OR "schedule service" OR online booking OR customer portal OR dispatch OR "field service software")`,
     `${identity} (hiring OR careers OR jobs OR technician OR dispatcher)`,
     `${identity} (expanding OR "new location" OR "now serving" OR award OR acquisition OR Facebook OR Instagram OR YouTube)`,
-    `${identity} (ads OR advertising OR CallRail OR ServiceTitan OR Jobber OR financing OR "online booking")`,
+    `${identity} (ads OR advertising OR CallRail OR ServiceTitan OR Jobber OR estimate follow-up OR "lead management")`,
   ];
   let creditsUsed = 0;
   const settled = await Promise.allSettled(queries.map((query) => firecrawl("search", { query, limit: 5, sources: ["web"], location: [lead.city, lead.state, "United States"].filter(Boolean).join(","), country: "US", timeout: 15_000 })));
   const errors: string[] = [];
   const acceptedPages = new Map<string, FirecrawlResult>();
+  // Search snippets often omit the exact name/location needed by identityMatch.
+  // Always include the business's declared website so research does not depend
+  // on a third-party search result repeating enough identity tokens.
+  const ownDomain = host(lead.website);
+  if (ownDomain && !/^(?:localhost|127\.|10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/i.test(ownDomain)) {
+    acceptedPages.set(`https://${ownDomain}/`, { url: `https://${ownDomain}/`, title: lead.business_name });
+  }
   for (const item of settled) {
     if (item.status === "rejected") { errors.push(String(item.reason)); continue; }
     creditsUsed += Number(item.value.creditsUsed || 0);
@@ -264,7 +271,8 @@ export async function researchInternetPresence(lead: LeadIdentity, previous: Int
     }
   }
   // Search discovers candidates; full-page scrape supplies the actual evidence.
-  const pageResults = await Promise.allSettled([...acceptedPages.values()].slice(0, 5).map(async (candidate) => {
+  const candidatesToScrape = [...acceptedPages.values()].sort((a, b) => Number(host(b.url) === ownDomain) - Number(host(a.url) === ownDomain)).slice(0, 5);
+  const pageResults = await Promise.allSettled(candidatesToScrape.map(async (candidate) => {
     const scraped = await firecrawl("scrape", { url: candidate.url, formats: ["markdown"], onlyMainContent: true, maxAge: 604800000, timeout: 15_000, removeBase64Images: true, blockAds: true });
     return { ...candidate, markdown: scraped.data?.markdown || candidate.markdown };
   }));
