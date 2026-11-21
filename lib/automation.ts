@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
+import { hasSourcedOperationalNeed } from "@/lib/acquisition-qualification";
 import { DuplicateMailboxHoldError } from "@/lib/outreach-identity";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { marketApproved } from "@/lib/outreach-markets";
@@ -76,7 +77,7 @@ export type PhaseResult =
       /** "archive" (default, reversible) or "delete" (ALLOW_LEAD_DELETION=true). */
       retirementMode: "archive" | "delete";
     }
-  | { phase: "send"; eligible: number; sent: number; skipped: number; heldForReview?: number; emailed: EmailedLead[] };
+  | { phase: "send"; eligible: number; sent: number; skipped: number; heldForReview?: number; heldForQualification?: number; emailed: EmailedLead[] };
 
 // Hard deletion is opt-in and OFF unless ALLOW_LEAD_DELETION is exactly "true".
 // Anything else — unset, "false", "1", "yes" — archives. Fail-safe by design:
@@ -374,7 +375,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       const q = supabase
         .from("leads")
         .select(
-          "id, business_name, email, city, state, status, owner_name, industry, niche, email_sent_count, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, lead_score), lead_internet_observations(*)"
+          "id, business_name, email, city, state, status, owner_name, industry, niche, email_sent_count, pain_point, lead_ai_summaries!inner(recommended_first_message, recommended_follow_up, lead_score, main_pain_point, best_attack_angle), lead_internet_observations(*)"
         )
         .eq("opt_out", false)
         .eq("bounced", false)
@@ -448,6 +449,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
     let sent = 0;
     let skipped = 0;
     let heldForReview = 0;
+    let heldForQualification = 0;
     const emailed: EmailedLead[] = [];
 
     for (const lead of leads || []) {
@@ -465,6 +467,12 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       const score = summary?.lead_score || 0;
 
       if (!scoreAllowsSend(score) || !lead.email) {
+        skipped++;
+        continue;
+      }
+
+      if (!(lead.email_sent_count > 0) && !hasSourcedOperationalNeed(lead, summary)) {
+        heldForQualification++;
         skipped++;
         continue;
       }
@@ -547,7 +555,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
       }
     }
 
-    return { phase: "send", eligible: (leads || []).length, sent, skipped, heldForReview, emailed };
+    return { phase: "send", eligible: (leads || []).length, sent, skipped, heldForReview, heldForQualification, emailed };
   }
 
   throw new Error(`Unknown automation phase: ${phase}`);

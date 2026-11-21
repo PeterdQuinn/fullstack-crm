@@ -13,6 +13,15 @@ function load(file,imports){
 const identity=load('outreach-identity',{});
 const {DuplicateMailboxHoldError,DUPLICATE_MAILBOX_HOLD}=identity;
 async function main(){
+  const {hasSourcedOperationalNeed}=load('acquisition-qualification',{});
+  const fact='Several estimates remain open because nobody owns follow-up';
+  const qualified={main_pain_point:fact,best_attack_angle:'Workflow implementation for estimate ownership'};
+  const source={evidence_type:'verified',value:fact,source_url:'https://example.invalid/evidence'};
+  assert.equal(hasSourcedOperationalNeed({pain_point:fact,lead_internet_observations:[source]},qualified),true);
+  assert.equal(hasSourcedOperationalNeed({pain_point:fact},qualified),false);
+  assert.equal(hasSourcedOperationalNeed({pain_point:fact,lead_internet_observations:[{...source,evidence_type:'single_source'}]},qualified),false);
+  assert.equal(hasSourcedOperationalNeed({pain_point:fact,lead_internet_observations:[source]},{...qualified,best_attack_angle:'Website redesign'}),false);
+  assert.equal(hasSourcedOperationalNeed({pain_point:fact,lead_internet_observations:[source]},{...qualified,main_pain_point:'A different undocumented operational need'}),false);
   let saved;
   let providerCalls=0;
   const recipient='same@example.invalid';
@@ -46,7 +55,7 @@ async function main(){
     return q;
   }};
   const getPipeline=sendEmail=>load('automation',{
-    '@supabase/supabase-js':{createClient:()=>pipelineDb},'@/lib/ai-scoring':{},'@/lib/resend':{sendEmail},'@/lib/outreach-identity':identity,
+    '@supabase/supabase-js':{createClient:()=>pipelineDb},'@/lib/ai-scoring':{},'@/lib/acquisition-qualification':{hasSourcedOperationalNeed:()=>true},'@/lib/resend':{sendEmail},'@/lib/outreach-identity':identity,
     '@/lib/email-templates':{sendBlockedReason:()=>null,renderOutreachEmail:()=>({subject:'subject',html:'body',bodyText:'body'})},
     '@/lib/outreach-markets':{marketApproved:()=>true},'@/lib/email-sequence':{},'@/lib/audit':{},
     '@/lib/lead-stats':{phoenixDayStartIso:()=>''},'@/lib/email-validation':{checkMailability:async email=>({ok:true,email})},
