@@ -203,6 +203,14 @@ check("the renderer still supports a detail once extraction is real",
 // automated email used the generic opener. A scheduled caller must exist.
 check("verified means two independent sources, not one confident scrape",
   read("lib/internet-intelligence.ts").includes('evidenceType: count >= 2 ? "verified" : "single_source"'));
+const researchCronRoute = read("app/api/cron/research-leads/route.ts");
+check("research POST uses the same owner pause gate as scheduled GET",
+  (researchCronRoute.match(/withAutomationRun\("research-leads"/g) || []).length === 2 &&
+  researchCronRoute.includes('req, () => run(req)'));
+check("controlled research reprocessing is secret-gated and bounded",
+  researchCronRoute.includes('req.method === "POST" && body.forceRefresh === true') &&
+  researchCronRoute.includes('Math.min(10, Math.floor(requestedBatch))') &&
+  researchCronRoute.includes('researchLeadsBatch(batchSize, 45_000, forceRefresh)'));
 check("only a complete sentence can be pasted into outreach", (() => {
   const junk = ["REMOVEDcame out and did an excellent job on couple of neglected issues",
     "SKILLED HVAC PROFESSIONALS YOU CAN TRUST IN YOUR HOME We understand th",

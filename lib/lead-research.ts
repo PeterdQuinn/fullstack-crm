@@ -131,7 +131,7 @@ function toObservation(row: any): InternetObservation {
 // only started when it can still finish inside the route's 120s ceiling.
 const PER_LEAD_TIMEOUT_MS = 70_000;
 
-export async function researchLeadsBatch(batchSize = 2, deadlineMs = 45_000): Promise<ResearchResult> {
+export async function researchLeadsBatch(batchSize = 2, deadlineMs = 45_000, forceRefresh = false): Promise<ResearchResult> {
   const startedAt = Date.now();
   const result: ResearchResult = { processed: 0, researched: 0, observations: 0, creditsUsed: 0, errors: [] };
 
@@ -172,6 +172,7 @@ export async function researchLeadsBatch(batchSize = 2, deadlineMs = 45_000): Pr
     return bPriority - aPriority || String(a.updated_at || "").localeCompare(String(b.updated_at || ""));
   }));
   const due = orderedCandidates.filter((lead: any) => {
+    if (forceRefresh) return true;
     const last = lead.lead_internet_intelligence?.[0]?.researched_at || lead.lead_internet_intelligence?.researched_at;
     if (!last) return true;
     const researchAge = Date.now() - Date.parse(last);
