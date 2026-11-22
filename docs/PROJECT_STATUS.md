@@ -28,7 +28,7 @@
 
 ## Release position
 
-The source fix has not yet been committed, pushed, independently reviewed, merged or deployed. GitHub CLI authentication is invalid; read-only Git fetch via the configured Git credential helper worked. Production remains on `d2487007`. Do not run live automation until the reviewed fix is deployed, because it would send to real prospects.
+The fix is committed as `f6e44f4` and pushed to `origin/fix/duplicate-mailbox-send-deferrals`; its base is `d2487007a86a695a9f9323f3aa3e14b37f08fc36`. Production remains on `d2487007`. PR creation was attempted through the connected GitHub integration and returned HTTP 403 (`Resource not accessible by integration`); GitHub CLI authentication is also invalid. An existing open PR #4 (`fix/legion-duplicate-batch`) contains a narrower related hold handler, but does not include this change’s held-idempotency and strict persistence/error classification. Keep the new fix isolated for independent review. Create its PR at https://github.com/PeterdQuinn/fullstack-crm/pull/new/fix/duplicate-mailbox-send-deferrals, target `main`, then require independent review and the normal release process. Do not run live automation until the reviewed fix is deployed, because it may send to real prospects.
 
 ---
 
