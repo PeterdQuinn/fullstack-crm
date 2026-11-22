@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
+import { PersistedEmailCancelledError, PersistedEmailReviewHoldError } from "@/lib/email-outbox";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { marketApproved } from "@/lib/outreach-markets";
 import { nextFollowUpAt } from "@/lib/email-sequence";
@@ -75,7 +76,7 @@ export type PhaseResult =
       /** "archive" (default, reversible) or "delete" (ALLOW_LEAD_DELETION=true). */
       retirementMode: "archive" | "delete";
     }
-  | { phase: "send"; eligible: number; sent: number; skipped: number; emailed: EmailedLead[] };
+  | { phase: "send"; eligible: number; sent: number; skipped: number; heldForReview?: number; emailed: EmailedLead[] };
 
 // Hard deletion is opt-in and OFF unless ALLOW_LEAD_DELETION is exactly "true".
 // Anything else — unset, "false", "1", "yes" — archives. Fail-safe by design:
@@ -446,6 +447,7 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
 
     let sent = 0;
     let skipped = 0;
+    let heldForReview = 0;
     const emailed: EmailedLead[] = [];
 
     for (const lead of leads || []) {
@@ -535,12 +537,21 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           state: lead.state ?? null,
         });
       } catch (err) {
+        if (err instanceof PersistedEmailReviewHoldError) {
+          heldForReview++;
+          skipped++;
+          continue;
+        }
+        if (err instanceof PersistedEmailCancelledError) {
+          skipped++;
+          continue;
+        }
         console.error(`Error sending to ${lead.business_name}:`, err);
         throw err;
       }
     }
 
-    return { phase: "send", eligible: (leads || []).length, sent, skipped, emailed };
+    return { phase: "send", eligible: (leads || []).length, sent, skipped, heldForReview, emailed };
   }
 
   throw new Error(`Unknown automation phase: ${phase}`);

@@ -27,7 +27,11 @@ for (const line of fs.readFileSync(path.join(ROOT, ".env.local"), "utf8").split(
   if (!t || t.startsWith("#") || !t.includes("=")) continue;
   const i = t.indexOf("=");
   const k = t.slice(0, i).trim();
-  if (!(k in process.env)) process.env[k] = t.slice(i + 1).trim();
+  let value = t.slice(i + 1).trim();
+  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    value = value.slice(1, -1);
+  }
+  if (!(k in process.env)) process.env[k] = value;
 }
 
 const U = process.env.NEXT_PUBLIC_SUPABASE_URL;
