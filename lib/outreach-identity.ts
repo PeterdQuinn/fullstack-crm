@@ -1,12 +1,6 @@
 // Canonical mailbox protection. Never merge records or strip email aliases.
 export const DUPLICATE_MAILBOX_HOLD = 'Duplicate CRM mailbox requires owner review';
 
-export class DuplicateMailboxHoldError extends Error {
-  constructor() {
-    super('Email deferred: ' + DUPLICATE_MAILBOX_HOLD);
-    this.name = 'DuplicateMailboxHoldError';
-  }
-}
 export function canonicalMailbox(value?: string | null): string { return (value || '').trim().toLowerCase(); }
 export function mailboxSearch(value: string): string { return '%' + canonicalMailbox(value).replace(/[\\%_]/g, '\\$&') + '%'; }
 export interface MailboxLead { id: string; email?: string | null; tenant_id: string; opt_out?: boolean | null; bounced?: boolean | null; complained?: boolean | null; status?: string | null }

@@ -1,5 +1,7 @@
 # Full Stack Services LLC — Internal Sales CRM
 
+Current work, verified releases, remaining gaps and four-phase direction: **[Project status and handoff](docs/PROJECT_STATUS.md)**. Read this before the older setup and feature descriptions below.
+
 Internal outbound sales CRM that runs itself. Leads are **discovered
 automatically** from Google Places + OpenStreetMap across whatever niches and
 cities you save, then enriched, researched, AI-scored, emailed on a three-touch

@@ -11,7 +11,13 @@ function load(file,imports){
   return exports;
 }
 const identity=load('outreach-identity',{});
-const {DuplicateMailboxHoldError,DUPLICATE_MAILBOX_HOLD}=identity;
+const {DUPLICATE_MAILBOX_HOLD}=identity;
+const errorModule=load('email-outbox',{
+  '@supabase/supabase-js':{createClient:()=>({})},resend:{Resend:class{}},
+  'node:crypto':{randomUUID:()=> 'mock-id'},'@/lib/outreach-identity':identity,
+  '@/lib/email-templates':{sendBlockedReason:()=>null},
+});
+const {PersistedEmailReviewHoldError,PersistedEmailCancelledError}=errorModule;
 async function main(){
   const {hasSourcedOperationalNeed}=load('acquisition-qualification',{});
   const fact='Several estimates remain open because nobody owns follow-up';
@@ -42,7 +48,7 @@ async function main(){
     'node:crypto':{randomUUID:()=> 'mock-id'},'@/lib/outreach-identity':identity,
     '@/lib/email-templates':{sendBlockedReason:()=>null},
   });
-  await assert.rejects(()=>sendSavedEmail(recipient,'subject','body'),DuplicateMailboxHoldError);
+  await assert.rejects(()=>sendSavedEmail(recipient,'subject','body'),e=>e.name==='PersistedEmailReviewHoldError');
   assert.equal(saved.status,'needs_review');
   assert.equal(saved.error_message,DUPLICATE_MAILBOX_HOLD);
   assert.equal(providerCalls,0);
@@ -56,13 +62,14 @@ async function main(){
   }};
   const getPipeline=sendEmail=>load('automation',{
     '@supabase/supabase-js':{createClient:()=>pipelineDb},'@/lib/ai-scoring':{},'@/lib/acquisition-qualification':{hasSourcedOperationalNeed:()=>true},'@/lib/resend':{sendEmail},'@/lib/outreach-identity':identity,
+    '@/lib/email-outbox':{PersistedEmailReviewHoldError,PersistedEmailCancelledError},
     '@/lib/email-templates':{sendBlockedReason:()=>null,renderOutreachEmail:()=>({subject:'subject',html:'body',bodyText:'body'})},
     '@/lib/outreach-markets':{marketApproved:()=>true},'@/lib/email-sequence':{},'@/lib/audit':{},
     '@/lib/lead-stats':{phoenixDayStartIso:()=>''},'@/lib/email-validation':{checkMailability:async email=>({ok:true,email})},
     '@/lib/internet-intelligence':{verifiedOutreachDetail:()=>null},'@/lib/score-thresholds':{scoreAllowsSend:()=>true,FALLBACK_SCORE:50,SCORE_SEND_THRESHOLD:60},
   });
   const attempted=[];
-  const outcome=await getPipeline(async email=>{attempted.push(email);if(email.startsWith('held'))throw new DuplicateMailboxHoldError();}).runAutomationPhase('send');
+  const outcome=await getPipeline(async email=>{attempted.push(email);if(email.startsWith('held'))throw new PersistedEmailReviewHoldError('synthetic-key',DUPLICATE_MAILBOX_HOLD);if(email.startsWith('cancelled'))throw new PersistedEmailCancelledError('synthetic-cancelled-key');}).runAutomationPhase('send');
   assert.equal(outcome.heldForReview,1);
   assert.equal(outcome.sent,1);
   assert.deepEqual(attempted,['held@example.invalid','eligible@example.invalid']);

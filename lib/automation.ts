@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { scoreLead } from "@/lib/ai-scoring";
 import { sendEmail } from "@/lib/resend";
 import { hasSourcedOperationalNeed } from "@/lib/acquisition-qualification";
-import { DuplicateMailboxHoldError } from "@/lib/outreach-identity";
+import { PersistedEmailCancelledError, PersistedEmailReviewHoldError } from "@/lib/email-outbox";
 import { renderOutreachEmail, sendBlockedReason } from "@/lib/email-templates";
 import { marketApproved } from "@/lib/outreach-markets";
 import { nextFollowUpAt } from "@/lib/email-sequence";
@@ -545,8 +545,12 @@ export async function runAutomationPhase(phase: string): Promise<PhaseResult> {
           state: lead.state ?? null,
         });
       } catch (err) {
-        if (err instanceof DuplicateMailboxHoldError) {
+        if (err instanceof PersistedEmailReviewHoldError) {
           heldForReview++;
+          skipped++;
+          continue;
+        }
+        if (err instanceof PersistedEmailCancelledError) {
           skipped++;
           continue;
         }
