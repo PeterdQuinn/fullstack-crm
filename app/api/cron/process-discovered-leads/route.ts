@@ -55,41 +55,22 @@ async function handleGET(req: NextRequest) {
     // Leave fifteen seconds of the route limit for persistence/finalization.
     const deadlineAt = Date.now() + 45_000;
 
-    // Get new leads that haven't been scored yet.
-    //
-    // `lead_ai_summaries` is a separate TABLE, not a column on `leads`, so the
-    // previous `.is("lead_ai_summaries", null)` filter was invalid — PostgREST
-    // errored, the ignored error left `newLeads` undefined, and this route
-    // silently reported "No new leads to process" on every single run.
-    //
-    // Same anti-join pattern as the scoring phase in lib/automation.ts: pull the
-    // already-scored lead ids first, then over-fetch and filter in JS. Fetching
-    // a plain page and filtering would risk a page that is entirely scored,
-    // which would no-op forever without ever reaching the unscored backlog.
-    // 10 full scrapes + LLM scores could not complete in 60s and the run hung
-    // until curl gave up at 300s. Matches SCRAPE_BATCH/SCORE_BATCH in lib/automation.ts.
     const BATCH = 3;
-
-    const { data: scoredRows, error: scoredError } = await supabase
-      .from("lead_ai_summaries")
-      .select("lead_id");
-    if (scoredError) {
-      console.error("Failed to load scored lead ids:", scoredError);
-      throw scoredError;
-    }
-    const scoredIds = new Set((scoredRows || []).map((r) => r.lead_id));
-
-    const { data: pool, error: poolError } = await supabase
-      .from("leads")
-      .select("*")
-      .eq("status", "New")
-      .is("archived_at", null)
-      .order("created_at", { ascending: true })
-      .limit(BATCH * 40);
-    if (poolError) {
-      console.error("Failed to load candidate leads:", poolError);
-      throw poolError;
-    }
+    const unscoredQueue = () => supabase.from("leads")
+      .select("*,lead_ai_summaries()")
+      .eq("status", "New").is("archived_at", null)
+      .eq("opt_out", false).eq("bounced", false).eq("complained", false)
+      .is("lead_ai_summaries", null)
+      .order("created_at", { ascending: true }).order("id");
+    const markets = ["hvac", "roof", "flooring", "independent insurance"];
+    const preferred = markets.flatMap(market => ["industry", "niche"].map(field => `${field}.ilike.*${market}*`)).join(",");
+    const [priority, general] = await Promise.all([
+      unscoredQueue().or(preferred).limit(BATCH - 1),
+      unscoredQueue().limit(BATCH),
+    ]);
+    if (priority.error || general.error) throw priority.error || general.error;
+    const pool = [...new Map([...(priority.data || []), ...(general.data || [])]
+      .map(lead => [lead.id, lead])).values()];
 
     // Leads whose ONLY score is the placeholder written while every provider was
     // down. They are invisible to the anti-join above — they do have a summary
@@ -135,9 +116,7 @@ async function handleGET(req: NextRequest) {
     };
 
     const mailablePlaceholders = await placeholderLeads(1, true);
-    const unscored = (pool || [])
-      .filter((l) => !scoredIds.has(l.id))
-      .slice(0, BATCH - mailablePlaceholders.length);
+    const unscored = pool.slice(0, BATCH - mailablePlaceholders.length);
     let newLeads = [...mailablePlaceholders, ...unscored];
     // Spare capacity goes to the rest of the placeholder backlog.
     if (newLeads.length < BATCH) {

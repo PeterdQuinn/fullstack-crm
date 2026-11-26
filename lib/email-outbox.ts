@@ -1,10 +1,35 @@
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { randomUUID } from "node:crypto";
-import { canonicalMailbox, mailboxSearch, mailboxSendBlock } from "@/lib/outreach-identity";
+import { canonicalMailbox, mailboxSearch, mailboxSendBlock, DUPLICATE_MAILBOX_HOLD } from "@/lib/outreach-identity";
 import { sendBlockedReason } from "@/lib/email-templates";
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+const INELIGIBLE_RECIPIENT = "Recipient no longer eligible";
+
+/** A normal automation skip only when the database already records this exact hold. */
+export class PersistedEmailReviewHoldError extends Error {
+  readonly idempotencyKey: string;
+  readonly reason: string;
+
+  constructor(idempotencyKey: string, reason: string) {
+    super("Email held for owner review: " + reason);
+    this.name = "PersistedEmailReviewHoldError";
+    this.idempotencyKey = idempotencyKey;
+    this.reason = reason;
+  }
+}
+
+/** A normal automation skip only after ineligibility was saved to the outbox. */
+export class PersistedEmailCancelledError extends Error {
+  readonly idempotencyKey: string;
+
+  constructor(idempotencyKey: string) {
+    super("Email cancelled: " + INELIGIBLE_RECIPIENT);
+    this.name = "PersistedEmailCancelledError";
+    this.idempotencyKey = idempotencyKey;
+  }
+}
 
 export function trackingForKey(key: string) {
   const match = /^crm-([0-9a-f-]{36})-(email-[123]|booking-link)$/.exec(key);
@@ -20,6 +45,20 @@ async function deliver(item: any): Promise<{ id: string }> {
   if (item.status === "sent") {
     await finalize(item.id);
     return { id: item.provider_message_id };
+  }
+  // A held idempotency key stays held even if the lead data later changes.
+  // Only an owner-reviewed outbox resolution may make it pending again.
+  if (item.status === "needs_review") {
+    if (item.error_message === DUPLICATE_MAILBOX_HOLD) {
+      throw new PersistedEmailReviewHoldError(item.idempotency_key, item.error_message);
+    }
+    throw new Error("Email outbox requires owner review: " + (item.error_message || "unclassified hold"));
+  }
+  if (item.status === "cancelled") {
+    if (item.error_message === INELIGIBLE_RECIPIENT) {
+      throw new PersistedEmailCancelledError(item.idempotency_key);
+    }
+    throw new Error("Email outbox was cancelled: " + (item.error_message || "unclassified cancellation"));
   }
   if (!process.env.RESEND_API_KEY) throw new Error("Email provider is not configured");
   if (item.lead_id || item.insurance_prospect_id) {
@@ -39,7 +78,7 @@ async function deliver(item: any): Promise<{ id: string }> {
       const { error: saveError } = await db.from("email_outbox")
         .update({ status: "cancelled", error_message: "Recipient no longer eligible" }).eq("id", item.id);
       if (saveError) throw new Error(saveError.message);
-      throw new Error("Saved email cancelled: recipient no longer eligible");
+      throw new PersistedEmailCancelledError(item.idempotency_key);
     }
   }
   if (item.lead_id) {
@@ -52,7 +91,7 @@ async function deliver(item: any): Promise<{ id: string }> {
         (cold && !["Ready for Outreach", "Follow-Up Scheduled", "Email 1 Sent", "Email 2 Sent"].includes(lead.status))) {
       const { error: saveError } = await db.from("email_outbox").update({ status: "cancelled", error_message: "Recipient no longer eligible" }).eq("id", item.id);
       if (saveError) throw new Error(saveError.message);
-      throw new Error("Saved email cancelled: recipient no longer eligible");
+      throw new PersistedEmailCancelledError(item.idempotency_key);
     }
   }
   if (item.lead_id) {
@@ -70,6 +109,9 @@ async function deliver(item: any): Promise<{ id: string }> {
     if (blocked) {
       const saved = await db.from("email_outbox").update({status:"needs_review",error_message:blocked}).eq("id", item.id);
       if (saved.error) throw new Error("Could not persist mailbox review hold");
+      if (blocked === DUPLICATE_MAILBOX_HOLD) {
+        throw new PersistedEmailReviewHoldError(item.idempotency_key, blocked);
+      }
       throw new Error("Email deferred: " + blocked);
     }
   }
@@ -126,9 +168,12 @@ export async function recoverEmailOutbox() {
     if (item.status === "sending" && Date.parse(item.last_attempt_at) > Date.now() - 180000) { result.deferred++; continue; }
     try { await deliver(item); result.recovered++; }
     catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.startsWith("Email deferred:") || message.startsWith("Saved email cancelled:")) result.deferred++;
-      else result.errors.push(`${item.id}: ${message}`);
+      if (err instanceof PersistedEmailReviewHoldError || err instanceof PersistedEmailCancelledError) {
+        result.deferred++;
+      } else {
+        const message = err instanceof Error ? err.message : String(err);
+        result.errors.push(item.id + ": " + message);
+      }
     }
   }
   return result;

@@ -203,6 +203,14 @@ check("the renderer still supports a detail once extraction is real",
 // automated email used the generic opener. A scheduled caller must exist.
 check("verified means two independent sources, not one confident scrape",
   read("lib/internet-intelligence.ts").includes('evidenceType: count >= 2 ? "verified" : "single_source"'));
+const researchCronRoute = read("app/api/cron/research-leads/route.ts");
+check("research POST uses the same owner pause gate as scheduled GET",
+  (researchCronRoute.match(/withAutomationRun\("research-leads"/g) || []).length === 2 &&
+  researchCronRoute.includes('req, () => run(req)'));
+check("controlled research reprocessing is secret-gated and bounded",
+  researchCronRoute.includes('req.method === "POST" && body.forceRefresh === true') &&
+  researchCronRoute.includes('Math.min(10, Math.floor(requestedBatch))') &&
+  researchCronRoute.includes('researchLeadsBatch(batchSize, 45_000, forceRefresh)'));
 check("only a complete sentence can be pasted into outreach", (() => {
   const junk = ["REMOVEDcame out and did an excellent job on couple of neglected issues",
     "SKILLED HVAC PROFESSIONALS YOU CAN TRUST IN YOUR HOME We understand th",
@@ -325,9 +333,26 @@ check("automated research saves observations and intelligence",
 check("a missing Firecrawl key fails the run loudly",
   read("lib/lead-research.ts").includes("isFirecrawlConfigured()") &&
   read("lib/lead-research.ts").includes("no internet evidence can be gathered"));
-check("research only spends credits on mailable leads",
-  read("lib/lead-research.ts").includes('.not("email", "is", null)') &&
+check("research can qualify prospects before contact data exists",
+  !read("lib/lead-research.ts").includes('.not("email", "is", null)') &&
   read("lib/lead-research.ts").includes("RESEARCHABLE"));
+check("scheduled research prioritizes target trades and deduplicates businesses",
+  read("lib/lead-research.ts").includes("dedupeResearchCandidates") &&
+  read("lib/lead-research.ts").includes("hvac|heating|cooling|air conditioning|roof|floor|insurance"));
+check("scheduled research saves identity, sources, hypotheses, service fit and next action",
+  read("lib/lead-research.ts").includes("buildOperationalResearchFacts") &&
+  read("lib/lead-research.ts").includes('from("lead_research_facts").upsert') &&
+  read("lib/lead-research.ts").includes("scheduled_recommended_next_action") &&
+  read("lib/lead-research.ts").includes("scheduled_relevant_service"));
+check("public workflow hypotheses are explicitly unverified and do not unlock automatic claims",
+  read("lib/lead-research.ts").includes("Public evidence does not establish that the business has a problem") &&
+  read("lib/acquisition-qualification.ts").includes('observation.evidence_type === "verified"'));
+check("empty research is retried sooner than sourced results",
+  read("lib/lead-research.ts").includes("EMPTY_RESEARCH_RETRY_DAYS = 7") &&
+  read("lib/lead-research.ts").includes("No specific public operational signal"));
+check("business-owned websites are researched even when search snippets omit identity",
+  read("lib/internet-intelligence.ts").includes("Always include the business's declared website") &&
+  read("lib/internet-intelligence.ts").includes("customer portal OR dispatch"));
 check("Firecrawl supports deployment and key rotation env names", read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRE_CRAWL_API_KEY") && read("lib/internet-intelligence.ts").includes("FIRECRAWL_API_KEYS"));
 check("internet observations are dated and append-only", read("supabase/migrations/014_internet_intelligence.sql").includes("observed_at") && !read("supabase/migrations/014_internet_intelligence.sql").includes("unique(lead_id"));
 

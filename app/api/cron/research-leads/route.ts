@@ -28,8 +28,16 @@ async function run(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}));
+  const requestedBatch = Number(body.batchSize);
+  const batchSize = Number.isFinite(requestedBatch)
+    ? Math.max(1, Math.min(10, Math.floor(requestedBatch)))
+    : 2;
+  // Force refresh is a controlled reprocessing path for records researched
+  // before the source-quality fix. It remains behind CRON_SECRET and the
+  // automation pause gate; ordinary scheduled GETs always honor the TTL.
+  const forceRefresh = req.method === "POST" && body.forceRefresh === true;
   try {
-    const research = await researchLeadsBatch(Number(body.batchSize) || 2);
+    const research = await researchLeadsBatch(batchSize, 45_000, forceRefresh);
     return NextResponse.json({
       success: research.errors.length === 0,
       ...research,
@@ -44,9 +52,10 @@ async function run(req: NextRequest) {
   }
 }
 
-async function handleGET(req: NextRequest) { return run(req); }
-export async function POST(req: NextRequest) { return run(req); }
+export async function POST(req: NextRequest) {
+  return withAutomationRun("research-leads", req, () => run(req));
+}
 
 export async function GET(req: NextRequest) {
-  return withAutomationRun("research-leads", req, () => handleGET(req));
+  return withAutomationRun("research-leads", req, () => run(req));
 }
