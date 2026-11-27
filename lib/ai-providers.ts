@@ -206,26 +206,27 @@ const kablewyKey = () => process.env.KABLEWY_API;
 
 // Generic OpenAI-compatible chat completion (Groq speaks
 // this). Low temperature for reliable JSON across all task types.
+export function buildOpenAICompatibleBody(
+  model: string,
+  prompt: string,
+  tokenLimitField: "max_tokens" | "max_completion_tokens" = "max_tokens"
+) {
+  return { model, messages: [{ role: "user", content: prompt }], temperature: 0.3, [tokenLimitField]: 4096 };
+}
+
 async function openAICompatible(
   label: string,
   url: string,
   apiKey: string,
   model: string,
-  prompt: string
+  prompt: string,
+  tokenLimitField: "max_tokens" | "max_completion_tokens" = "max_tokens"
 ): Promise<string> {
   return withRetry(label, async () => {
     const res = await aiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.3,
-        // Reasoning-capable models such as Groq's gpt-oss may consume part of
-        // this budget before emitting the JSON. 1024 produced an empty content
-        // block on the drafting contract; 4096 leaves room for both.
-        max_tokens: 4096,
-      }),
+      body: JSON.stringify(buildOpenAICompatibleBody(model, prompt, tokenLimitField)),
     });
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
@@ -250,7 +251,8 @@ async function callGroq(prompt: string): Promise<string> {
     "https://api.groq.com/openai/v1/chat/completions",
     key,
     process.env.GROQ_MODEL || "openai/gpt-oss-20b",
-    prompt
+    prompt,
+    "max_completion_tokens"
   );
 }
 
