@@ -37,7 +37,7 @@ const sdk = path.join(ROOT, "node_modules", "@anthropic-ai", "sdk", "index.mjs")
 fs.writeFileSync(built, fs.readFileSync(built, "utf8").replaceAll('"./ai-budget"', '"./ai-budget.js"')
   .replace(/from ["']@anthropic-ai\/sdk["']/g, `from "${sdk}"`));
 
-const { flattenTextParts, extractJsonText, geminiAuth } = await import(`file://${built}`);
+const { flattenTextParts, extractJsonText, geminiAuth, buildOpenAICompatibleBody } = await import(`file://${built}`);
 
 let pass = 0, fail = 0;
 const failures = [];
@@ -67,6 +67,10 @@ check("Gemini OAuth token uses bearer auth", geminiAuth("ya29.example-token"), {
 
 // Groq: choices[0].message.content is already flat text.
 check("Groq (flat string)", normalize(PAYLOAD, "Groq"), EXPECTED);
+const groqScoringBody = buildOpenAICompatibleBody("openai/gpt-oss-20b", "score", "max_completion_tokens");
+check("Groq GPT-OSS uses max_completion_tokens", groqScoringBody.max_completion_tokens, 4096);
+check("Groq GPT-OSS omits legacy max_tokens", Object.hasOwn(groqScoringBody, "max_tokens"), false);
+check("Other OpenAI-compatible providers retain max_tokens", buildOpenAICompatibleBody("kimi-k2.6", "score").max_tokens, 4096);
 
 // Ollama: `response` is flat text, frequently fenced.
 check("Ollama (fenced)", normalize("```json\n" + PAYLOAD + "\n```", "Ollama"), EXPECTED);
